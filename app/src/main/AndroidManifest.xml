@@ -33,6 +33,7 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
     <uses-permission android:name="android.permission.READ_MEDIA_AUDIO" />
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <!--    <uses-permission android:name="android.permission.READ_MEDIA_VIDEO" />-->
     <!--    <uses-permission android:name="android.permission.READ_MEDIA_VISUAL_USER_SELECTED" />-->
     <uses-permission
@@ -148,6 +149,28 @@
                 android:resource="@xml/widget_horizontal" />
         </receiver>
 
+        <!-- Vibes: the app's launcher and only UI (Compose). Gladix's MainActivity stays only as engine plumbing. -->
+        <activity
+            android:name=".vibes.VibesActivity"
+            android:exported="true"
+            android:launchMode="singleTask"
+            android:theme="@style/Default"
+            android:windowSoftInputMode="adjustResize">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <action android:name="android.intent.action.MUSIC_PLAYER" />
+                <category android:name="android.intent.category.LAUNCHER" />
+                <category android:name="android.intent.category.APP_MUSIC" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="vibes" />
+            </intent-filter>
+        </activity>
+
         <activity
             android:name=".MainActivity"
             android:enableOnBackInvokedCallback="false"
@@ -156,15 +179,9 @@
             android:launchMode="singleTop"
             android:windowSoftInputMode="stateVisible|adjustPan">
             <intent-filter>
-                <action android:name="android.intent.action.MAIN" />
-                <action android:name="android.media.action.MEDIA_PLAY_FROM_SEARCH" />
                 <action android:name="android.intent.action.VIEW" />
-                <action android:name="android.intent.action.MUSIC_PLAYER" />
 
-                <category android:name="android.intent.category.LAUNCHER" />
                 <!-- TV home-screen launcher entry (additive; phone LAUNCHER above is unchanged). -->
-                <category android:name="android.intent.category.LEANBACK_LAUNCHER" />
-                <category android:name="android.intent.category.APP_MUSIC" />
                 <category android:name="android.intent.category.DEFAULT" />
             </intent-filter>
             <intent-filter>

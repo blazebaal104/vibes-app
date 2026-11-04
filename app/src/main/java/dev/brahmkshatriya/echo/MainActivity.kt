@@ -555,7 +555,12 @@ open class MainActivity : AppCompatActivity() {
         // Step 4 is spelled out rather than folded into step 2's else so it is visible that it was
         // considered: nothing in the app disables both, and if something did there would be no activity to
         // start and nothing this function could do about it.
-        fun Context.getMainActivity(): Class<out MainActivity> {
+        // Vibes: notifications, the media session and openers all lead to the Vibes UI.
+        fun Context.getMainActivity(): Class<out android.app.Activity> =
+            dev.brahmkshatriya.echo.vibes.VibesActivity::class.java
+
+        @Suppress("unused")
+        fun Context.getGladixActivity(): Class<out MainActivity> {
             val prefersBack = getSettings().getBoolean(BACK_ANIM, false)
             val backUsable = isUsable(Back::class.java, enabledByManifest = false)
             val mainUsable = isUsable(MainActivity::class.java, enabledByManifest = true)

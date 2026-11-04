@@ -27,7 +27,18 @@ jobs:
       - name: Build release APK
         run: |
           chmod +x gradlew
-          ./gradlew :app:assembleRelease --stacktrace --no-configuration-cache
+          set -o pipefail
+          ./gradlew :app:assembleRelease --stacktrace --no-configuration-cache 2>&1 | tee build.log
+
+      - name: Publish build errors
+        if: failure()
+        run: |
+          grep -E "^e: |error:|ERROR:|What went wrong|AAPT|Unresolved|FAILED" -A2 build.log | head -400 > build-errors.txt || true
+          tail -80 build.log >> build-errors.txt
+          gh release delete build-errors -y --cleanup-tag || true
+          gh release create build-errors build-errors.txt --title "Build errors" --notes "run ${{ github.run_id }}" --prerelease
+        env:
+          GH_TOKEN: ${{ github.token }}
 
       - name: Collect APK
         id: apk

@@ -1,0 +1,114 @@
+package dev.brahmkshatriya.echo.vibes.backend
+
+import dev.brahmkshatriya.echo.common.models.Album
+import dev.brahmkshatriya.echo.common.models.Artist
+import dev.brahmkshatriya.echo.common.models.ImageHolder
+import dev.brahmkshatriya.echo.common.models.ImageHolder.Companion.toImageHolder
+import dev.brahmkshatriya.echo.common.models.Track
+import dev.brahmkshatriya.echo.history.db.toSlimKeepingRoutingKeys
+import dev.brahmkshatriya.echo.utils.Serializer.toData
+import dev.brahmkshatriya.echo.utils.Serializer.toJson
+import kotlinx.serialization.SerialName
+import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.JsonObject
+
+/**
+ * A song as Vibes stores and sends it: display fields for any device, plus the slim engine Track
+ * (as JSON) so a tap on another phone can play it through the same extension.
+ */
+@Serializable
+data class SongRef(
+    val ext: String,
+    val id: String,
+    val title: String,
+    val artist: String,
+    val cover: String? = null,
+    val album: String? = null,
+    val duration: Long? = null,
+    val data: String? = null,
+) {
+    fun toTrack(): Track = data?.toData<Track>()?.getOrNull() ?: Track(
+        id = id,
+        title = title,
+        cover = cover?.toImageHolder(),
+        artists = artist.split(", ").filter { it.isNotBlank() }.map { Artist(it, it) },
+        album = album?.let { Album(it, it) },
+        duration = duration,
+    )
+
+    val key get() = "$ext:$id"
+
+    companion object {
+        fun ImageHolder?.url(): String? = (this as? ImageHolder.NetworkRequestImageHolder)?.request?.url
+
+        fun from(ext: String, t: Track) = SongRef(
+            ext = ext,
+            id = t.id,
+            title = t.title,
+            artist = t.artists.joinToString(", ") { it.name },
+            cover = (t.cover ?: t.album?.cover).url(),
+            album = t.album?.title,
+            duration = t.duration,
+            data = runCatching { t.toSlimKeepingRoutingKeys().toJson() }.getOrNull(),
+        )
+    }
+}
+
+@Serializable
+data class Profile(
+    val id: String,
+    val username: String,
+    @SerialName("display_name") val displayName: String = "",
+    val bio: String = "",
+    @SerialName("avatar_color") val avatarColor: String = "#B84DFF",
+    @SerialName("avatar_emoji") val avatarEmoji: String = "🎧",
+    @SerialName("invite_code") val inviteCode: String = "",
+    val top4: List<SongRef> = emptyList(),
+    @SerialName("now_playing") val nowPlaying: SongRef? = null,
+    @SerialName("last_seen") val lastSeen: String? = null,
+) {
+    val name get() = displayName.ifBlank { username }
+}
+
+@Serializable
+data class Message(
+    val id: Long = 0,
+    @SerialName("sender_id") val senderId: String,
+    @SerialName("receiver_id") val receiverId: String,
+    val kind: String = "text",
+    val body: String = "",
+    val payload: JsonObject? = null,
+    @SerialName("created_at") val createdAt: String? = null,
+    @SerialName("delivered_at") val deliveredAt: String? = null,
+    @SerialName("read_at") val readAt: String? = null,
+) {
+    /** Local-only: still being sent (single grey tick). */
+    @kotlinx.serialization.Transient
+    var pending: Boolean = false
+}
+
+@Serializable
+data class FriendRequest(
+    val id: String,
+    @SerialName("from_id") val fromId: String,
+    @SerialName("to_id") val toId: String,
+    val status: String = "pending",
+)
+
+@Serializable
+data class SharedPlaylist(
+    val id: String = "",
+    @SerialName("owner_id") val ownerId: String = "",
+    val name: String,
+    val tracks: List<SongRef> = emptyList(),
+)
+
+@Serializable
+data class Lobby(
+    val id: String,
+    val game: String,
+    @SerialName("host_id") val hostId: String,
+    @SerialName("guest_id") val guestId: String,
+    val status: String,
+    val state: JsonObject = JsonObject(emptyMap()),
+)

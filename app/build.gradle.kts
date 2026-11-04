@@ -24,6 +24,7 @@ plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.ksp)
     alias(libs.plugins.kotlinx.serialization)
+    alias(libs.plugins.kotlin.compose)
 
     alias(libs.plugins.gms) apply false
     alias(libs.plugins.crashlytics) apply false
@@ -275,6 +276,7 @@ android {
     }
 
     buildFeatures {
+        compose = true
         buildConfig = true
         viewBinding = true
     }
@@ -331,6 +333,16 @@ dependencies {
     implementation(libs.media3.cast)
     implementation(libs.play.services.cast.framework)
     implementation(libs.bundles.coil)
+    // Vibes UI (Jetpack Compose)
+    implementation(platform(libs.compose.bom))
+    implementation(libs.compose.ui)
+    implementation(libs.compose.foundation)
+    implementation(libs.compose.material3)
+    implementation(libs.compose.icons)
+    implementation(libs.compose.animation)
+    implementation(libs.activity.compose)
+    implementation(libs.coil.compose)
+    implementation(libs.okhttp)
 
     implementation(libs.zxing.core)
     implementation(libs.pikolo)

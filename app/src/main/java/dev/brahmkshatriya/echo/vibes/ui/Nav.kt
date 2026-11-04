@@ -1,0 +1,88 @@
+package dev.brahmkshatriya.echo.vibes.ui
+
+import androidx.compose.runtime.Stable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateListOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import dev.brahmkshatriya.echo.common.models.EchoMediaItem
+import dev.brahmkshatriya.echo.vibes.backend.SongRef
+import dev.brahmkshatriya.echo.vibes.music.VibesPlaylist
+
+sealed interface Route {
+    data object Home : Route
+    data object Search : Route
+    data object Library : Route
+    data object Friends : Route
+    data object Games : Route
+
+    data class Playlist(val id: String) : Route
+    data object Liked : Route
+    data class Media(val item: EchoMediaItem) : Route
+    data class Chat(val friendId: String) : Route
+    data class Profile(val userId: String?) : Route
+    data object EditProfile : Route
+    data object AddFriend : Route
+    data object Settings : Route
+    data object DeezerLogin : Route
+    data class SharedPlaylist(val id: String) : Route
+    data class Guess(val lobbyId: String? = null) : Route
+    data class BlindTest(val lobbyId: String? = null) : Route
+}
+
+val tabs = listOf(Route.Home, Route.Search, Route.Library, Route.Friends, Route.Games)
+
+/** What the share sheet is sharing. */
+sealed interface ShareItem {
+    data class Song(val song: SongRef) : ShareItem
+    data class Playlist(val playlist: VibesPlaylist) : ShareItem
+}
+
+/** Simple back-stack navigation: one stack per tab, like Spotify. */
+@Stable
+class Navigator {
+    var tab by mutableStateOf<Route>(Route.Home)
+        private set
+    private val stacks = mutableMapOf<Route, androidx.compose.runtime.snapshots.SnapshotStateList<Route>>()
+
+    private fun stack(t: Route) = stacks.getOrPut(t) { mutableStateListOf(t) }
+
+    val current: Route get() = stack(tab).last()
+    val canGoBack get() = stack(tab).size > 1 || tab != Route.Home
+
+    var playerOpen by mutableStateOf(false)
+    var share by mutableStateOf<ShareItem?>(null)
+    var addToPlaylist by mutableStateOf<SongRef?>(null)
+    var toast by mutableStateOf<String?>(null)
+
+    fun selectTab(t: Route) {
+        if (t == tab) { val s = stack(t); while (s.size > 1) s.removeAt(s.lastIndex) }
+        tab = t
+    }
+
+    fun open(r: Route) {
+        playerOpen = false
+        if (r in tabs) { selectTab(r); return }
+        stack(tab).add(r)
+    }
+
+    /** Opens a route on a given tab (used by notifications / links). */
+    fun openOn(t: Route, r: Route) {
+        tab = t
+        val s = stack(t)
+        while (s.size > 1) s.removeAt(s.lastIndex)
+        if (r != t) s.add(r)
+    }
+
+    fun back(): Boolean {
+        if (share != null) { share = null; return true }
+        if (addToPlaylist != null) { addToPlaylist = null; return true }
+        if (playerOpen) { playerOpen = false; return true }
+        val s = stack(tab)
+        if (s.size > 1) { s.removeAt(s.lastIndex); return true }
+        if (tab != Route.Home) { tab = Route.Home; return true }
+        return false
+    }
+
+    fun toast(msg: String) { toast = msg }
+}

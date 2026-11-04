@@ -1,0 +1,272 @@
+package dev.brahmkshatriya.echo.vibes.ui
+
+import android.net.Uri
+import androidx.activity.compose.BackHandler
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Forum
+import androidx.compose.material.icons.rounded.Home
+import androidx.compose.material.icons.rounded.LibraryMusic
+import androidx.compose.material.icons.rounded.Search
+import androidx.compose.material.icons.rounded.SportsEsports
+import androidx.compose.material.icons.outlined.Forum
+import androidx.compose.material.icons.outlined.Home
+import androidx.compose.material.icons.outlined.LibraryMusic
+import androidx.compose.material.icons.outlined.Search
+import androidx.compose.material.icons.outlined.SportsEsports
+import androidx.compose.material3.Badge
+import androidx.compose.material3.BadgedBox
+import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.unit.dp
+import dev.brahmkshatriya.echo.vibes.VibesGraph
+import dev.brahmkshatriya.echo.vibes.music.MusicEngine
+import dev.brahmkshatriya.echo.vibes.theme.VibesThemes
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.launch
+
+/** Global UI state shared by every screen. */
+class AppState(
+    val engine: MusicEngine,
+    val nav: Navigator,
+    theme: dev.brahmkshatriya.echo.vibes.theme.VibesTheme,
+) {
+    var theme by mutableStateOf(theme)
+    val social get() = VibesGraph.social
+    val library get() = VibesGraph.library
+    val supa get() = VibesGraph.supa
+    val deezer get() = VibesGraph.deezer
+}
+
+val LocalApp = androidx.compose.runtime.staticCompositionLocalOf<AppState> { error("no app state") }
+
+@Composable
+fun VibesApp(engine: MusicEngine, pendingLink: MutableStateFlow<Uri?>) {
+    val context = LocalContext.current
+    val nav = remember { Navigator() }
+    val state = remember {
+        AppState(engine, nav, VibesThemes.current(context) ?: VibesThemes.presets.first())
+    }
+    VibesMaterial(state.theme) {
+        androidx.compose.runtime.CompositionLocalProvider(LocalApp provides state) {
+            val session by state.supa.session.collectAsState()
+            val hasProfile by state.social.hasProfile.collectAsState()
+            LaunchedEffect(session?.userId) {
+                if (session == null) { state.social.clear(); return@LaunchedEffect }
+                // retry until the profile loads (offline at start-up, slow network...)
+                while (runCatching { state.social.bootstrap() }.isFailure) delay(3000)
+            }
+            Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
+                when {
+                    session == null -> AuthScreen()
+                    hasProfile == null -> LoadingScreen()
+                    hasProfile == false -> ProfileSetupScreen()
+                    else -> MainScaffold(pendingLink)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun LoadingScreen() {
+    GradientBackground {
+        Column(Modifier.align(Alignment.Center), horizontalAlignment = Alignment.CenterHorizontally) {
+            VibesLogo(Modifier.size(84.dp))
+            Text("Vibes", style = MaterialTheme.typography.displaySmall, modifier = Modifier.padding(top = 14.dp))
+        }
+    }
+}
+
+@Composable
+fun MainScaffold(pendingLink: MutableStateFlow<Uri?>) {
+    val app = LocalApp.current
+    val nav = app.nav
+    val link by pendingLink.collectAsState()
+
+    LaunchedEffect(link) {
+        val uri = link ?: return@LaunchedEffect
+        pendingLink.value = null
+        handleLink(app, uri)
+    }
+
+    BackHandler(enabled = nav.canGoBack || nav.playerOpen || nav.share != null || nav.addToPlaylist != null) {
+        nav.back()
+    }
+
+    Box(Modifier.fillMaxSize()) {
+        AnimatedContent(
+            targetState = nav.current,
+            transitionSpec = {
+                (fadeIn(tween(220)) + slideInVertically(tween(260)) { it / 18 })
+                    .togetherWith(fadeOut(tween(160)))
+            },
+            label = "screen"
+        ) { route -> Screen(route) }
+
+        Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth()) {
+            MiniPlayer()
+            BottomBar()
+        }
+
+        AnimatedVisibility(
+            nav.playerOpen,
+            enter = slideInVertically(tween(320)) { it } + fadeIn(),
+            exit = slideOutVertically(tween(260)) { it } + fadeOut(),
+        ) { FullPlayer() }
+
+        nav.share?.let { ShareSheet(it) { nav.share = null } }
+        nav.addToPlaylist?.let { AddToPlaylistSheet(it) { nav.addToPlaylist = null } }
+        Toast(nav.toast) { nav.toast = null }
+    }
+}
+
+suspend fun handleLink(app: AppState, uri: Uri) {
+    val nav = app.nav
+    val parts = uri.pathSegments
+    when (uri.host) {
+        "chat" -> parts.firstOrNull()?.let { nav.openOn(Route.Friends, Route.Chat(it)) }
+        "invite" -> parts.firstOrNull()?.let { code ->
+            runCatching { app.social.addByCode(code) }
+                .onSuccess { nav.toast("Ora tu e ${it.name} siete amici 🎉"); nav.openOn(Route.Friends, Route.Chat(it.id)) }
+                .onFailure { nav.toast(it.message ?: "Invito non valido") }
+        }
+        "playlist" -> parts.firstOrNull()?.let { nav.openOn(Route.Library, Route.SharedPlaylist(it)) }
+        "user" -> parts.firstOrNull()?.let { nav.openOn(Route.Friends, Route.Profile(it)) }
+        "challenge" -> if (parts.size >= 2) {
+            val (game, lobby) = parts[0] to parts[1]
+            nav.openOn(Route.Games, if (game == "blindtest") Route.BlindTest(lobby) else Route.Guess(lobby))
+        }
+    }
+}
+
+@Composable
+fun Screen(route: Route) {
+    when (route) {
+        Route.Home -> HomeScreen()
+        Route.Search -> SearchScreen()
+        Route.Library -> LibraryScreen()
+        Route.Friends -> FriendsScreen()
+        Route.Games -> GamesScreen()
+        is Route.Playlist -> PlaylistScreen(route.id)
+        Route.Liked -> LikedScreen()
+        is Route.Media -> MediaScreen(route.item)
+        is Route.Chat -> ChatScreen(route.friendId)
+        is Route.Profile -> ProfileScreen(route.userId)
+        Route.EditProfile -> EditProfileScreen()
+        Route.AddFriend -> AddFriendScreen()
+        Route.Settings -> SettingsScreen()
+        Route.DeezerLogin -> DeezerLoginScreen()
+        is Route.SharedPlaylist -> SharedPlaylistScreen(route.id)
+        is Route.Guess -> GuessGameScreen(route.lobbyId)
+        is Route.BlindTest -> BlindTestScreen(route.lobbyId)
+    }
+}
+
+@Composable
+private fun BottomBar() {
+    val app = LocalApp.current
+    val nav = app.nav
+    val unread by app.social.unread.collectAsState()
+    val requests by app.social.requests.collectAsState()
+    val badge = unread.values.sum() + requests.size
+    val bg = MaterialTheme.colorScheme.background
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .background(Brush.verticalGradient(listOf(bg.copy(alpha = 0.0f), bg.copy(alpha = 0.92f), bg)))
+            .navigationBarsPadding()
+            .padding(top = 10.dp, bottom = 6.dp),
+        horizontalArrangement = androidx.compose.foundation.layout.Arrangement.SpaceEvenly,
+    ) {
+        NavItem("Home", Icons.Rounded.Home, Icons.Outlined.Home, nav.tab == Route.Home) { nav.selectTab(Route.Home) }
+        NavItem("Cerca", Icons.Rounded.Search, Icons.Outlined.Search, nav.tab == Route.Search) { nav.selectTab(Route.Search) }
+        NavItem("Libreria", Icons.Rounded.LibraryMusic, Icons.Outlined.LibraryMusic, nav.tab == Route.Library) { nav.selectTab(Route.Library) }
+        NavItem("Amici", Icons.Rounded.Forum, Icons.Outlined.Forum, nav.tab == Route.Friends, badge) { nav.selectTab(Route.Friends) }
+        NavItem("Giochi", Icons.Rounded.SportsEsports, Icons.Outlined.SportsEsports, nav.tab == Route.Games) { nav.selectTab(Route.Games) }
+    }
+}
+
+@Composable
+private fun NavItem(label: String, on: ImageVector, off: ImageVector, selected: Boolean, badge: Int = 0, onClick: () -> Unit) {
+    val color = if (selected) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant
+    Column(
+        Modifier.bouncy(onClick).padding(horizontal = 8.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        BadgedBox(badge = {
+            if (badge > 0) Badge(containerColor = MaterialTheme.colorScheme.primary) { Text("$badge") }
+        }) {
+            Icon(if (selected) on else off, label, tint = color, modifier = Modifier.size(26.dp))
+        }
+        Text(label, style = MaterialTheme.typography.labelSmall, color = color, modifier = Modifier.padding(top = 3.dp))
+    }
+}
+
+@Composable
+private fun Toast(message: String?, onDone: () -> Unit) {
+    var shown by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(message) {
+        if (message != null) { shown = message; delay(2600); onDone(); shown = null }
+    }
+    Box(Modifier.fillMaxSize().padding(bottom = 170.dp), contentAlignment = Alignment.BottomCenter) {
+        AnimatedVisibility(shown != null, enter = fadeIn() + slideInVertically { it }, exit = fadeOut()) {
+            Box(
+                Modifier.padding(horizontal = 24.dp).clip(RoundedCornerShape(12.dp))
+                    .background(MaterialTheme.colorScheme.onSurface).padding(horizontal = 16.dp, vertical = 12.dp)
+            ) { Text(shown ?: "", color = MaterialTheme.colorScheme.surface, style = MaterialTheme.typography.bodyMedium) }
+        }
+    }
+}
+
+@Composable
+fun VibesLogo(modifier: Modifier = Modifier) {
+    Box(
+        modifier.clip(androidx.compose.foundation.shape.CircleShape)
+            .background(Brush.linearGradient(listOf(Color(0xFF7B2FF7), Color(0xFFC2187A), Color(0xFFFF6A3D)))),
+        contentAlignment = Alignment.Center
+    ) {
+        Row(verticalAlignment = Alignment.Bottom, horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(3.dp)) {
+            listOf(0.62f, 0.46f, 0.3f, 0.46f, 0.62f).forEach { h ->
+                Box(
+                    Modifier.size(width = 6.dp, height = (40 * h).dp)
+                        .clip(RoundedCornerShape(3.dp)).background(Color.White)
+                )
+            }
+        }
+    }
+}
