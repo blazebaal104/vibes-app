@@ -172,9 +172,14 @@ class Supa(context: Context) {
     suspend fun signUp(email: String, password: String): Boolean {
         val body = buildJsonObject { put("email", email.trim()); put("password", password) }
         val res = execJson(base("/auth/v1/signup").post(body.toString().toRequestBody(JSON_TYPE)).build())!!.jsonObject
-        return if (res["access_token"] != null) {
-            saveSession(parseSession(res)); true
-        } else false
+        if (res["access_token"] != null) { saveSession(parseSession(res)); return true }
+        // Supabase answers an already-registered email with a fake user that has no identities
+        // (and sends no email): tell the user to sign in instead of waiting for a mail.
+        val user = (res["user"] as? JsonObject) ?: res
+        val identities = user["identities"] as? JsonArray
+        if (identities != null && identities.isEmpty())
+            throw SupaException("Esiste già un account con questa email: usa Accedi (stessa password dell'app degli amici)")
+        return false
     }
 
     suspend fun signIn(email: String, password: String) {
