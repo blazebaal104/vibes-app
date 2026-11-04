@@ -96,4 +96,78 @@ class DeezerPublic(private val http: OkHttpClient) {
                 val id = o["id"]?.jsonPrimitive?.longOrNull ?: return@mapNotNull null
                 id to (o["name"]?.jsonPrimitive?.contentOrNull ?: "")
             }.orEmpty()
+
+    data class PlaylistInfo(val id: Long, val title: String, val picture: String?, val owner: String, val count: Int)
+
+    private fun JsonObject.toPlaylistInfo(): PlaylistInfo? {
+        val id = this["id"]?.jsonPrimitive?.longOrNull ?: return null
+        return PlaylistInfo(
+            id = id,
+            title = this["title"]?.jsonPrimitive?.contentOrNull ?: "",
+            picture = this["picture_xl"]?.jsonPrimitive?.contentOrNull ?: this["picture_big"]?.jsonPrimitive?.contentOrNull,
+            owner = (this["user"] as? JsonObject)?.get("name")?.jsonPrimitive?.contentOrNull
+                ?: (this["creator"] as? JsonObject)?.get("name")?.jsonPrimitive?.contentOrNull ?: "",
+            count = this["nb_tracks"]?.jsonPrimitive?.intOrNull ?: 0,
+        )
+    }
+
+    suspend fun searchPlaylists(q: String, limit: Int = 10): List<PlaylistInfo> =
+        get("https://api.deezer.com/search/playlist?limit=$limit&q=" + URLEncoder.encode(q, "UTF-8"))
+            ?.get("data")?.jsonArray?.mapNotNull { (it as? JsonObject)?.toPlaylistInfo() }.orEmpty()
+
+    /** Best editorial playlist for a genre/mood query (prefers Deezer's own playlists). */
+    suspend fun genrePlaylist(q: String): PlaylistInfo? {
+        val list = searchPlaylists(q, 15).filter { it.count >= 15 }
+        return list.firstOrNull { it.owner.contains("deezer", true) } ?: list.firstOrNull()
+    }
+
+    suspend fun playlistInfo(id: Long): PlaylistInfo? = get("https://api.deezer.com/playlist/$id")?.toPlaylistInfo()
+
+    /** All tracks of a public playlist (follows pagination). */
+    suspend fun playlistTracks(id: Long, max: Int = 500): List<GameTrack> {
+        val out = mutableListOf<GameTrack>()
+        var index = 0
+        while (out.size < max) {
+            val page = list(get("https://api.deezer.com/playlist/$id/tracks?limit=100&index=$index"))
+            if (page.isEmpty()) break
+            out += page; index += 100
+            if (page.size < 100) break
+        }
+        return out.take(max)
+    }
+
+    data class AlbumInfo(val title: String, val cover: String?, val tracks: List<GameTrack>)
+
+    suspend fun album(id: Long): AlbumInfo? {
+        val o = get("https://api.deezer.com/album/$id") ?: return null
+        val cover = o["cover_xl"]?.jsonPrimitive?.contentOrNull
+        val title = o["title"]?.jsonPrimitive?.contentOrNull ?: ""
+        val tracks = o["tracks"]?.jsonObject?.get("data")?.jsonArray?.mapNotNull { e ->
+            (e as? JsonObject)?.toGameTrack()?.let { if (it.cover == null) it.copy(cover = cover) else it }
+        }.orEmpty()
+        return AlbumInfo(title, cover, tracks)
+    }
+
+    /** Resolves short links (link.deezer.com, spotify.link…) to the final URL. */
+    suspend fun resolveUrl(url: String): String = withContext(Dispatchers.IO) {
+        runCatching {
+            http.newCall(Request.Builder().url(url).header("User-Agent", "Mozilla/5.0").build()).execute()
+                .use { it.request.url.toString() }
+        }.getOrDefault(url)
+    }
+
+    suspend fun fetchText(url: String): String? = withContext(Dispatchers.IO) {
+        runCatching {
+            http.newCall(Request.Builder().url(url).header("User-Agent", "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 Chrome/124 Mobile Safari/537.36").build())
+                .execute().use { if (it.isSuccessful) it.body.string() else null }
+        }.getOrNull()
+    }
+
+    /** Finds the Deezer track for a title + artist from another service. */
+    suspend fun match(title: String, artist: String): GameTrack? {
+        val clean = title.replace(Regex("""\s*[\(\[].*?[\)\]]"""), "").replace(Regex("""\s+-\s+.*$"""), "").trim()
+        val firstArtist = artist.split(",", "&", " feat", " ft.").first().trim()
+        return search("artist:\"$firstArtist\" track:\"$clean\"", 3).firstOrNull()
+            ?: search("$clean $firstArtist", 3).firstOrNull()
+    }
 }

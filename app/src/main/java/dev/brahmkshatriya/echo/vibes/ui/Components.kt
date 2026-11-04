@@ -36,6 +36,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Brush
@@ -59,14 +60,26 @@ fun parseColor(hex: String, fallback: Color = Color(0xFFB84DFF)): Color =
 fun Modifier.bouncy(onClick: () -> Unit, onLong: (() -> Unit)? = null): Modifier {
     val source = remember { MutableInteractionSource() }
     val pressed by source.collectIsPressedAsState()
-    val s by animateFloatAsState(if (pressed) 0.95f else 1f, spring(dampingRatio = 0.5f, stiffness = 600f), label = "press")
+    val s by animateFloatAsState(if (pressed) 0.92f else 1f, spring(dampingRatio = 0.38f, stiffness = 700f), label = "press")
+    val dim by animateFloatAsState(if (pressed) 0.82f else 1f, androidx.compose.animation.core.tween(120), label = "dim")
+    val haptic = androidx.compose.ui.platform.LocalHapticFeedback.current
+    val click = {
+        haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove)
+        onClick()
+    }
+    val long = onLong?.let { l -> {
+        haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress); l()
+    } }
     return this
-        .scale(s)
+        .androidx_graphics(s, dim)
         .then(
-            if (onLong != null) Modifier.longPressable(source, onClick, onLong)
-            else Modifier.clickable(interactionSource = source, indication = null, onClick = onClick)
+            if (long != null) Modifier.longPressable(source, click, long)
+            else Modifier.clickable(interactionSource = source, indication = null, onClick = click)
         )
 }
+
+private fun Modifier.androidx_graphics(scale: Float, alpha: Float) =
+    this.then(Modifier.graphicsLayer { scaleX = scale; scaleY = scale; this.alpha = alpha })
 
 private fun Modifier.longPressable(source: MutableInteractionSource, onClick: () -> Unit, onLong: () -> Unit) =
     this.then(
@@ -101,7 +114,9 @@ fun Avatar(profile: Profile?, size: Dp = 40.dp, modifier: Modifier = Modifier) {
             .background(Brush.linearGradient(listOf(color, color.copy(alpha = 0.55f)))),
         contentAlignment = Alignment.Center
     ) {
-        Text(profile?.avatarEmoji ?: "🎧", fontSize = (size.value * 0.48f).sp)
+        val photo = profile?.avatarUrl
+        if (photo != null) AsyncImage(photo, null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
+        else Text(profile?.avatarEmoji ?: "🎧", fontSize = (size.value * 0.48f).sp)
     }
 }
 

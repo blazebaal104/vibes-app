@@ -26,6 +26,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Delete
+import androidx.compose.material.icons.rounded.Download
 import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.Favorite
 import androidx.compose.material.icons.rounded.PlayArrow
@@ -72,7 +73,8 @@ fun PlaylistArt(p: VibesPlaylist, modifier: Modifier, shape: androidx.compose.ui
     val covers = p.songs.mapNotNull { it.cover }.distinct().take(4)
     val c = parseColor(p.color)
     Box(modifier.clip(shape).background(Brush.linearGradient(listOf(c, c.copy(alpha = 0.45f)))), contentAlignment = Alignment.Center) {
-        if (covers.size >= 4) Column(Modifier.matchParentSize()) {
+        if (p.cover != null) Cover(p.cover, Modifier.matchParentSize(), RoundedCornerShape(0.dp))
+        else if (covers.size >= 4) Column(Modifier.matchParentSize()) {
             Row(Modifier.weight(1f).fillMaxWidth()) {
                 Cover(covers[0], Modifier.weight(1f).fillMaxHeight(), RoundedCornerShape(0.dp))
                 Cover(covers[1], Modifier.weight(1f).fillMaxHeight(), RoundedCornerShape(0.dp))
@@ -94,6 +96,11 @@ fun LibraryScreen() {
     val liked by app.library.liked.collectAsState()
     var creating by remember { mutableStateOf(false) }
     var filter by remember { mutableStateOf(0) }
+    val deezerLogged by app.engine.deezerLoggedIn.collectAsState(initial = false)
+    var deezerPlaylists by remember { mutableStateOf<List<dev.brahmkshatriya.echo.common.models.Playlist>>(emptyList()) }
+    LaunchedEffect(deezerLogged) {
+        if (deezerLogged) deezerPlaylists = runCatching { app.engine.libraryPlaylists() }.getOrDefault(emptyList())
+    }
 
     GradientBackground {
         LazyColumn(contentPadding = ScreenPadding) {
@@ -105,6 +112,7 @@ fun LibraryScreen() {
                     Avatar(me, 36.dp, Modifier.bouncy({ nav.open(Route.Profile(null)) }))
                     Spacer(Modifier.width(12.dp))
                     Text("La tua libreria", style = MaterialTheme.typography.headlineMedium, modifier = Modifier.weight(1f))
+                    IconButton(onClick = { nav.open(Route.Import) }) { Icon(Icons.Rounded.Download, "Importa playlist") }
                     IconButton(onClick = { creating = true }) { Icon(Icons.Rounded.Add, "Crea playlist", modifier = Modifier.size(28.dp)) }
                 }
             }
@@ -113,6 +121,7 @@ fun LibraryScreen() {
                     item { Pill("Tutto", filter == 0, { filter = 0 }) }
                     item { Pill("Playlist", filter == 1, { filter = 1 }) }
                     item { Pill("Da amici", filter == 2, { filter = 2 }) }
+                    if (deezerPlaylists.isNotEmpty()) item { Pill("Deezer", filter == 3, { filter = 3 }) }
                 }
             }
             if (filter != 2) item {
@@ -127,6 +136,7 @@ fun LibraryScreen() {
             }
             val shown = when (filter) {
                 2 -> playlists.filter { it.from != null }
+                3 -> emptyList()
                 else -> playlists
             }
             itemsIndexed(shown, key = { _, p -> p.id }) { i, p ->
@@ -136,9 +146,24 @@ fun LibraryScreen() {
                     modifier = Modifier.enter(i)
                 ) { nav.open(Route.Playlist(p.id)) }
             }
-            if (playlists.isEmpty()) item {
-                EmptyState("📀", "Crea la tua prima playlist", "Metti insieme i brani che ami e condividili con gli amici.") {
-                    BigButton("Crea playlist", { creating = true }, Modifier.width(200.dp))
+            if (filter == 0 || filter == 3) {
+                if (deezerPlaylists.isNotEmpty()) item { SectionTitle("Dal tuo account Deezer") }
+                items(deezerPlaylists.size, key = { "dz" + deezerPlaylists[it].id }) { i ->
+                    val p = deezerPlaylists[i]
+                    LibraryRow(
+                        p.title, "Playlist Deezer" + (p.trackCount?.let { " · $it brani" } ?: ""),
+                        art = { Cover(p.cover.url(), Modifier.size(64.dp), RoundedCornerShape(6.dp)) },
+                        modifier = Modifier.enter(i)
+                    ) { nav.open(Route.Media(p)) }
+                }
+            }
+            if (playlists.isEmpty() && filter != 3) item {
+                EmptyState("📀", "Crea la tua prima playlist", "Metti insieme i brani che ami, oppure importale da Spotify o Deezer.") {
+                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        BigButton("Crea", { creating = true }, Modifier.width(130.dp))
+                        BigButton("Importa", { nav.open(Route.Import) }, Modifier.width(130.dp),
+                            container = LocalVibes.current.cardHigh, content = MaterialTheme.colorScheme.onSurface)
+                    }
                 }
             }
         }
@@ -326,6 +351,7 @@ fun MediaScreen(item: EchoMediaItem) {
             .onFailure { tracks = emptyList(); nav.toast(it.message ?: "Errore di caricamento") }
     }
     val round = item is Artist
+    val scope = rememberCoroutineScope()
     val songs = tracks.orEmpty().map { SongRef.from(extId, it) }
     GradientBackground {
         LazyColumn(contentPadding = ScreenPadding) {
@@ -344,9 +370,14 @@ fun MediaScreen(item: EchoMediaItem) {
                     onShuffle = { tracks?.let { app.engine.play(extId, it.shuffled(), 0, full) } },
                     actions = {
                         if (songs.isNotEmpty()) IconButton(onClick = {
-                            val p = app.library.createPlaylist(full.title, "🎵", avatarColors.random(), songs)
-                            nav.toast("Salvata in libreria"); nav.open(Route.Playlist(p.id))
-                        }) { Icon(Icons.Rounded.Add, "Salva in libreria") }
+                            scope.launch {
+                                val all = (full as? dev.brahmkshatriya.echo.common.models.Playlist)?.let { pl ->
+                                    runCatching { app.engine.allTracks(pl) }.getOrNull()?.map { SongRef.from(extId, it) }
+                                } ?: songs
+                                val p = app.library.createPlaylist(full.title, "🎵", avatarColors.random(), all, cover = full.cover.url())
+                                nav.toast("Salvata in Vibes (${all.size} brani)"); nav.open(Route.Playlist(p.id))
+                            }
+                        }) { Icon(Icons.Rounded.Add, "Salva in Vibes") }
                     }
                 )
             }

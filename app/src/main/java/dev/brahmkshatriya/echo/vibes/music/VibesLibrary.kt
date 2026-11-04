@@ -24,6 +24,8 @@ data class VibesPlaylist(
     val createdAt: Long = System.currentTimeMillis(),
     /** Set when saved from a friend's share. */
     val from: String? = null,
+    /** Cover image (imported playlists keep their original artwork). */
+    val cover: String? = null,
 )
 
 @Serializable
@@ -75,14 +77,21 @@ class VibesLibrary(context: Context) {
     }
 
     // playlists
-    fun createPlaylist(name: String, emoji: String, color: String, songs: List<SongRef> = emptyList(), from: String? = null): VibesPlaylist {
-        val p = VibesPlaylist(name = name.trim().ifEmpty { "La mia playlist" }, emoji = emoji, color = color, songs = songs, from = from)
+    fun createPlaylist(
+        name: String, emoji: String, color: String, songs: List<SongRef> = emptyList(),
+        from: String? = null, cover: String? = null,
+    ): VibesPlaylist {
+        val p = VibesPlaylist(name = name.trim().ifEmpty { "La mia playlist" }, emoji = emoji, color = color, songs = songs, from = from, cover = cover)
         change { it.copy(playlists = listOf(p) + it.playlists) }
         return p
     }
 
     fun renamePlaylist(id: String, name: String, emoji: String, color: String) = change { s ->
         s.copy(playlists = s.playlists.map { if (it.id == id) it.copy(name = name, emoji = emoji, color = color) else it })
+    }
+
+    fun setPlaylistCover(id: String, cover: String?) = change { s ->
+        s.copy(playlists = s.playlists.map { if (it.id == id) it.copy(cover = cover) else it })
     }
 
     fun deletePlaylist(id: String) = change { s -> s.copy(playlists = s.playlists.filter { it.id != id }) }

@@ -81,6 +81,10 @@ fun HomeScreen() {
     var error by remember { mutableStateOf<String?>(null) }
     var extId by remember { mutableStateOf(MusicEngine.DEEZER) }
 
+    var recs by remember { mutableStateOf<List<dev.brahmkshatriya.echo.vibes.music.Recommender.Section>>(emptyList()) }
+    LaunchedEffect(recent.size / 5) {
+        recs = runCatching { dev.brahmkshatriya.echo.vibes.VibesGraph.recommender.sections() }.getOrDefault(emptyList())
+    }
     LaunchedEffect(loggedIn) {
         runCatching { extId = app.engine.extensionId(); app.engine.home() }
             .onSuccess { shelves = it; error = null }
@@ -111,6 +115,18 @@ fun HomeScreen() {
             }
             if (recent.isNotEmpty()) item {
                 QuickGrid(recent.take(6)) { song -> app.engine.play(song) }
+            }
+            recs.forEachIndexed { si, sec ->
+                item(key = "rec_t$si") {
+                    Column(Modifier.enter(si)) {
+                        SectionTitle(sec.title)
+                        sec.subtitle?.let {
+                            Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.padding(horizontal = 16.dp).padding(bottom = 8.dp))
+                        }
+                    }
+                }
+                item(key = "rec_c$si") { SongCarousel(sec.songs) }
             }
             val listening = friends.filter { it.nowPlaying != null }
             if (listening.isNotEmpty()) {
@@ -241,5 +257,27 @@ fun MediaTile(item: EchoMediaItem, modifier: Modifier = Modifier, size: androidx
         }
         Text(sub, style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis,
             color = MaterialTheme.colorScheme.onSurfaceVariant)
+    }
+}
+
+
+@Composable
+fun SongCarousel(songs: List<SongRef>) {
+    val app = LocalApp.current
+    val playing = nowPlayingKey()
+    LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+        items(songs.size) { i ->
+            val song = songs[i]
+            Column(Modifier.width(140.dp).enter(i).bouncy({ app.engine.playAll(songs, i) }, { app.nav.share = ShareItem.Song(song) })) {
+                Box {
+                    Cover(song.cover, Modifier.size(140.dp), RoundedCornerShape(10.dp))
+                    if (playing == song.key) EqualizerBars(Modifier.align(Alignment.BottomEnd).padding(8.dp))
+                }
+                Text(song.title, style = MaterialTheme.typography.titleSmall, maxLines = 1,
+                    overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 6.dp))
+                Text(song.artist, style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        }
     }
 }

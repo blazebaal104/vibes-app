@@ -28,6 +28,8 @@ sealed interface Route {
     data class SharedPlaylist(val id: String) : Route
     data class Guess(val lobbyId: String? = null) : Route
     data class BlindTest(val lobbyId: String? = null) : Route
+    data class Genre(val name: String) : Route
+    data object Import : Route
 }
 
 val tabs = listOf(Route.Home, Route.Search, Route.Library, Route.Friends, Route.Games)
@@ -48,6 +50,7 @@ class Navigator {
     private fun stack(t: Route) = stacks.getOrPut(t) { mutableStateListOf(t) }
 
     val current: Route get() = stack(tab).last()
+    val depth: Int get() = stack(tab).size
     val canGoBack get() = stack(tab).size > 1 || tab != Route.Home
 
     var playerOpen by mutableStateOf(false)

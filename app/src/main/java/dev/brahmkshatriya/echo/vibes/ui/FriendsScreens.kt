@@ -25,6 +25,7 @@ import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.ContentCopy
 import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.PersonAdd
+import androidx.compose.material.icons.rounded.PhotoCamera
 import androidx.compose.material.icons.rounded.Share
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
@@ -431,6 +432,22 @@ fun EditProfileScreen() {
     var emoji by remember { mutableStateOf(p.avatarEmoji) }
     var color by remember { mutableStateOf(p.avatarColor) }
     var saving by remember { mutableStateOf(false) }
+    var uploading by remember { mutableStateOf(false) }
+    val context = LocalContext.current
+    val photoPicker = androidx.activity.compose.rememberLauncherForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia()
+    ) { uri ->
+        uri ?: return@rememberLauncherForActivityResult
+        uploading = true
+        scope.launch {
+            runCatching {
+                val jpeg = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { squareJpeg(context, uri, 512) }
+                app.social.uploadAvatar(jpeg)
+            }.onSuccess { nav.toast("Foto aggiornata") }
+                .onFailure { nav.toast("Caricamento non riuscito: ${it.message}") }
+            uploading = false
+        }
+    }
     GradientBackground(tint = parseColor(color)) {
         LazyColumn(Modifier.imePadding(), contentPadding = ScreenPadding) {
             item {
@@ -441,7 +458,19 @@ fun EditProfileScreen() {
             }
             item {
                 Column(Modifier.padding(16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                    Avatar(p.copy(avatarEmoji = emoji, avatarColor = color), 120.dp)
+                    Box {
+                        Avatar(p.copy(avatarEmoji = emoji, avatarColor = color), 120.dp,
+                            Modifier.bouncy({ photoPicker.launch(androidx.activity.result.PickVisualMediaRequest(androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia.ImageOnly)) }))
+                        if (uploading) androidx.compose.material3.CircularProgressIndicator(Modifier.align(Alignment.Center))
+                        Box(
+                            Modifier.align(Alignment.BottomEnd).size(36.dp).clip(CircleShape).background(MaterialTheme.colorScheme.primary),
+                            contentAlignment = Alignment.Center
+                        ) { Icon(Icons.Rounded.PhotoCamera, "Cambia foto", tint = MaterialTheme.colorScheme.onPrimary, modifier = Modifier.size(20.dp)) }
+                    }
+                    Row(Modifier.padding(top = 10.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Pill("Cambia foto", false, { photoPicker.launch(androidx.activity.result.PickVisualMediaRequest(androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia.ImageOnly)) })
+                        if (p.avatarUrl != null) Pill("Usa emoji", false, { scope.launch { runCatching { app.social.removeAvatar() } } })
+                    }
                     Spacer(Modifier.height(16.dp))
                     AvatarPicker(emoji, color, { emoji = it }, { color = it })
                     Spacer(Modifier.height(18.dp))
@@ -462,4 +491,26 @@ fun EditProfileScreen() {
             }
         }
     }
+}
+
+/** Reads an image, crops it to a centred square, scales to [size] px and encodes JPEG. */
+fun squareJpeg(context: android.content.Context, uri: android.net.Uri, size: Int): ByteArray {
+    val bytes = context.contentResolver.openInputStream(uri)!!.use { it.readBytes() }
+    var bmp = android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+    // respect EXIF rotation from the camera
+    val rotation = runCatching {
+        when (android.media.ExifInterface(java.io.ByteArrayInputStream(bytes))
+            .getAttributeInt(android.media.ExifInterface.TAG_ORIENTATION, android.media.ExifInterface.ORIENTATION_NORMAL)) {
+            android.media.ExifInterface.ORIENTATION_ROTATE_90 -> 90
+            android.media.ExifInterface.ORIENTATION_ROTATE_180 -> 180
+            android.media.ExifInterface.ORIENTATION_ROTATE_270 -> 270
+            else -> 0
+        }
+    }.getOrDefault(0)
+    if (rotation != 0) bmp = android.graphics.Bitmap.createBitmap(bmp, 0, 0, bmp.width, bmp.height,
+        android.graphics.Matrix().apply { postRotate(rotation.toFloat()) }, true)
+    val side = minOf(bmp.width, bmp.height)
+    val square = android.graphics.Bitmap.createBitmap(bmp, (bmp.width - side) / 2, (bmp.height - side) / 2, side, side)
+    val scaled = android.graphics.Bitmap.createScaledBitmap(square, size, size, true)
+    return java.io.ByteArrayOutputStream().use { out -> scaled.compress(android.graphics.Bitmap.CompressFormat.JPEG, 88, out); out.toByteArray() }
 }

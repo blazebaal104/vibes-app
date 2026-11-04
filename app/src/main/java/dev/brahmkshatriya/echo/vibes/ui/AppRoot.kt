@@ -8,6 +8,9 @@ import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
@@ -90,7 +93,13 @@ fun VibesApp(engine: MusicEngine, pendingLink: MutableStateFlow<Uri?>) {
                 // retry until the profile loads (offline at start-up, slow network...)
                 while (runCatching { state.social.bootstrap() }.isFailure) delay(3000)
             }
-            Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
+            // Surface sets LocalContentColor, so every Text without an explicit colour is readable
+            // on the theme background (white on dark themes, dark on light ones).
+            androidx.compose.material3.Surface(
+                Modifier.fillMaxSize(),
+                color = MaterialTheme.colorScheme.background,
+                contentColor = MaterialTheme.colorScheme.onBackground,
+            ) {
                 when {
                     session == null -> AuthScreen()
                     hasProfile == null -> LoadingScreen()
@@ -130,13 +139,30 @@ fun MainScaffold(pendingLink: MutableStateFlow<Uri?>) {
 
     Box(Modifier.fillMaxSize()) {
         AnimatedContent(
-            targetState = nav.current,
+            targetState = ScreenKey(tabs.indexOf(nav.tab), nav.depth, nav.current),
+            contentKey = { it.route },
             transitionSpec = {
-                (fadeIn(tween(220)) + slideInVertically(tween(260)) { it / 18 })
-                    .togetherWith(fadeOut(tween(160)))
+                val a = initialState; val b = targetState
+                val ease = androidx.compose.animation.core.FastOutSlowInEasing
+                when {
+                    // tab switch: slide towards the tab you picked
+                    a.tab != b.tab -> {
+                        val dir = if (b.tab > a.tab) 1 else -1
+                        (slideInHorizontally(tween(340, easing = ease)) { dir * it / 4 } + fadeIn(tween(260)) +
+                                androidx.compose.animation.scaleIn(tween(340, easing = ease), initialScale = 0.96f))
+                            .togetherWith(slideOutHorizontally(tween(300, easing = ease)) { -dir * it / 4 } + fadeOut(tween(200)))
+                    }
+                    // opening a page: it comes in from the right over the old one
+                    b.depth > a.depth -> (slideInHorizontally(tween(320, easing = ease)) { it } + fadeIn(tween(200)))
+                        .togetherWith(slideOutHorizontally(tween(320, easing = ease)) { -it / 5 } + fadeOut(tween(260)))
+                    // going back
+                    b.depth < a.depth -> (slideInHorizontally(tween(320, easing = ease)) { -it / 5 } + fadeIn(tween(220)))
+                        .togetherWith(slideOutHorizontally(tween(300, easing = ease)) { it } + fadeOut(tween(260)))
+                    else -> fadeIn(tween(220)).togetherWith(fadeOut(tween(160)))
+                }.apply { targetContentZIndex = b.depth.toFloat() }
             },
             label = "screen"
-        ) { route -> Screen(route) }
+        ) { key -> Screen(key.route) }
 
         Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth()) {
             MiniPlayer()
@@ -154,6 +180,8 @@ fun MainScaffold(pendingLink: MutableStateFlow<Uri?>) {
         Toast(nav.toast) { nav.toast = null }
     }
 }
+
+data class ScreenKey(val tab: Int, val depth: Int, val route: Route)
 
 suspend fun handleLink(app: AppState, uri: Uri) {
     val nav = app.nav
@@ -194,6 +222,8 @@ fun Screen(route: Route) {
         is Route.SharedPlaylist -> SharedPlaylistScreen(route.id)
         is Route.Guess -> GuessGameScreen(route.lobbyId)
         is Route.BlindTest -> BlindTestScreen(route.lobbyId)
+        is Route.Genre -> GenreScreen(route.name)
+        Route.Import -> ImportScreen()
     }
 }
 
@@ -223,15 +253,32 @@ private fun BottomBar() {
 
 @Composable
 private fun NavItem(label: String, on: ImageVector, off: ImageVector, selected: Boolean, badge: Int = 0, onClick: () -> Unit) {
-    val color = if (selected) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant
+    val color by androidx.compose.animation.animateColorAsState(
+        if (selected) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant, tween(220), label = "navc")
+    // pop: the icon jumps and settles every time the tab gets selected
+    val pop = remember { androidx.compose.animation.core.Animatable(1f) }
+    LaunchedEffect(selected) {
+        if (selected) { pop.snapTo(0.7f); pop.animateTo(1f, androidx.compose.animation.core.spring(dampingRatio = 0.35f, stiffness = 500f)) }
+    }
+    val pill by androidx.compose.animation.core.animateFloatAsState(
+        if (selected) 1f else 0f, androidx.compose.animation.core.spring(dampingRatio = 0.6f, stiffness = 400f), label = "pill")
     Column(
-        Modifier.bouncy(onClick).padding(horizontal = 8.dp),
+        Modifier.bouncy(onClick).padding(horizontal = 6.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        BadgedBox(badge = {
-            if (badge > 0) Badge(containerColor = MaterialTheme.colorScheme.primary) { Text("$badge") }
-        }) {
-            Icon(if (selected) on else off, label, tint = color, modifier = Modifier.size(26.dp))
+        Box(contentAlignment = Alignment.Center) {
+            Box(
+                Modifier.size(width = 54.dp, height = 32.dp)
+                    .graphicsLayer { scaleX = 0.4f + 0.6f * pill; alpha = pill }
+                    .clip(androidx.compose.foundation.shape.CircleShape)
+                    .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.22f))
+            )
+            BadgedBox(badge = {
+                if (badge > 0) Badge(containerColor = MaterialTheme.colorScheme.primary) { Text("$badge") }
+            }) {
+                Icon(if (selected) on else off, label, tint = color,
+                    modifier = Modifier.size(26.dp).graphicsLayer { scaleX = pop.value; scaleY = pop.value })
+            }
         }
         Text(label, style = MaterialTheme.typography.labelSmall, color = color, modifier = Modifier.padding(top = 3.dp))
     }

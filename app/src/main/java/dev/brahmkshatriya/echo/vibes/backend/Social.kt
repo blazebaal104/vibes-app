@@ -106,6 +106,22 @@ class Social(context: Context, val supa: Supa) {
         bootstrap()
     }
 
+    /** Uploads a square profile photo (already compressed) and saves its public URL. */
+    suspend fun uploadAvatar(jpeg: ByteArray) {
+        val id = uid ?: return
+        val path = "$id/avatar_${System.currentTimeMillis()}.jpg"
+        supa.upload("vibes-avatars", path, jpeg, "image/jpeg")
+        val url = "${Supa.URL}/storage/v1/object/public/vibes-avatars/$path"
+        supa.update("vibes_profiles", "id=eq.$id", buildJsonObject { put("avatar_url", url) })
+        _me.update { it?.copy(avatarUrl = url) }
+    }
+
+    suspend fun removeAvatar() {
+        val id = uid ?: return
+        supa.update("vibes_profiles", "id=eq.$id", buildJsonObject { put("avatar_url", kotlinx.serialization.json.JsonNull) })
+        _me.update { it?.copy(avatarUrl = null) }
+    }
+
     suspend fun updateProfile(
         displayName: String? = null, bio: String? = null, emoji: String? = null,
         color: String? = null, top4: List<SongRef>? = null,

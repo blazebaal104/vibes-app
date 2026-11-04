@@ -4,6 +4,7 @@ import dev.brahmkshatriya.echo.common.MusicExtension
 import dev.brahmkshatriya.echo.common.clients.AlbumClient
 import dev.brahmkshatriya.echo.common.clients.ArtistClient
 import dev.brahmkshatriya.echo.common.clients.HomeFeedClient
+import dev.brahmkshatriya.echo.common.clients.LibraryFeedClient
 import dev.brahmkshatriya.echo.common.clients.LoginClient
 import dev.brahmkshatriya.echo.common.clients.PlaylistClient
 import dev.brahmkshatriya.echo.common.clients.SearchFeedClient
@@ -176,6 +177,29 @@ class MusicEngine(
             is Track -> item to listOf(item)
             else -> item to emptyList()
         }
+    }
+
+    /** Playlists saved in the user's Deezer account (shown in Vibes' Library). */
+    suspend fun libraryPlaylists(): List<Playlist> = withContext(Dispatchers.IO) {
+        val ext = extension()
+        val feed = ext.getAs<LibraryFeedClient, dev.brahmkshatriya.echo.common.models.Feed<Shelf>> { loadLibraryFeed() }.getOrThrow()
+        val tabs = feed.notSortTabs
+        val shelves = if (tabs.isEmpty()) feed.getPagedData(null).pagedData.loadPage(null).data
+        else tabs.flatMap { tab -> runCatching { feed.getPagedData(tab).pagedData.loadPage(null).data }.getOrDefault(emptyList()) }
+        shelves.flatMap { s ->
+            when (s) {
+                is Shelf.Item -> listOf(s.media)
+                is Shelf.Lists.Items -> s.list
+                else -> emptyList()
+            }
+        }.filterIsInstance<Playlist>().distinctBy { it.id }
+    }
+
+    /** Every track of a Deezer playlist (for importing it into Vibes). */
+    suspend fun allTracks(playlist: Playlist): List<Track> = withContext(Dispatchers.IO) {
+        val ext = extension()
+        val full = ext.getAs<PlaylistClient, Playlist> { loadPlaylist(playlist) }.getOrDefault(playlist)
+        ext.getAs<PlaylistClient, List<Track>> { loadTracks(full).pagedDataOfFirst().loadAll() }.getOrDefault(emptyList())
     }
 
     // ------------------------------------------------------------------ playback
