@@ -1,0 +1,450 @@
+<?xml version="1.0" encoding="utf-8"?>
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent">
+
+    <!-- Gradient colour overlay sits behind everything -->
+    <ImageView
+        android:id="@+id/tv_bg_gradient"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:importantForAccessibility="no"
+        app:srcCompat="@drawable/gradient_track"
+        app:tint="?echoBackground" />
+
+    <!-- Horizontal split: album art (hero) | info + controls. Hero pass: left weight 0.5 -> 0.55 and the
+         top margin trimmed from ?actionBarSize -> 24dp for the realistic ~10% cover gain (cover is
+         height-bound past this — do not push further). -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:layout_marginTop="?attr/actionBarSize"
+        android:baselineAligned="false"
+        android:orientation="horizontal">
+
+        <!-- Left panel: album art, forced square -->
+        <androidx.constraintlayout.widget.ConstraintLayout
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_weight="0.55">
+
+            <com.google.android.material.imageview.ShapeableImageView
+                android:id="@+id/tv_album_art"
+                android:layout_width="0dp"
+                android:layout_height="0dp"
+                android:layout_marginStart="48dp"
+                android:layout_marginTop="48dp"
+                android:layout_marginEnd="24dp"
+                android:layout_marginBottom="48dp"
+                android:focusable="false"
+                android:importantForAccessibility="no"
+                android:scaleType="fitCenter"
+                app:layout_constraintBottom_toBottomOf="parent"
+                app:layout_constraintDimensionRatio="H,1:1"
+                app:layout_constraintEnd_toEndOf="parent"
+                app:layout_constraintStart_toStartOf="parent"
+                app:layout_constraintTop_toTopOf="parent"
+                app:shapeAppearanceOverlay="@style/TvCoverShape" />
+
+        </androidx.constraintlayout.widget.ConstraintLayout>
+
+        <!-- Right panel: info + controls. paddingEnd trimmed 56 -> 32 (symmetric with paddingStart) to
+             protect the enlarged control-row's horizontal fit; paddingVertical 24 -> 32 for breathing room
+             (the panel has vertical slack). -->
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_weight="0.5"
+            android:gravity="center_vertical"
+            android:orientation="vertical"
+            android:paddingStart="32dp"
+            android:paddingEnd="32dp"
+            android:paddingVertical="32dp">
+
+            <!-- Title row: title + heart -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:gravity="center_vertical"
+                android:orientation="horizontal">
+
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:orientation="vertical">
+
+                    <TextView
+                        android:id="@+id/tv_track_title"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:ellipsize="marquee"
+                        android:maxLines="1"
+                        android:textSize="34sp"
+                        android:textStyle="bold"
+                        tools:text="Track Title" />
+
+                    <TextView
+                        android:id="@+id/tv_track_artist"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:ellipsize="end"
+                        android:maxLines="1"
+                        android:paddingTop="4dp"
+                        android:textSize="22sp"
+                        tools:text="Artist Name" />
+
+                </LinearLayout>
+
+                <!-- buttonTint is button_player_heart, NOT button_player: the heart is the one
+                     transport-row control representing a persistent CHOICE, so liked vs unliked must
+                     read as a COLOUR change and not only as a fill shape. Matches the phone player's
+                     trackHeart (item_player_controls.xml). TV lands on the selector's
+                     ?attr/colorTertiary for the checked state - PlayerFragment's runtime accent
+                     override does not run here, which is exactly what that file's pre-tint default
+                     exists for. -->
+                <com.google.android.material.checkbox.MaterialCheckBox
+                    android:id="@+id/tv_track_heart"
+                    android:layout_width="64dp"
+                    android:layout_height="64dp"
+                    android:layout_marginStart="8dp"
+                    android:background="@drawable/ripple_60dp"
+                    android:button="@drawable/anim_heart_40dp"
+                    android:contentDescription="@string/like"
+                    android:focusable="true"
+                    android:foreground="@drawable/tv_focus_indicator"
+                    android:nextFocusDown="@+id/tv_seek_bar"
+                    android:nextFocusUp="@+id/tv_minimize_button"
+                    android:nextFocusLeft="@id/tv_track_heart"
+                    android:nextFocusRight="@id/tv_track_heart"
+                    app:buttonTint="@color/button_player_heart" />
+
+            </LinearLayout>
+
+            <!-- Seek bar (buffer + slider overlapping) -->
+            <FrameLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="24dp">
+
+                <!-- Despite the id this draws ONLY the inactive rail; the buffer indicator is transparent
+                     for the same structural reason as the phone's bufferBar (see the full note in
+                     item_player_controls.xml): DeterminateDrawable assigns endFraction and never
+                     startFraction, so the indicator can only fill from the LEFT EDGE and drew a solid
+                     accent line under the whole played portion, showing through the wave. Reversal is two
+                     lines — this colour AND the setIndicatorColor call in PlayerTvFragment's colours block,
+                     which would otherwise override it at runtime.
+                     3dp rather than the phone's 2dp: the thinner-rail hierarchy transfers, but dp is
+                     density-independent and not DISTANCE-independent, so a 2dp line at three metres is far
+                     fainter than 2dp at arm's length. Half the 4dp+ wave without vanishing.
+                     KNOWN COST: no buffer display on the TV player. Real on a slow connection. -->
+                <!-- Mirrors item_player_controls.xml's bufferBar - amoled_fg with a 0.3 alpha carrying the
+                     played/unplayed distinction now that both halves share one hue. Rationale at
+                     PlayerFragment's seekWaveBar block. -->
+                <com.google.android.material.progressindicator.LinearProgressIndicator
+                    android:id="@+id/tv_buffer_bar"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_gravity="center_vertical"
+                    android:layout_marginHorizontal="12dp"
+                    android:alpha="0.3"
+                    app:indicatorColor="@android:color/transparent"
+                    app:indicatorTrackGapSize="0dp"
+                    app:trackColor="@color/amoled_fg"
+                    app:trackThickness="3dp" />
+
+                <!-- Wavy POSITION track — TV twin of item_player_controls.xml's seekWaveBar; see the note
+                     there for the ordering, the pinned layout_height and the accessibility rationale.
+                     Amplitude matches the phone's 6dp rather than Material's 3dp default: the shipped
+                     default is tuned for legibility at arm's length and read as too shallow on both
+                     surfaces. Extent is therefore trackThickness + waveAmplitude * 2 = 4 + 12 = 16dp, which
+                     the 20dp layout_height below still clears — RAISE THE PIN IF AMPLITUDE GOES HIGHER,
+                     or the crests clip silently (symptom: a flat-topped wave that will not get taller).
+                     focusable=false is TV-specific: tv_seek_bar sits in the D-pad chain via nextFocusUp/
+                     nextFocusDown, and a focusable sibling inserted between it and tv_buffer_bar could
+                     break that traversal. LinearProgressIndicator is not clickable so it should not take
+                     focus anyway — this is explicit because it is the one surface where it would matter.
+                     Ordering also keeps the Slider's focus halo (haloRadius 28dp, colorPrimary when
+                     focused per tv_slider_focus_selector) drawing above the wave rather than under it. -->
+                <com.google.android.material.progressindicator.LinearProgressIndicator
+                    android:id="@+id/tv_seek_wave_bar"
+                    style="@style/EchoLinearProgressIndicator.Wavy"
+                    android:layout_width="match_parent"
+                    android:layout_height="20dp"
+                    android:layout_gravity="center_vertical"
+                    android:layout_marginHorizontal="12dp"
+                    android:focusable="false"
+                    android:importantForAccessibility="no"
+                    app:indicatorColor="?attr/colorTertiary"
+                    app:waveAmplitude="6dp"
+                    app:wavelength="40dp"
+                    app:trackThickness="4dp" />
+
+                <!-- DELIBERATE DIVERGENCE from the phone, which uses a 4dp-wide BAR thumb. TV keeps the
+                     24dp CIRCLE for three reasons: (1) the thumb doubles as the focus indicator and sits
+                     inside a 28dp-radius colorPrimary halo (tv_slider_focus_selector) — a circle in a
+                     circle reads as one focus target, a 4dp line in a 56dp disc does not; (2) the halo is
+                     already at its geometric limit (28dp radius vs the Slider's 26dp half-height, with
+                     minTouchTargetSize=56dp making the room), and thumbHeight feeds widgetThickness in
+                     BaseSlider.onMeasure, so changing it risks clipping the halo; (3) the bar shape
+                     communicates a precise grabbable position, and TV never drags — it seeks in +/-10s
+                     D-pad steps. Do not "unify" these two thumbs. -->
+                <com.google.android.material.slider.Slider
+                    android:id="@+id/tv_seek_bar"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="-3dp"
+                    android:layout_marginEnd="-3dp"
+                    android:contentDescription="@string/seekbar"
+                    android:focusable="true"
+                    android:nextFocusDown="@+id/tv_track_play_pause"
+                    android:nextFocusUp="@+id/tv_track_heart"
+                    android:paddingVertical="24dp"
+                    android:value="0.5"
+                    app:haloColor="@color/tv_slider_focus_selector"
+                    app:haloRadius="28dp"
+                    app:labelBehavior="gone"
+                    app:minTouchTargetSize="56dp"
+                    app:thumbColor="?attr/colorTertiary"
+                    app:thumbHeight="24dp"
+                    app:thumbWidth="24dp"
+                    app:trackColorActive="@android:color/transparent"
+                    app:trackColorInactive="@android:color/transparent"
+                    app:trackHeight="4dp"
+                    app:trackStopIndicatorSize="0dp" />
+
+            </FrameLayout>
+
+            <!-- Time labels -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:paddingHorizontal="12dp">
+
+                <TextView
+                    android:id="@+id/tv_current_time"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:textSize="16sp"
+                    tools:text="0:00" />
+
+                <View
+                    android:layout_width="0dp"
+                    android:layout_height="0dp"
+                    android:layout_weight="1" />
+
+                <TextView
+                    android:id="@+id/tv_total_time"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:alpha="0.66"
+                    android:textSize="16sp"
+                    tools:text="3:45" />
+
+            </LinearLayout>
+
+            <!-- Controls row: shuffle | prev | play/pause | next | repeat. Sizes grown (hero pass); same 5
+                 buttons, same order, same nextFocus wiring — focus graph identical. No inter-button gaps
+                 added, to guarantee the row does not overflow the panel width. -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="16dp"
+                android:gravity="center"
+                android:orientation="horizontal">
+
+                <com.google.android.material.checkbox.MaterialCheckBox
+                    android:id="@+id/tv_track_shuffle"
+                    android:layout_width="72dp"
+                    android:layout_height="72dp"
+                    android:background="@drawable/ripple_60dp"
+                    android:button="@drawable/anim_shuffle"
+                    android:contentDescription="@string/shuffle"
+                    android:focusable="true"
+                    android:foreground="@drawable/tv_focus_indicator"
+                    android:nextFocusDown="@id/tv_track_shuffle"
+                    android:nextFocusLeft="@id/tv_track_repeat"
+                    android:nextFocusRight="@+id/tv_track_previous"
+                    android:nextFocusUp="@id/tv_seek_bar"
+                    android:outlineProvider="none"
+                    app:buttonTint="@color/button_player" />
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/tv_track_previous"
+                    style="?attr/materialIconButtonStyle"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:background="@drawable/ripple_60dp"
+                    android:contentDescription="@string/previous"
+                    android:enabled="false"
+                    android:focusable="true"
+                    android:foreground="@drawable/tv_focus_indicator"
+                    android:nextFocusDown="@id/tv_track_previous"
+                    android:nextFocusLeft="@id/tv_track_shuffle"
+                    android:nextFocusRight="@+id/tv_track_play_pause"
+                    android:nextFocusUp="@id/tv_seek_bar"
+                    android:outlineProvider="none"
+                    app:elevation="1dp"
+                    app:icon="@drawable/ic_skip_previous_40dp"
+                    app:iconSize="48dp"
+                    app:iconTint="@color/button_player" />
+
+                <FrameLayout
+                    android:layout_width="96dp"
+                    android:layout_height="96dp">
+
+                    <com.google.android.material.progressindicator.CircularProgressIndicator
+                        android:id="@+id/tv_playing_indicator"
+                        android:layout_width="match_parent"
+                        android:layout_height="match_parent"
+                        android:alpha="0"
+                        android:clickable="false"
+                        android:indeterminate="true"
+                        app:indicatorSize="84dp" />
+
+                    <com.google.android.material.checkbox.MaterialCheckBox
+                        android:id="@+id/tv_track_play_pause"
+                        android:layout_width="96dp"
+                        android:layout_height="96dp"
+                        android:background="@drawable/ripple_68dp"
+                        android:button="@drawable/anim_play_pause_48dp"
+                        android:checked="true"
+                        android:contentDescription="@string/play"
+                        android:focusable="true"
+                        android:foreground="@drawable/tv_focus_indicator"
+                        android:nextFocusDown="@id/tv_track_play_pause"
+                        android:nextFocusLeft="@id/tv_track_previous"
+                        android:nextFocusRight="@+id/tv_track_next"
+                        android:nextFocusUp="@id/tv_seek_bar"
+                        app:buttonTint="@color/button_player" />
+
+                </FrameLayout>
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/tv_track_next"
+                    style="?attr/materialIconButtonStyle"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:background="@drawable/ripple_60dp"
+                    android:contentDescription="@string/next"
+                    android:enabled="false"
+                    android:focusable="true"
+                    android:foreground="@drawable/tv_focus_indicator"
+                    android:nextFocusDown="@id/tv_track_next"
+                    android:nextFocusLeft="@id/tv_track_play_pause"
+                    android:nextFocusRight="@+id/tv_track_repeat"
+                    android:nextFocusUp="@id/tv_seek_bar"
+                    android:outlineProvider="none"
+                    app:elevation="1dp"
+                    app:icon="@drawable/ic_skip_next_40dp"
+                    app:iconSize="48dp"
+                    app:iconTint="@color/button_player" />
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/tv_track_repeat"
+                    style="?attr/materialIconButtonStyle"
+                    android:layout_width="72dp"
+                    android:layout_height="72dp"
+                    android:background="@drawable/ripple_60dp"
+                    android:contentDescription="@string/repeat"
+                    android:focusable="true"
+                    android:foreground="@drawable/tv_focus_indicator"
+                    android:nextFocusDown="@id/tv_track_repeat"
+                    android:nextFocusLeft="@id/tv_track_next"
+                    android:nextFocusRight="@id/tv_track_shuffle"
+                    android:nextFocusUp="@id/tv_seek_bar"
+                    android:outlineProvider="none"
+                    android:padding="12dp"
+                    app:icon="@drawable/ic_repeat_off_40dp"
+                    app:iconSize="36dp"
+                    app:iconTint="@color/amoled_fg" />
+
+            </LinearLayout>
+
+            <!-- ═══ TV DIVERGENCES FROM THE PHONE PLAYER - ALL DELIBERATE, DO NOT "UNIFY" ═══
+                 Four differences, recorded together so this file explains itself:
+
+                 1. STREAM INFO PLACEMENT. Phone moved this to a small centred PILL on the timestamp line
+                    (12sp, ellipsized, ~210dp cap). TV keeps it as a full-width centred label BELOW the
+                    transport row. A pill between two timestamps is unreadable at lean-back distance, and
+                    TV has the vertical room the phone does not.
+                 2. SEEK THUMB SHAPE. Phone uses a 4x44dp BAR; TV keeps a 24dp CIRCLE. The thumb doubles
+                    as the D-pad focus indicator inside a 28dp-radius halo, a circle-in-circle reads as one
+                    focus target, and thumbHeight feeds widgetThickness so changing it risks clipping the
+                    halo. See the note on tv_seek_bar.
+                 3. NO OVERFLOW BUTTON. Phone moved its overflow out of the toolbar menu to a view beside
+                    the heart. On TV that would be another focus target competing with the transport row
+                    in the D-pad chain - the same argument as the thumb.
+                 4. NO EXTENSION ICON. Phone shows the playing extension's icon top-right. Arguable for TV
+                    and not ruled out, but it needs the focus question answered first (decorative and
+                    skipped, or focusable and in the chain) and TV's toolbar has its own insets. If it is
+                    ever added it gets its own pass, not a fold-in.
+
+                 What IS shared: the wavy seek bar and its ramp thresholds live in
+                 EchoLinearProgressIndicator.Wavy precisely because they are statements about the
+                 component, not per-surface tuning. Amplitude, thickness and thumb sizing are per-surface. -->
+
+            <!-- Quality / stream info label -->
+            <TextView
+                android:id="@+id/tv_track_subtitle"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="16dp"
+                android:ellipsize="end"
+                android:gravity="center"
+                android:maxLines="1"
+                android:textAppearance="@style/TextAppearance.AppCompat.Small"
+                android:textColor="@color/amoled_fg"
+                android:textSize="16sp"
+                tools:text="320kbps · FLAC" />
+
+        </LinearLayout>
+
+    </LinearLayout>
+
+    <!-- Toolbar: back + Playing From context + more menu -->
+    <com.google.android.material.appbar.MaterialToolbar
+        android:id="@+id/tv_toolbar"
+        style="@style/PlayerToolbarStyle"
+        android:layout_gravity="top" />
+
+    <!-- Minimize chevron — RELOCATED to top-left (was the top of the right panel). This is the SAME single
+         @id/tv_minimize_button (same configureBack click handler), re-parented here — NOT a new view. It is
+         the LAST child so it draws over the top-left of the cover. The toolbar's own PlayerToolbarStyle
+         navigationIcon is a LATENT second chevron, suppressed only by configureBack's `navigationIcon =
+         null`; that line and the shared style are intentionally left untouched, so no duplicate can appear.
+         Focus is ID-based, so re-parenting preserves heart.Up <-> minimize.Down. Circular scrim keeps it
+         legible over any cover; 44dp icon + tv_focus_indicator ring = 10-foot prominence. ~48/27dp margins
+         = 5% overscan safe area (tune here). -->
+    <com.google.android.material.button.MaterialButton
+        android:id="@+id/tv_minimize_button"
+        style="?attr/materialIconButtonStyle"
+        android:layout_width="64dp"
+        android:layout_height="64dp"
+        android:layout_gravity="top|start"
+        android:layout_marginStart="48dp"
+        android:layout_marginTop="16dp"
+        android:background="@drawable/tv_minimize_scrim"
+        android:contentDescription="@string/back"
+        android:focusable="true"
+        android:foreground="@drawable/tv_focus_indicator"
+        android:insetLeft="0dp"
+        android:insetRight="0dp"
+        android:insetTop="0dp"
+        android:insetBottom="0dp"
+        android:minWidth="0dp"
+        android:minHeight="0dp"
+        android:padding="0dp"
+        android:nextFocusDown="@+id/tv_track_heart"
+        android:nextFocusLeft="@id/tv_minimize_button"
+        android:nextFocusRight="@id/menu_more"
+        android:nextFocusUp="@id/tv_minimize_button"
+        android:outlineProvider="none"
+        app:icon="@drawable/ic_expand_more"
+        app:iconSize="44dp"
+        app:iconTint="@color/button_player" />
+
+</FrameLayout>

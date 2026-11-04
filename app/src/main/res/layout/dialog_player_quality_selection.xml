@@ -1,0 +1,344 @@
+<?xml version="1.0" encoding="utf-8"?>
+<androidx.core.widget.NestedScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:clipToPadding="false"
+        android:orientation="vertical"
+        android:padding="24dp">
+
+        <com.google.android.material.appbar.MaterialToolbar
+            android:id="@+id/topAppBar"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="-20dp"
+            android:layout_marginTop="-24dp"
+            android:layout_marginEnd="-20dp"
+            android:background="@null"
+            android:paddingStart="0dp"
+            android:paddingEnd="4dp"
+            app:menu="@menu/settings_menu"
+            app:navigationIcon="@drawable/ic_close"
+            app:title="@string/quality_selection"
+            app:titleCentered="true" />
+
+        <com.google.android.material.progressindicator.LinearProgressIndicator
+            android:id="@+id/progressIndicator"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="-24dp"
+            android:layout_marginEnd="-24dp"
+            android:indeterminate="true" />
+
+        <!-- OUTPUT CARD + CAST SLOT. Above the format line and the server chips. The card is a
+             LABEL PLUS A HAND-OFF, not a switcher: there is no in-app device selection, the tap
+             opens system settings (AudioOutput.openSystemOutputSettings) and the volume half is
+             media3's deviceVolume. Nothing in this block touches the player.
+             ⚠⚠ ONE HORIZONTAL MARGIN FOR EVERY CONTENT ELEMENT, AND IT IS THE ROOT'S
+             24dp PADDING - NOT A PER-CHILD MARGIN. Card, slider, format line, headings and chip
+             groups are all match_parent with no horizontal margin of their own, so they share one
+             start edge by construction rather than by four numbers agreeing. The toolbar and the
+             progress indicator keep their negative margins: those are chrome that is meant to
+             bleed past the content column, not content.
+             The Cast button stays OUTSIDE the card, as a sibling to its end. -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
+
+            <LinearLayout
+                android:id="@+id/outputRow"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:background="@drawable/shape_rounded_item_corner"
+                android:backgroundTint="?attr/colorSurfaceContainerHigh"
+                android:clickable="true"
+                android:focusable="true"
+                android:gravity="center_vertical"
+                android:minHeight="56dp"
+                android:orientation="horizontal"
+                android:paddingHorizontal="16dp"
+                android:paddingVertical="8dp">
+
+                <!-- 40dp TONAL CIRCLE AS ONE VIEW, NOT TWO. The padding is what makes the 24dp
+                     glyph: an ImageView insets its drawable by its padding, so 40 - 8 - 8 = 24
+                     without a FrameLayout wrapper to keep in step. shape_oval is solid white and
+                     tinted, so the container colour is one attribute. -->
+                <ImageView
+                    android:id="@+id/outputIcon"
+                    android:layout_width="40dp"
+                    android:layout_height="40dp"
+                    android:layout_marginEnd="12dp"
+                    android:background="@drawable/shape_oval"
+                    android:backgroundTint="?attr/colorSecondaryContainer"
+                    android:importantForAccessibility="no"
+                    android:padding="8dp"
+                    android:src="@drawable/ic_speaker_24dp"
+                    app:tint="?attr/colorOnSecondaryContainer" />
+
+                <!-- TWO LINES, NO CHIP. The outlined Chip is gone: it was a status pill wearing a
+                     control's clothes, it needed clickable/focusable/ensureMinTouchTargetSize all
+                     turned off to stop it swallowing the row's tap, and it competed with the
+                     device name for the eye. Secondary text on a second line says the same thing
+                     and needs none of that.
+                     layout_weight=1 on the COLUMN is what gives the name the full width it has
+                     left - the chip used to take a bite out of it. -->
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:orientation="vertical">
+
+                    <TextView
+                        android:id="@+id/outputLabel"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:ellipsize="end"
+                        android:maxLines="1"
+                        android:textAppearance="?attr/textAppearanceTitleMedium"
+                        android:textStyle="bold"
+                        tools:text="@string/phone_speaker" />
+
+                    <TextView
+                        android:id="@+id/outputState"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:ellipsize="end"
+                        android:maxLines="1"
+                        android:text="@string/connected"
+                        android:textAppearance="?attr/textAppearanceBodySmall"
+                        android:textColor="?attr/colorOnSurfaceVariant" />
+                </LinearLayout>
+
+                <ImageView
+                    android:id="@+id/outputVolumeIcon"
+                    android:layout_width="20dp"
+                    android:layout_height="20dp"
+                    android:layout_marginStart="12dp"
+                    android:importantForAccessibility="no"
+                    android:src="@drawable/ic_volume_up_24dp" />
+
+                <TextView
+                    android:id="@+id/outputVolumePercent"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="4dp"
+                    android:maxLines="1"
+                    tools:text="62%" />
+            </LinearLayout>
+
+            <!-- THE RESERVED SLOT, NOW THE ROUTE BUTTON (Build 1, 2026-10-16). Same id, same
+                 48dp box, so the row's geometry is unchanged from when it was a placeholder.
+                 ⚠⚠ STARTS invisible AND IS ONLY SHOWN ONCE CastContext INITIALISES.
+                 After that MediaRouteButton manages its OWN visibility from route discovery, so
+                 it hides itself again when no receiver is on the network - that is the library's
+                 behaviour and it is correct; do not force it visible.
+                 ⚠️ NO contentDescription AND NO TINT ATTRIBUTE, BOTH DELIBERATE.
+                 MediaRouteButton supplies its own content description ("Cast" / "Stop casting")
+                 from mediarouter's strings, which is better than ours and stays localised. And
+                 app:mediaRouteButtonTint is NOT set because mediarouter is a brand-new
+                 dependency whose AAR is not in the Gradle cache yet - per
+                 .claude/rules/ResourceLinking.md an unverified attribute is a resource-linking
+                 failure waiting to happen. Add the tint once the AAR can be inspected. -->
+            <androidx.mediarouter.app.MediaRouteButton
+                android:id="@+id/castSlot"
+                android:layout_width="48dp"
+                android:layout_height="48dp"
+                android:layout_marginStart="4dp"
+                android:background="@android:color/transparent"
+                android:visibility="invisible" />
+        </LinearLayout>
+
+        <!-- SYSTEM MEDIA VOLUME (STREAM_MUSIC), via media3's deviceVolume - NEVER player.volume.
+             See the note at PlayerViewModel.deviceVolume. The separate "Volume" heading is gone:
+             the label lives inside the track now.
+             ⚠⚠ THE -18dp HORIZONTAL MARGIN IS NOT A FUDGE, IT IS trackSidePadding.
+             BaseSlider.loadResources (1.14.0 bytecode) sets minTrackSidePadding from
+             mtrl_slider_track_side_padding = 16dp, and updateTrackWidth recomputes
+             trackSidePadding = minTrackSidePadding + max(max(a,b), max(c,d)) over the thumb/halo/
+             tick/label widths. So a match_parent Slider draws its TRACK inset by at least 16dp
+             per side - the view would line up with the card and the visible track would not.
+             16dp + thumbWidth/2 (2dp) = 18dp, and haloRadius=0dp below removes the halo term so
+             that sum is the whole of it. The root's 24dp padding absorbs the -18dp, so nothing
+             leaves the content column and nothing is clipped.
+             ⚠️ THAT 18dp IS DERIVED, NOT MEASURED - the 4-way max may contribute a
+             term I did not decode. If the track is still inset or now overhangs, this is the
+             number to adjust, and it is the only one.
+             Every slider attribute used here was checked against the Material 1.14.0 AAR's R.txt
+             (int styleable Slider_*) per .claude/rules/ResourceLinking.md: trackHeight,
+             trackCornerSize, trackInsideCornerSize, thumbWidth, thumbHeight, thumbTrackGapSize,
+             haloRadius, trackStopIndicatorSize, labelBehavior all exist, and so do all seven
+             track-icon attributes (trackIconActiveStart/End, trackIconInactiveStart/End,
+             trackIconSize, trackIconActiveColor, trackIconInactiveColor).
+             ⚠⚠ trackIconActiveStart IS SET AND trackIconInactiveStart IS DELIBERATELY
+             NOT, BECAUSE SETTING BOTH DRAWS TWO SPEAKERS. BaseSlider.drawTrackIcons (1.14.0,
+             BaseSlider.java:2989-2990) draws the active-start icon at the left edge of the
+             ACTIVE rect and the inactive-start icon at the left edge of the INACTIVE rect - and
+             the inactive rect begins at the THUMB, not at the track start. So at any middle
+             volume both rects clear the fit test and both icons render: one pinned at the far
+             left, one riding just ahead of the thumb. ONE icon that the fill passes over and
+             recolours is not expressible with these attributes.
+             ⚠️ WHAT THE ONE ICON DOES INSTEAD: it is pinned at the track start in
+             trackIconActiveColor, i.e. always on the ACTIVE fill, so it can never straddle the
+             boundary the way the removed overlay did. Below roughly trackIconSize + 2 *
+             m3_slider_track_icon_padding of fill it VANISHES rather than turning illegible -
+             calculateTrackIconBounds (BaseSlider.java:3026-3045) empties the bounds when the
+             segment is too narrow. Disappearing at near-zero volume is the trade for never
+             being unreadable, and the percentage in the row above still reads the value.
+             trackIconPadding is NOT a styleable attr - it is the m3_slider_track_icon_padding
+             dimen read in BaseSlider.loadResources - so it cannot be tuned from here.
+             ⚠️ THE CONTENT DESCRIPTION LIVES ON THE SLIDER, which is where it has to
+             be now that there is no label View: the icon is a canvas draw, not a child, so it
+             has nothing to describe itself with. -->
+        <com.google.android.material.slider.Slider
+            android:id="@+id/volumeSlider"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginHorizontal="-18dp"
+            android:layout_marginTop="8dp"
+            android:contentDescription="@string/volume"
+            android:stepSize="1"
+            android:value="0"
+            android:valueFrom="0"
+            android:valueTo="1"
+            app:haloRadius="0dp"
+            app:labelBehavior="gone"
+            app:thumbHeight="44dp"
+            app:thumbTrackGapSize="6dp"
+            app:thumbWidth="4dp"
+            app:trackCornerSize="22dp"
+            app:trackHeight="44dp"
+            app:trackIconActiveColor="?attr/colorOnPrimary"
+            app:trackIconActiveStart="@drawable/ic_volume_up_24dp"
+            app:trackIconSize="20dp"
+            app:trackInsideCornerSize="4dp"
+            app:trackStopIndicatorSize="0dp" />
+
+        <!-- LEFT-ALIGNED SECONDARY TEXT. The gravity=center is gone: it was the only content
+             element in this sheet that did not share the others' start edge, which is the whole
+             point of the one-margin rule at the output card. It is also the least important line
+             here, so it reads as secondary rather than as a heading. -->
+        <TextView
+            android:id="@+id/streamableInfo"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:paddingVertical="8dp"
+            android:textAppearance="?attr/textAppearanceBodySmall"
+            android:textColor="?attr/colorOnSurfaceVariant"
+            tools:text="@tools:sample/full_names" />
+
+        <TextView
+            android:id="@+id/streamable_server"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:paddingVertical="8dp"
+            android:text="@string/servers"
+            android:textStyle="bold" />
+
+        <com.google.android.material.chip.ChipGroup
+            android:id="@+id/streamable_server_group"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            app:selectionRequired="true"
+            app:singleSelection="true" />
+
+        <TextView
+            android:id="@+id/streamableSource"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:paddingVertical="8dp"
+            android:text="@string/sources"
+            android:textStyle="bold" />
+
+        <com.google.android.material.chip.ChipGroup
+            android:id="@+id/streamableSourceGroup"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            app:selectionRequired="true"
+            app:singleSelection="true" />
+
+        <TextView
+            android:id="@+id/streamableBackgrounds"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:paddingVertical="8dp"
+            android:text="@string/backgrounds"
+            android:textStyle="bold" />
+
+        <com.google.android.material.chip.ChipGroup
+            android:id="@+id/streamableBackgroundGroup"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            app:selectionRequired="true"
+            app:singleSelection="true" />
+
+        <TextView
+            android:id="@+id/streamableSubtitles"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:paddingVertical="8dp"
+            android:text="@string/subtitles"
+            android:textStyle="bold" />
+
+        <com.google.android.material.chip.ChipGroup
+            android:id="@+id/streamableSubtitleGroup"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            app:selectionRequired="true"
+            app:singleSelection="true" />
+
+        <TextView
+            android:id="@+id/trackAudios"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:paddingVertical="8dp"
+            android:text="@string/audio_selection"
+            android:textStyle="bold" />
+
+        <com.google.android.material.chip.ChipGroup
+            android:id="@+id/trackAudiosGroup"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            app:selectionRequired="true"
+            app:singleSelection="true" />
+
+        <TextView
+            android:id="@+id/trackVideos"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:paddingVertical="8dp"
+            android:text="@string/video_selection"
+            android:textStyle="bold" />
+
+        <com.google.android.material.chip.ChipGroup
+            android:id="@+id/trackVideosGroup"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            app:selectionRequired="true"
+            app:singleSelection="true" />
+
+        <TextView
+            android:id="@+id/trackSubtitles"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:paddingVertical="8dp"
+            android:text="@string/subtitle_selection"
+            android:textStyle="bold" />
+
+        <com.google.android.material.chip.ChipGroup
+            android:id="@+id/trackSubtitlesGroup"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            app:selectionRequired="true"
+            app:singleSelection="true" />
+
+    </LinearLayout>
+</androidx.core.widget.NestedScrollView>

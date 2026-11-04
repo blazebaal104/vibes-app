@@ -1,0 +1,354 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <uses-permission android:name="android.permission.VIBRATE" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.INTERNET" />
+    <!-- Android 17 (API 37) LOCAL NETWORK PROTECTION. We target 37, so without this the TV
+         cannot open a TCP connection IN to LocalMediaServer and the connection TIMES OUT rather
+         than failing - which is exactly what build 1141 captured: "register plan=w10 ... token=..."
+         and "materialise done (6416717 bytes)" on our side, playerState=5 on the receiver, NOT ONE
+         "accept from" line, and our own 15 s load timeout. Requested at Cast session start, never
+         at launch - see CastSessionController.onCastStarted.
+         WHY ONLY THE AUDIO FAILED, since that is what made this look like a Cast bug rather than a
+         permission one: discovery and control go through Play Services (its own permissions) and
+         the artwork is an http(s) CDN URL the RECEIVER fetches (CastMediaItemBuilder.artworkUri),
+         so the TV showed title, metadata and cover art with no audio.
+         THE OUTPUT SWITCHER EXEMPTION DOES NOT APPLY. It covers STARTING a cast; what needs the
+         permission here is the receiver connecting IN to a socket we are listening on.
+         ONE PERMISSION COVERS EVERY CAST PLAN THAT USES THE SERVER - Materialise, File and Relay
+         are all served from the single listening socket in LocalMediaServer.serve. CastPlan.Direct
+         needs nothing from us: the receiver fetches the origin itself.
+         OUTBOUND LAN WAS CONSIDERED AND NEEDS NOTHING - DECIDED 2026-10-20, not deferred.
+         LocalMediaServer.relayUpstream and the ordinary StreamableDataSource chain could in
+         principle dial a private address, which would be local-network access too. No extension in
+         use streams from a LAN host (Deezer and the rest are internet services), so there is
+         nothing to build and no second request site. A self-hosted extension would reopen it, and
+         the fix would be a request on the PLAYBACK path - not this one, which is Cast-specific. -->
+    <uses-permission android:name="android.permission.ACCESS_LOCAL_NETWORK" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+    <uses-permission android:name="android.permission.READ_MEDIA_AUDIO" />
+    <!--    <uses-permission android:name="android.permission.READ_MEDIA_VIDEO" />-->
+    <!--    <uses-permission android:name="android.permission.READ_MEDIA_VISUAL_USER_SELECTED" />-->
+    <uses-permission
+        android:name="android.permission.READ_EXTERNAL_STORAGE"
+        android:maxSdkVersion="32" />
+    <uses-permission
+        android:name="android.permission.WRITE_EXTERNAL_STORAGE"
+        android:maxSdkVersion="29" />
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+    <uses-permission android:name="android.permission.REQUEST_DELETE_PACKAGES" />
+    <uses-permission
+        android:name="android.permission.QUERY_ALL_PACKAGES"
+        tools:ignore="QueryAllPackagesPermission" />
+
+    <!-- Android TV support: declare leanback optional so the app installs on TV, and mark
+         touchscreen optional so Play does not implicitly require it (TVs have no touchscreen).
+         Both required="false" keep the app fully available on phones/tablets unchanged. -->
+    <uses-feature
+        android:name="android.software.leanback"
+        android:required="false" />
+    <uses-feature
+        android:name="android.hardware.touchscreen"
+        android:required="false" />
+
+    <!-- Scoped visibility for the Chromium package-name spoof lookup (MainApplication.spoofedPackageName),
+         so that lookup does not depend on QUERY_ALL_PACKAGES. Extension discovery still needs the broad
+         permission above (extensions are matched by <uses-feature>, which <queries> cannot express). -->
+    <queries>
+        <package android:name="com.android.chrome" />
+        <package android:name="com.android.settings" />
+        <!-- So resolveActivity() can reliably detect the system equalizer under API 30+ package
+             visibility; without this the audio-fx sheet would hide the EQ button on devices that
+             actually have one. Absence of a handler (e.g. some Huawei/Honor tablets) hides it. -->
+        <intent>
+            <action android:name="android.media.action.DISPLAY_AUDIO_EFFECT_CONTROL_PANEL" />
+        </intent>
+        <!-- ⚠⚠ REQUIRED BY UiUtils.hasCreateDocument / hasOpenDocument, WHICH GATE THE
+             EXPORT/IMPORT PREFERENCES. Without these, resolveActivity returns null under API 30+
+             package visibility and those four preferences are hidden on devices that CAN handle a
+             picker. Exactly the coupling the equalizer <intent> above documents - the gate and the
+             query ship together or not at all.
+             Two entries because CREATE_DOCUMENT and OPEN_DOCUMENT are distinct actions and are
+             resolved independently. mimeType is a wildcard here on purpose: <queries> declares what
+             we may ASK about, while the real intents carry application/json. -->
+        <intent>
+            <action android:name="android.intent.action.CREATE_DOCUMENT" />
+            <data android:mimeType="*/*" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.OPEN_DOCUMENT" />
+            <data android:mimeType="*/*" />
+        </intent>
+    </queries>
+
+    <application
+        android:name=".MainApplication"
+        android:appCategory="audio"
+        android:banner="@drawable/tv_banner"
+        android:enableOnBackInvokedCallback="true"
+        android:icon="@mipmap/ic_launcher"
+        android:label="@string/app_name"
+        android:requestLegacyExternalStorage="true"
+        android:roundIcon="@mipmap/ic_launcher"
+        android:supportsRtl="true"
+        android:theme="@style/Default"
+        android:usesCleartextTraffic="true"
+        tools:targetApi="33">
+
+        <!-- Cast framework configuration. The VALUE IS AN OPAQUE STRING to AGP, so it generates
+             no keep rule for the class it names - see rule 6 in proguard-rules.pro and the anchor
+             in verifyExtensionAbi. Nothing reads this until CastContext.getSharedInstance runs,
+             which CastAvailability only does when the quality sheet is opened: this meta-data
+             alone starts nothing at launch. -->
+        <meta-data
+            android:name="com.google.android.gms.cast.framework.OPTIONS_PROVIDER_CLASS_NAME"
+            android:value="dev.brahmkshatriya.echo.cast.CastOptionsProvider" />
+        <receiver
+            android:name=".widget.WidgetVertical"
+            android:exported="false"
+            android:label="@string/vertical">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/widget_vertical" />
+        </receiver>
+
+        <receiver
+            android:name=".widget.WidgetCircle"
+            android:exported="false"
+            android:label="@string/circle">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/widget_circle" />
+        </receiver>
+        <receiver
+            android:name=".widget.WidgetHorizontal"
+            android:exported="false"
+            android:label="@string/horizontal">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/widget_horizontal" />
+        </receiver>
+
+        <activity
+            android:name=".MainActivity"
+            android:enableOnBackInvokedCallback="false"
+            android:enabled="true"
+            android:exported="true"
+            android:launchMode="singleTop"
+            android:windowSoftInputMode="stateVisible|adjustPan">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <action android:name="android.media.action.MEDIA_PLAY_FROM_SEARCH" />
+                <action android:name="android.intent.action.VIEW" />
+                <action android:name="android.intent.action.MUSIC_PLAYER" />
+
+                <category android:name="android.intent.category.LAUNCHER" />
+                <!-- TV home-screen launcher entry (additive; phone LAUNCHER above is unchanged). -->
+                <category android:name="android.intent.category.LEANBACK_LAUNCHER" />
+                <category android:name="android.intent.category.APP_MUSIC" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+
+                <data android:scheme="echo" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+
+                <data android:scheme="gladix" />
+            </intent-filter>
+            <!-- ⚠⚠ GLADIX SHARE LINKS. Verified via assetlinks.json at the ROOT of
+                 rschwertley.github.io, which lists BOTH signing certs - the debug keystore (sideloads,
+                 because the release build type signs with it) and Play App Signing. Both are required:
+                 with only one, that half of the installs silently fall back to the browser.
+
+                 ⚠⚠ pathPrefix IS /gladix/o/ AND NOT /gladix/, AND THE REASON IS NOT IN
+                 THIS FILE. Verification is host-level, but the filter is ours to narrow - and the TV
+                 pairing page lives at rschwertley.github.io/gladix/pair.html, which
+                 R.string.tv_pairing_option_3 tells the user to OPEN IN A BROWSER. Claiming /gladix/
+                 would make that link launch the app instead, breaking pairing for exactly the people
+                 who have Gladix installed. Nothing here references that page, so the constraint is
+                 invisible from this file.
+                 ⚠️ [CORRECTED 2026-10-23] R.string.tv_pairing_option_3 NO LONGER EXISTS. The
+                 browser pairing route was removed from the TV screen, and as of 2026-10-23
+                 rschwertley.github.io/gladix/pair.html returns 404. The pairing worker also accepts only
+                 POST /pair and answers no OPTIONS preflight, so that page could not have reached it
+                 anyway. THE NARROW pathPrefix STANDS ON ITS OWN MERITS - it is simply no longer
+                 protecting that link, so do not widen it on the grounds that the reason above has gone.
+                 ⚠️ THIS LINE READ /gladix/open/ UNTIL 2026-09-24 WHILE THE data ELEMENT BELOW
+                 HAS ALWAYS SAID /gladix/o/. Noted rather than silently corrected because the wrong
+                 value very nearly got an open/index.html built on the Pages site - the landing page
+                 lives at /gladix/o/, matching this filter and FragmentUtils.GLADIX_LINK_PREFIX.
+                 THREE PLACES, ONE VALUE: this filter, that constant, and o/index.html in the
+                 rschwertley/gladix repo root. Nothing checks that they agree.
+
+                 ⚠️ https ONLY. We never emit http, so claiming it would add surface we do
+                 not use. Format and parsing: FragmentUtils.openItemFragmentFromGladixLink.
+
+                 ⚠⚠ A FUTURE OWNED DOMAIN IS ADDED ALONGSIDE, NOT SWAPPED IN. An
+                 intent-filter takes MULTIPLE android:host entries, so buying a domain later means
+                 adding it here and hosting assetlinks.json at ITS root too, while
+                 rschwertley.github.io stays claimed for as long as already-shared links matter. The
+                 paths and params do not change; only the host does. A hard swap would silently break
+                 every link already in the wild.
+                 ⚠️ DO NOT TRY TO SOLVE IT WITH A REDIRECT: Android does NOT follow redirects
+                 when fetching assetlinks.json, and a redirected link is not reliably intercepted by
+                 the destination app. Claiming both hosts is the only clean migration. -->
+
+            <!-- ⚠⚠ THE DEEZER FILTER THAT WAS HERE IS GONE, DELIBERATELY. It claimed
+                 www.deezer.com, deezer.page.link, link.deezer.com and dzr.page.link over http+https -
+                 the EIGHT links in the Play Console's "deep links may be failing" warning. It could
+                 never verify (assetlinks must be hosted by the domain owner, and we are not Deezer),
+                 and MainActivity had no http/https handler at all, so a tapped Deezer link opened the
+                 bare app and discarded the URL. It also COMPETED with the standalone Deezer extension
+                 APK, which declares the same four hosts on its own link Opener activity.
+                 Removing it clears the warning entirely rather than reducing it.
+                 ⚠️ REVERSIBLE: if inbound deezer.com links are ever handled here, re-add the
+                 filter AND write the handler - the parser lives in that extension's Opener and is
+                 non-trivial (redirect-following for the link.deezer.com shortener, plus a type/id
+                 parse whose bare-form branch is broken upstream). -->
+            <intent-filter android:autoVerify="true">
+                <action android:name="android.intent.action.VIEW" />
+
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+
+                <data android:scheme="https" />
+                <data android:host="rschwertley.github.io" />
+                <!-- ⚠⚠ THE TRAILING SLASH IS LOAD-BEARING. As "/gladix/o" this would claim
+                     /gladix/october-update.html and every other path starting with "o"; the slash is
+                     what makes a single-letter segment safe. Mirrored in
+                     FragmentUtils.GLADIX_LINK_PREFIX - keep the two in step. -->
+                <data android:pathPrefix="/gladix/o/" />
+            </intent-filter>
+        </activity>
+
+        <activity
+            android:name=".MainActivity$Back"
+            android:enableOnBackInvokedCallback="true"
+            android:enabled="false"
+            android:exported="true"
+            android:launchMode="singleTop"
+            android:windowSoftInputMode="stateVisible|adjustPan">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <action android:name="android.media.action.MEDIA_PLAY_FROM_SEARCH" />
+                <action android:name="android.intent.action.VIEW" />
+                <action android:name="android.intent.action.MUSIC_PLAYER" />
+
+                <category android:name="android.intent.category.LAUNCHER" />
+                <!-- TV home-screen launcher entry (additive; phone LAUNCHER above is unchanged). -->
+                <category android:name="android.intent.category.LEANBACK_LAUNCHER" />
+                <category android:name="android.intent.category.APP_MUSIC" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+
+                <data android:scheme="echo" />
+            </intent-filter>
+        </activity>
+
+        <activity
+            android:name=".ui.extensions.ExtensionOpenerActivity"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+
+                <data android:scheme="content" />
+                <data android:host="*" />
+                <data android:scheme="file" />
+                <data android:pathPattern="/.*" />
+                <data android:pathPattern="/.*\\.eapk" />
+                <data android:mimeType="application/octet-stream" />
+                <data android:mimeType="text/plain" />
+            </intent-filter>
+        </activity>
+
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.provider"
+            android:enabled="true"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/provider_paths" />
+        </provider>
+
+        <service
+            android:name=".playback.PlayerService"
+            android:exported="true"
+            android:foregroundServiceType="mediaPlayback"
+            tools:ignore="ExportedService">
+            <intent-filter>
+                <action android:name="androidx.media3.session.MediaLibraryService" />
+                <action android:name="android.media.browse.MediaBrowserService" />
+            </intent-filter>
+            <meta-data
+                android:name="android.media.browse.MediaBrowserService.Search"
+                android:value="true" />
+        </service>
+
+        <receiver
+            android:name=".playback.PlayerCallback$ButtonReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MEDIA_BUTTON" />
+            </intent-filter>
+        </receiver>
+
+        <provider
+            android:name="androidx.startup.InitializationProvider"
+            android:authorities="${applicationId}.androidx-startup"
+            android:exported="false"
+            tools:node="merge">
+            <meta-data
+                android:name="androidx.work.WorkManagerInitializer"
+                android:value="androidx.startup"
+                tools:node="remove" />
+        </provider>
+
+        <service
+            android:name="androidx.work.impl.foreground.SystemForegroundService"
+            android:foregroundServiceType="dataSync"
+            tools:node="merge" />
+
+        <meta-data
+            android:name="com.google.android.gms.car.application"
+            android:resource="@xml/automotive_app_desc" />
+    </application>
+
+</manifest>

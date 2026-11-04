@@ -1,0 +1,597 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:background="@drawable/shape_rounded_item_corner"
+    android:clipToPadding="false"
+    android:orientation="vertical">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:clipToPadding="false"
+        android:gravity="center"
+        android:paddingHorizontal="16dp"
+        android:translationZ="1dp">
+
+        <View
+            android:id="@+id/trackCoverPlaceHolder"
+            android:layout_width="@dimen/collapsed_cover_size"
+            android:layout_height="match_parent"
+            android:layout_marginEnd="12dp"
+            android:visibility="gone" />
+
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:orientation="vertical">
+
+            <TextView
+                android:id="@+id/trackTitle"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:ellipsize="marquee"
+                android:gravity="bottom"
+                android:maxLines="1"
+                android:minHeight="24dp"
+                android:textSize="20sp"
+                android:textStyle="bold"
+                tools:text="Bruh" />
+
+            <TextView
+                android:id="@+id/trackArtist"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:ellipsize="end"
+                android:maxLines="2"
+                android:paddingBottom="20dp"
+                android:textColorLink="@color/button_player"
+                android:textSize="16sp"
+                tools:text="@tools:sample/lorem/random" />
+        </LinearLayout>
+
+        <com.google.android.material.checkbox.MaterialCheckBox
+            android:id="@+id/trackHeart"
+            android:layout_width="64dp"
+            android:layout_height="64dp"
+            android:background="@drawable/ripple_60dp"
+            android:button="@drawable/anim_heart_36dp"
+            android:contentDescription="@string/like"
+            app:buttonTint="@color/button_player_heart" />
+
+        <!-- Overflow, moved down from the toolbar's menu (more_menu / menu_more) so it sits beside the
+             heart rather than in the top right, which the extension icon now occupies. It is a plain
+             view with a click listener, NOT a menu item, so PlayerToolbarStyle no longer sets `menu`.
+             Whichever control is LAST owns the end margin. trackHeart is gone entirely when the
+             extension has no LikeClient (isVisible is gated on isTrackClient in PlayerFragment), so
+             this must not depend on the heart being present - it is a sibling of the row, not of
+             the heart.
+
+             [CORRECTED 2026-09-14] THIS COMMENT SAID "the row has 24dp horizontal padding". IT IS
+             16dp, AND THAT DISCREPANCY IS THE WHOLE STORY OF A REGRESSION. The -20dp end margin was
+             calibrated against 24dp; `git log -S` puts the 24dp -> 16dp change in 554164ce ("Fix the
+             player's icon sizes and spacing"), while the -20dp predates it (ea3c5f7c / b4b63389, the
+             original player UI). Nobody revisited the margin, so the glyph moved 8dp closer to the
+             screen edge - from 14dp to 6dp - and the row started reading as cramped with nothing
+             visibly broken. The stale number is kept above rather than deleted because it is the
+             evidence: a margin whose stated basis no longer matches the file is the thing to check.
+
+             THE ARITHMETIC, so the next person does not re-derive it. Distance from the row's right
+             edge to the glyph is rowPaddingRight + marginEnd + buttonPaddingRight. The button's
+             10dp padding is Material's own m3_btn_icon_only_default_padding (Widget.Material3
+             .Button.IconButton, read from the 1.14.0 AAR) and is NOT overridden here; 10 + 28 + 10 =
+             48 exactly, so the glyph position is forced by arithmetic and does not depend on whether
+             MaterialButton centres or start-aligns an icon with no text.
+                 -20dp gave 16 - 20 + 10 = 6dp
+                 -10dp gives 16 - 10 + 10 = 16dp   <- matches PlayerTrackCoverContainer's 16dp
+                                                      marginEnd (the album art's right edge) and the
+                                                      row's own 16dp paddingLeft (the title's left
+                                                      edge). That grid is the target; the transport
+                                                      row below sits at 22dp and is the outlier.
+
+             AND -20dp PUT 4dp OF THIS BUTTON OUTSIDE ITS PARENT. The view's right edge landed 4dp
+             past the row's right edge, so the row (clipChildren defaults true) clipped it and ~4dp
+             of the 48dp touch target lay outside the row, where touches are not dispatched. It
+             LOOKED fine only because Widget.Material3.Button.IconButton also sets android:insetLeft
+             /insetRight = m3_btn_inset = 4dp, which shrinks the drawn background by exactly the
+             amount being clipped - so the ripple stopped precisely at the row edge. THAT WAS A
+             COINCIDENCE OF TWO UNRELATED 4dp VALUES, NOT A DESIGN. -10dp removes the overhang
+             entirely. If anyone re-introduces a margin more negative than -16dp here, the button
+             leaves the parent again and the coincidence will not necessarily cover it. -->
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/trackMore"
+            style="@style/Widget.Material3.Button.IconButton"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
+            android:layout_gravity="center_vertical"
+            android:layout_marginEnd="-10dp"
+            android:contentDescription="@string/more"
+            android:insetTop="0dp"
+            android:insetBottom="0dp"
+            app:icon="@drawable/ic_more_vert"
+            app:iconGravity="textStart"
+            app:iconPadding="0dp"
+            app:iconSize="28dp"
+            app:iconTint="@color/button_player" />
+
+    </LinearLayout>
+
+    <!-- This negative margin pulls the seek assembly UP over the title/artist row. It has to be negative
+         at all because the Slider is far taller than it looks: BaseSlider.onMeasure sizes to
+         max(minWidgetThickness, max(trackHeight, thumbHeight) + paddingTop + paddingBottom) = 44 + 76 =
+         120dp here, nearly all of it empty space around a 4dp track. Without the pull, the region below the
+         artist reads as a large void.
+         Relaxed from -36dp to -20dp in the spacing pass: at -36dp the 44dp thumb reached into the artist
+         line, which was the "middle is packed" symptom. The 16dp handed back is the single largest
+         contributor to the crowding between artist, seek bar and timestamps.
+         This GROWS the block by 16dp, and that is intended. Growth is safe and self correcting:
+         PlayerFragment measures this layout into uiViewModel.playerControlsHeight, and
+         PlayerTrackAdapter:157 writes that onto item_player_track.xml's player_controls_placeholder, so the
+         page's cover position and the collapse morph target (toMoveY = placeholder.top - cover.top) both
+         follow it. The 107dp in that placeholder is a design time value only.
+         Growth also SHRINKS the end gaps rather than the reverse: with the cover chain packed (see
+         PlayerTrackCoverContainer) every dp added here comes out of the leftover pooled at the two ends,
+         not out of the cover to title gap, which is now fixed by the cover's own marginBottom. -->
+    <FrameLayout
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="-20dp"
+        android:clipToPadding="false"
+        android:paddingHorizontal="12dp"
+        android:translationZ="-1dp">
+
+        <FrameLayout
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content">
+
+            <!-- Despite the id, this now draws ONLY the inactive rail: its buffer indicator is
+                 deliberately transparent. DeterminateDrawable.setIndicatorFraction() assigns endFraction
+                 and nothing ever assigns startFraction, so it keeps its 0f default — a LinearProgressIndicator
+                 can only ever fill from the LEFT EDGE to `progress`. With buffered >= position that put a
+                 solid accent line under the entire played portion, showing through the wave wherever the
+                 4dp band swung clear of the centre line: the "wave oscillating around a straight line".
+                 There is no way to draw only the useful playhead->buffered segment from one indicator
+                 (ProgressBar.min rescales the fraction, it does not offset the start).
+                 fillTrack() is called with (0f, 1f) unconditionally, so the rail stays continuous across
+                 the full width with the indicator transparent — no gap where it used to be.
+                 progress is still wired in PlayerFragment's progress observer so this is a two-line
+                 reversal: restore ?attr/colorTertiary here AND the setIndicatorColor call in
+                 PlayerFragment's playerColors block, which otherwise overrides this at runtime.
+                 KNOWN COST: no buffer display on the expanded player. Real on a slow connection.
+                 tv_buffer_bar carries the same change; keep the two in step. -->
+            <!-- RAIL COLOUR AND ALPHA ARE LOAD-BEARING TOGETHER - see PlayerFragment's seekWaveBar
+                 block for the full rationale.
+                 amoled_fg, NOT ?attr/colorOnSurface: the wave now uses amoled_fg too, and ONE SOURCE for
+                 both halves is the point - colorOnSurface is wallpaper-derived under DynamicColors on
+                 Android 12+, so the two halves could drift apart per device.
+                 THE ALPHA NOW CARRIES THE PLAYED/UNPLAYED DISTINCTION. While the wave was artwork-tinted,
+                 hue separated the halves and the 2dp-vs-4dp thickness step was a secondary cue. With both
+                 halves the same hue, thickness alone provides NO CONTRAST AT THE BOUNDARY - solid-versus-0.3
+                 is what separates them. Do not raise this back toward the wave's opacity, and do not equalise
+                 the thicknesses. -->
+            <com.google.android.material.progressindicator.LinearProgressIndicator
+                android:id="@+id/bufferBar"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_gravity="center"
+                android:layout_marginHorizontal="12dp"
+                android:alpha="0.3"
+                android:progress="40"
+                app:indicatorColor="@android:color/transparent"
+                app:indicatorTrackGapSize="0dp"
+                app:trackColor="@color/amoled_fg"
+                app:trackThickness="2dp" />
+
+            <!-- Wavy POSITION track. Ordered between bufferBar and seekBar deliberately: later children
+                 draw on top, so the wave covers the buffer's inactive track but the Slider's thumb still
+                 draws over the wave. Moving this after seekBar would paint the wave over the thumb.
+                 The Slider keeps ownership of touch, value and seeking; this draws the active line only,
+                 which is why seekBar's trackColorActive is transparent (and why PlayerFragment's
+                 playerColors block tints THIS view rather than the Slider's track).
+                 layout_height is pinned rather than wrap_content. LinearDrawingDelegate.getPreferredHeight()
+                 is `trackThickness + waveAmplitude * 2` (read from the 1.14.0 artifact), so the wave's real
+                 extent here is 4 + 20 = 24dp. THE PIN MUST BE RAISED WITH THE AMPLITUDE — at 28dp it clears
+                 24dp with slack, but an amplitude bump alone would start clipping the crests silently
+                 (symptom: a trapezoidal, flat-topped wave that does not get taller when you raise
+                 waveAmplitude). Keep the slack at 4dp: adjustCanvas offsets the drawing DOWN by
+                 max(0, (boundsHeight - preferredHeight) / 2), so changing the gap moves the wave off the
+                 rail's centre line.
+                 bufferBar above is deliberately THINNER than this (2dp vs 4dp): the wave and the rail never
+                 coexist spatially — left of the thumb the wave replaces the rail, right of it only the rail
+                 shows — so a thicker active over a thinner inactive reads as hierarchy, not as overhang.
+                 Matching them made the played and unplayed halves carry equal visual weight.
+                 The Slider's thumb is a 4dp x 44dp BAR, not a circle: both are Material's own
+                 m3_comp_slider_active_handle_width/_height.
+                 Material's 44:16 thumb-to-track ratio (2.75:1) would want ~66dp against this 24dp band, and
+                 that is DELIBERATELY not taken: thumbHeight feeds widgetThickness in BaseSlider.onMeasure,
+                 which sizes this Slider, which propagates to uiViewModel.playerControlsHeight and the
+                 collapse morph — 20->28->44 has already spent that budget twice and 66dp compounds it.
+                 44dp still clears the 24dp band by 10dp each side, so the thumb reads as standing over the
+                 crests rather than being swallowed, which is the property that actually matters.
+                 Width stays 4dp: thumbWidth is horizontal and does not feed widgetThickness, so it can be
+                 widened at any time at zero geometric risk; thumbHeight cannot.
+                 thumbHeight feeds widgetThickness in BaseSlider.onMeasure, which sizes this Slider, which
+                 propagates to uiViewModel.playerControlsHeight and the collapse morph. Whether it actually
+                 moves depends on whether minTouchTargetSize=90dp already dominates. The test is free: drag
+                 the player down and watch the cover morph — if it morphs correctly, the height did not move.
+                 importantForAccessibility=no: this duplicates the value the Slider already exposes through
+                 contentDescription, and TalkBack should not announce a second progress bar for it. -->
+            <com.google.android.material.progressindicator.LinearProgressIndicator
+                android:id="@+id/seekWaveBar"
+                style="@style/EchoLinearProgressIndicator.Wavy"
+                android:layout_width="match_parent"
+                android:layout_height="28dp"
+                android:layout_gravity="center"
+                android:layout_marginHorizontal="12dp"
+                android:importantForAccessibility="no"
+                app:indicatorColor="?attr/colorTertiary"
+                app:waveAmplitude="10dp"
+                app:wavelength="40dp"
+                app:trackThickness="4dp" />
+
+            <!-- Thumb is a 4dp x 20dp BAR (Material's own default handle width), not a circle. TV
+                 deliberately keeps a 24dp circle — see the note at fragment_player_tv.xml's tv_seek_bar
+                 for why, and do not unify the two. -->
+            <com.google.android.material.slider.Slider
+                android:id="@+id/seekBar"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="-3dp"
+                android:layout_marginEnd="-3dp"
+                android:contentDescription="@string/seekbar"
+                android:paddingVertical="38dp"
+                android:value="0.5"
+                app:labelBehavior="gone"
+                app:minTouchTargetSize="90dp"
+                app:thumbColor="?attr/colorTertiary"
+                app:thumbHeight="44dp"
+                app:thumbWidth="4dp"
+                app:trackColorActive="@android:color/transparent"
+                app:trackColorInactive="@android:color/transparent"
+                app:trackHeight="4dp"
+                app:trackStopIndicatorSize="0dp" />
+        </FrameLayout>
+
+        <TextView
+            android:id="@+id/trackCurrentTime"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="bottom"
+            android:layout_marginTop="24dp"
+            android:elevation="1dp"
+            android:maxLines="1"
+            android:padding="12dp"
+            tools:text="00:00" />
+
+        <!-- The metadata pill: same line as the timestamps, elapsed left / pill centred / total right.
+             Measured before sizing rather than estimated: "MPEG - 44100 Hz - 2ch - 320 kbps" is 185dp in
+             Roboto at 12sp, and the gap between the timestamps is ~215dp even for 1:23:45 durations
+             (387dp row minus two 70dp timestamps minus breathing room), so the typical string does NOT
+             ellipsize. At 16sp it would be 243dp and would clip on every track - which is why the text is
+             smaller here than in the full-width label it replaces. The pill is glanceable, not read.
+             maxWidth is ONE dimen with NO values-land override: landscape is SHORT, not narrow (the
+             controls column is a weighted half of ~914dp, comparable to portrait's 411dp), so an override
+             would add the same drift risk flagged on collapsed_end_controls_width for no gain.
+             Ellipsis is the right outcome when it does happen - merged servers contribute one source
+             title each, video streams add a whole segment - because the full string is one tap away in
+             QualitySelectionBottomSheet. minHeight is what keeps that tap target a target at all,
+             while the visual pill stays short via the background's vertical inset.
+             [CORRECTED 2026-10-16] THIS SENTENCE SAID "minHeight keeps that tap target at 48dp".
+             IT IS 40dp, AND HAS BEEN SINCE THE AUGUST PASS - see the minHeight paragraph directly
+             below, which explains at length why 48dp was given up (a bottom-gravity 48dp box
+             occupies 80-120dp of the 120dp seek FrameLayout and touches the 44dp thumb). The two
+             halves of this comment contradicted each other, with the wrong number stated first.
+             The decision stands; only the sentence was wrong.
+             minHeight is 40dp, NOT the usual 48dp: the seek FrameLayout is exactly widgetThickness tall
+             (BaseSlider sizes to max(minWidgetThickness, max(trackThickness, thumbHeight) + paddingTop +
+             paddingBottom) = 44 + 76 = 120dp here), the wave band is centred so it occupies 48-72dp, and a
+             48dp pill at bottom gravity occupies 72-120dp - touching it exactly. The timestamps beside it
+             are ~40dp and clear the wave by 8dp, so the pill was simply taller than its neighbours.
+             Buying that clearance any other way costs block height: paddingVertical is additive to
+             widgetThickness, and only HALF of any increase becomes clearance (the wave centre moves down
+             by half, the pill by all of it), so 8dp of gap would cost 16dp of playerControlsHeight.
+             40dp is defensible here because this is a SECONDARY affordance - the same QualitySelection
+             sheet is reachable from the quality controls - and 48dp is a guideline for primary targets. -->
+        <TextView
+            android:id="@+id/trackSubtitle"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="center|bottom"
+            android:background="@drawable/shape_pill"
+            android:elevation="1dp"
+            android:ellipsize="end"
+            android:gravity="center"
+            android:maxLines="1"
+            android:maxWidth="@dimen/player_pill_max_width"
+            android:minHeight="40dp"
+            android:paddingHorizontal="10dp"
+            android:textColor="@color/amoled_fg"
+            android:textSize="12sp"
+            tools:text="MPEG - 44100 Hz - 2ch - 320 kbps" />
+
+        <TextView
+            android:id="@+id/trackTotalTime"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="end|bottom"
+            android:alpha="0.66"
+            android:elevation="1dp"
+            android:maxLines="1"
+            android:padding="12dp"
+            tools:text="00:00" />
+    </FrameLayout>
+
+    <androidx.constraintlayout.widget.ConstraintLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="8dp"
+        android:paddingHorizontal="4dp">
+
+        <!-- SHUFFLE LEFT, REPEAT RIGHT (2026-10-16). These two were the other way round and this
+             player was the only surface in the app that had them inverted: fragment_player_tv.xml's
+             transport row is already "shuffle | prev | play/pause | next | repeat", and the Android
+             Auto / notification custom layout is already built shuffle-first in Kotlin
+             (PlayerCallback.onConnect's seed and PlayerEventListener.updateCustomLayout both list
+             getShuffleButton before getRepeatButton). So this is the phone catching up with its own
+             app, not a new convention - and it is layout-only, since every listener binds by id.
+             THE SWAP IS FOUR ATTRIBUTES, NOT TWO: the bias here and on trackRepeat, PLUS the chain
+             references on trackPrevious and trackNext. Those two are constrained BETWEEN the outer
+             buttons and the centre, so leaving their old targets in place collapses the row.
+             backgroundTint here is only the pre-colour default; PlayerFragment's playerColors
+             observer replaces it with a state list (checked -> colorPrimary, else 12% of
+             PlayerColors.onBackground). See bg_player_transport_circle.xml.
+             anim_shuffle_plain, NOT anim_shuffle: the boxed ON glyph would nest inside the filled
+             circle, and anim_shuffle is shared with the TV player. -->
+        <com.google.android.material.checkbox.MaterialCheckBox
+            android:id="@+id/trackShuffle"
+            android:layout_width="64dp"
+            android:layout_height="64dp"
+            android:background="@drawable/bg_player_transport_circle"
+            android:backgroundTint="@color/player_transport_circle_off"
+            android:button="@drawable/anim_shuffle_plain"
+            android:contentDescription="@string/shuffle"
+            android:elevation="2dp"
+            android:outlineProvider="none"
+            app:buttonTint="@color/button_player"
+            app:layout_constraintBottom_toBottomOf="parent"
+            app:layout_constraintEnd_toEndOf="parent"
+            app:layout_constraintHorizontal_bias="0.0"
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintTop_toTopOf="parent" />
+
+        <!-- ⚠️ PINNED TO 64dp, WHICH IT HAD TO BE TO CARRY A CIRCLE. It was
+             wrap_content, and a tonal background needs a known box or the circle tracks the glyph's
+             measured width. 64dp matches trackShuffle and trackRepeat, so all four satellites draw
+             the same 48dp circle from bg_player_transport_circle.xml's single 8dp inset.
+             ROW HEIGHT IS UNCHANGED, which is the constraint that matters here: this
+             ConstraintLayout is wrap_content and playPauseContainer is 72dp, so 64dp stays under
+             the tallest child and nothing propagates to uiViewModel.playerControlsHeight,
+             player_controls_placeholder, or the collapse morph's toMoveY.
+             The glyph stays 40dp with ~21dp of ink (ic_skip_previous_40dp's paths span 9.2-30.9 of
+             a 40 viewport), so it sits comfortably inside the 48dp circle; iconSize was left alone
+             deliberately rather than retuned by eye.
+             ⚠⚠ [CORRECTED 2026-10-17] CENTRING IS iconGravity=textStart, NOT PADDING.
+             THIS NOTE SAID "padding 12dp IS THE CENTRING ARITHMETIC ... 12 + 40 + 12 = 64 = the
+             width". That arithmetic was wrong and the mechanism was the wrong one; the padding is
+             gone again and these take the style's 10dp. The full decode is at trackRepeat - read
+             it there, not here. What matters locally: with textStart the position is
+             paddingStart + (width - iconSize - paddingStart - paddingEnd)/2, which for these is
+             14 + (64 - 40 - 14 - 14)/2 = 14 - 2 = 12, i.e. the 40dp glyph spans 12..52 and is
+             centred on 32 - INDEPENDENT OF THE PADDING, which is why restoring it costs nothing.
+             -->
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/trackPrevious"
+            style="?attr/materialIconButtonStyle"
+            android:layout_width="64dp"
+            android:layout_height="64dp"
+            android:background="@drawable/bg_player_transport_circle"
+            android:backgroundTint="@color/player_transport_circle_off"
+            android:contentDescription="@string/previous"
+            android:enabled="false"
+            android:outlineProvider="none"
+            app:elevation="1dp"
+            app:icon="@drawable/ic_skip_previous_40dp"
+            app:iconGravity="textStart"
+            app:iconPadding="0dp"
+            app:iconSize="40dp"
+            app:iconTint="@color/button_player"
+            app:layout_constraintBottom_toBottomOf="parent"
+            app:layout_constraintEnd_toStartOf="@+id/playPauseContainer"
+            app:layout_constraintStart_toEndOf="@id/trackShuffle"
+            app:layout_constraintTop_toTopOf="parent" />
+
+        <FrameLayout
+            android:id="@+id/playPauseContainer"
+            android:layout_width="72dp"
+            android:layout_height="72dp"
+            app:layout_constraintBottom_toBottomOf="parent"
+            app:layout_constraintEnd_toEndOf="parent"
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintTop_toTopOf="parent">
+
+            <!-- ⚠⚠ indicatorSize AND indicatorInset ARE ONE SETTING HERE, NOT TWO.
+                 CircularDrawingDelegate.getSize() decodes to `indicatorSize + 2 * indicatorInset`
+                 (1.14.0 AAR) and indicatorInset defaults to 4dp, so the old indicatorSize=64dp gave
+                 a preferred size of 72dp - exactly this view - and drew the ring at diameter 56 to
+                 64dp. That is precisely where the 56dp disc's edge was, so the two were flush and
+                 the 64dp disc would have covered the ring entirely (trackPlayPause is the later
+                 child, so it paints on top).
+                 72dp + 0dp keeps getSize() at 72 and scale at 1.0 while moving the ring to diameter
+                 64 to 72dp, just outside the disc. RAISING indicatorSize ALONE DOES NOT WORK: with
+                 the 4dp inset still in place getSize() becomes 80, the delegate scales by 72/80, and
+                 the ring shrinks back over the disc.
+                 LAYOUT IS UNAFFECTED by either value: this view is match_parent inside a FIXED 72dp
+                 FrameLayout, so its MeasureSpec is EXACTLY 72dp and ProgressBar.onMeasure's
+                 resolveSizeAndState returns the spec. indicatorSize only feeds the drawing delegate,
+                 and adjustCanvas scales by bounds/preferred, so the drawable can never force the
+                 view larger. playerControlsHeight and the collapse morph are therefore untouched. -->
+            <com.google.android.material.progressindicator.CircularProgressIndicator
+                android:id="@+id/playingIndicator"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:clickable="false"
+                android:indeterminate="true"
+                app:indicatorInset="0dp"
+                app:indicatorSize="72dp" />
+
+            <!-- ⚠⚠ THE FOCAL CONTROL: A 56dp FILLED DISC IN AN UNCHANGED 72dp BOX.
+                 The fill, the inset geometry and the playingIndicator clearance are all argued at
+                 bg_player_play_pause.xml; the two things that live here are the tint and the glyph.
+                 buttonTint is ?attr/colorOnPrimary - the ONE transport glyph that is not
+                 PlayerColors.onBackground, because it is the only one drawn on top of an opaque
+                 fill rather than on the artwork. It is also the only one PlayerFragment's
+                 playerColors observer leaves alone, deliberately: theme pairing already guarantees
+                 its contrast against the disc, so a Palette colour here could only break it.
+                 ⚠⚠ THE GLYPH IS 55dp SO THE INK-TO-DISC RATIO SURVIVED THE 56 -> 64dp
+                 DISC. 48/56 = 0.857, and 64 x 0.857 = 54.86, so 55dp. In ink: ic_pause_48dp's path
+                 spans 230-730 x 200-760 of a 960 viewport, i.e. 58% of its box, which was 28dp of
+                 ink in a 56dp disc (0.50) and is now 32dp in a 64dp disc (0.50). ic_play's path
+                 spans 320-720 x 252-728, so the play triangle goes ~24dp -> ~27dp.
+                 ⚠️ 55dp IS AN INTRINSIC, WHICH IS WHY IT COSTS FILES. CompoundButton sizes
+                 a button drawable from its INTRINSIC size, and no wrapper drawable can raise an
+                 intrinsic without shrinking the child by the same amount - InsetDrawable and
+                 LayerDrawable both move the reported size and the child's bounds in OPPOSITE
+                 directions, so there is no XML magnifier. Hence anim_play_pause_55dp and its four
+                 vectors, which are width/height-only copies of the 48dp set.
+                 ⚠️ THE 48dp SET IS STILL LIVE AND MUST NOT BE DELETED: it is
+                 fragment_player_tv.xml's and fragment_player_mini_tv.xml's glyph, which is the whole
+                 reason this is a copy instead of an edit. Keep the two sets in step if a path ever
+                 changes - there is no include mechanism for vectors. -->
+            <com.google.android.material.checkbox.MaterialCheckBox
+                android:id="@+id/trackPlayPause"
+                android:layout_width="72dp"
+                android:layout_height="72dp"
+                android:background="@drawable/bg_player_play_pause"
+                android:button="@drawable/anim_play_pause_55dp"
+                android:checked="true"
+                android:contentDescription="@string/play"
+                app:buttonTint="?attr/colorOnPrimary"
+                tools:ignore="DuplicateSpeakableTextCheck" />
+        </FrameLayout>
+
+        <!-- Pinned to 64dp for the same reason as trackPrevious; see the note there.
+             constraintEnd_toStartOf is now trackRepeat, and it keeps the "@+id" form because
+             trackRepeat is declared AFTER this view in the file - a forward reference without the
+             plus does not resolve. trackPrevious's new target, trackShuffle, is declared earlier,
+             so that one is a plain "@id". -->
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/trackNext"
+            style="?attr/materialIconButtonStyle"
+            android:layout_width="64dp"
+            android:layout_height="64dp"
+            android:background="@drawable/bg_player_transport_circle"
+            android:backgroundTint="@color/player_transport_circle_off"
+            android:contentDescription="@string/next"
+            android:enabled="false"
+            android:outlineProvider="none"
+            app:elevation="1dp"
+            app:icon="@drawable/ic_skip_next_40dp"
+            app:iconGravity="textStart"
+            app:iconPadding="0dp"
+            app:iconSize="40dp"
+            app:iconTint="@color/button_player"
+            app:layout_constraintBottom_toBottomOf="parent"
+            app:layout_constraintEnd_toStartOf="@+id/trackRepeat"
+            app:layout_constraintStart_toEndOf="@id/playPauseContainer"
+            app:layout_constraintTop_toTopOf="parent" />
+
+        <!-- trackRepeat and trackShuffle are BOTH 64dp boxes but size their glyphs by different
+             mechanisms, which is why they looked mismatched: trackShuffle is a MaterialCheckBox whose
+             glyph comes from the button drawable's INTRINSIC size (anim_shuffle_plain -> ic_shuffle_40dp
+             / ic_shuffle_on_plain_40dp, both 28dp - it was anim_shuffle until 2026-10-16),
+             while this is a MaterialButton sizing its icon explicitly via app:iconSize. The 12dp padding
+             was never the cause - iconSize was 32dp against shuffle's 28dp. Keep these two numbers equal;
+             changing padding will not fix a glyph-size mismatch on a MaterialButton. -->
+        <!-- Moved to the END (bias 1.0) - see the swap note at trackShuffle.
+             ⚠⚠ REPEAT'S ON-STATE IS CARRIED TWICE, AND IT HAS TO BE, BECAUSE IT HAS
+             THREE STATES AND A FILL ONLY HAS TWO. The circle separates OFF from on; the glyph
+             separates all three, and that distinction is already in the drawables rather than
+             something added here: ic_repeat_off_40dp is ic_repeat_40dp plus a visible diagonal
+             slash, and ic_repeat_one_40dp is the same glyph plus a "1" (its slash is present at
+             strokeAlpha=0 purely so ic_repeat_to_repeat_one_40dp can morph it). So: slash = OFF,
+             plain = ALL, "1" = ONE, and the fill answers only "is repeat doing anything".
+             ⚠️ THE FILL IS DRIVEN BY android:state_activated, NOT state_checked.
+             This is a MaterialButton, not a checkbox - repeat mode is not a view state - so
+             PlayerFragment's changeRepeatDrawable sets isActivated = (mode != REPEAT_MODE_OFF) and
+             the colour lives entirely in the playerColors observer's state lists. Do not convert
+             this to a checkbox to "simplify" it: a two-state widget cannot represent three modes,
+             which is why it is a button in the first place.
+             iconTint stays @color/amoled_fg as the pre-colour default only; the observer replaces
+             it with a PlayerColors.onBackground state list.
+             ⚠⚠ CENTRING IS app:iconGravity="textStart" PLUS app:iconPadding="0dp".
+             THE PADDING IS IRRELEVANT TO IT AND IS BACK TO ITS PRE-6c7a3fdd VALUE.
+             [CORRECTED 2026-10-17] THIS NOTE SAID "padding 18dp IS GEOMETRY ... 18 + 28 + 18 = 64
+             = the width. An icon-only MaterialButton is centred ONLY when paddingLeft + iconSize +
+             paddingRight equals the width". THAT SHIPPED IN 6c7a3fdd AND HAD NO VISIBLE EFFECT ON
+             DEVICE. Two things were wrong with it. First the arithmetic omitted the INSETS:
+             MaterialButtonHelper.loadFromAttributes ends with setPaddingRelative(paddingStart +
+             insetLeft, paddingTop + insetTop, paddingEnd + insetRight, paddingBottom +
+             insetBottom), and Widget.Material3.Button.IconButton sets android:insetLeft/insetRight
+             to m3_btn_inset = 4dp - so the effective padding is android:padding + 4dp per side and
+             18dp made the CONTENT BOX 20dp for a 28dp icon. Second, and the reason more arithmetic
+             was the wrong answer: the default ICON_GRAVITY_START does not position the icon by the
+             content box at all, so no padding value centres it reliably.
+             HOW textStart ACTUALLY CENTRES IT, decoded from the 1.14.0 bytecode so the next reader
+             does not have to:
+               updateIconPosition takes the early return - iconLeft = 0, no centring - only when
+                 canUpdateWithoutTextAlignment(iconGravity) is true, and that returns true
+                 UNCONDITIONALLY for ICON_GRAVITY_START (1) and _END (3), but for _TEXT_START (2)
+                 only when the text alignment is ALIGN_NORMAL.
+               Ours is ALIGN_CENTER: getActualTextAlignment maps the default
+                 TEXT_ALIGNMENT_GRAVITY through getGravityTextAlignment, which returns ALIGN_CENTER
+                 for CENTER_HORIZONTAL - and Base.Widget.AppCompat.Button, four parents up the
+                 materialIconButtonStyle chain, sets android:gravity=center_vertical|center_horizontal.
+               So textStart SKIPS the early return and getIconLeft runs:
+                 available = width - textLayoutWidth - paddingEnd - iconSize - secondaryIconSize
+                             - iconPadding - paddingStart, halved for ALIGN_CENTER.
+                 With no text that is (64 - 16 - 28 - 0 - 0 - 16)/2 = 2, and the glyph is drawn at
+                 paddingLeft + iconLeft = 16 + 2 = 18, spanning 18..46, centred on 32. The padding
+                 CANCELS OUT - it appears once positively and once inside `available` - which is
+                 why 12dp and 18dp look identical and why the sign is correct in RTL too
+                 (getIconLeft negates when isLayoutRTL() != (gravity == TEXT_END)).
+             ⚠️ app:iconPadding="0dp" IS PART OF THE FIX, NOT TIDYING: it is subtracted
+             inside `available`, so a non-zero value shifts the glyph by half of it. The
+             IconButton style already sets m3_btn_icon_only_icon_padding = 0dp, so this is a pin
+             against a future style change rather than a correction.
+             ⚠️ AND THE RUNTIME ICON SWAP CANNOT UNDO IT. setIcon(Drawable) calls
+             updateIconPosition itself (verified in the 1.14.0 bytecode - the call is inside
+             setIcon, not only in onLayout), so every repeat-state change RE-DERIVES iconLeft from
+             the current width. It also re-applies iconTint from the field and re-bounds the
+             drawable to app:iconSize, which is why the 40dp repeat vectors draw at 28dp and never
+             at their intrinsic size.
+             THE DRAWABLES WERE NEVER AT FAULT: all three repeat vectors measure cx = cy = 20.00 in
+             their own 40x40 viewport with no translate or scale. The OFF state is the one that
+             SHOWS a shift, because its slash is the widest ink in the family (80% of the box
+             against 67% for ALL/ONE, since ONE's slash is strokeAlpha=0).
+             ⚠️ trackShuffle NEEDS NO EQUIVALENT because it is a MaterialCheckBox, and
+             MaterialCheckBox.onDraw centres the button drawable itself when the text is empty
+             (centerIfNoText: it translates the canvas by (width - intrinsicWidth) / 2). That is the
+             whole reason shuffle and play/pause looked right while these three did not. -->
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/trackRepeat"
+            style="?attr/materialIconButtonStyle"
+            android:layout_width="64dp"
+            android:layout_height="64dp"
+            android:background="@drawable/bg_player_transport_circle"
+            android:backgroundTint="@color/player_transport_circle_off"
+            android:contentDescription="@string/repeat"
+            android:elevation="2dp"
+            android:outlineProvider="none"
+            android:padding="12dp"
+            app:icon="@drawable/ic_repeat_to_repeat_one_40dp"
+            app:iconGravity="textStart"
+            app:iconPadding="0dp"
+            app:iconSize="28dp"
+            app:iconTint="@color/amoled_fg"
+            app:layout_constraintBottom_toBottomOf="parent"
+            app:layout_constraintEnd_toEndOf="parent"
+            app:layout_constraintHorizontal_bias="1.0"
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintTop_toTopOf="parent" />
+
+    </androidx.constraintlayout.widget.ConstraintLayout>
+
+</LinearLayout>
