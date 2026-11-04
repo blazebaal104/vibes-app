@@ -36,6 +36,8 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.draw.blur
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
@@ -60,15 +62,16 @@ fun parseColor(hex: String, fallback: Color = Color(0xFFB84DFF)): Color =
 fun Modifier.bouncy(onClick: () -> Unit, onLong: (() -> Unit)? = null): Modifier {
     val source = remember { MutableInteractionSource() }
     val pressed by source.collectIsPressedAsState()
-    val s by animateFloatAsState(if (pressed) 0.92f else 1f, spring(dampingRatio = 0.38f, stiffness = 700f), label = "press")
+    val settings = LocalSettings.current
+    val s by animateFloatAsState(if (pressed && !settings.reduceMotion) 0.92f else 1f, spring(dampingRatio = 0.38f, stiffness = 700f), label = "press")
     val dim by animateFloatAsState(if (pressed) 0.82f else 1f, androidx.compose.animation.core.tween(120), label = "dim")
     val haptic = androidx.compose.ui.platform.LocalHapticFeedback.current
     val click = {
-        haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove)
+        if (settings.haptics) haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove)
         onClick()
     }
     val long = onLong?.let { l -> {
-        haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress); l()
+        if (settings.haptics) haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress); l()
     } }
     return this
         .androidx_graphics(s, dim)
@@ -89,7 +92,7 @@ private fun Modifier.longPressable(source: MutableInteractionSource, onClick: ()
     )
 
 @Composable
-fun Cover(url: String?, modifier: Modifier = Modifier, shape: Shape = RoundedCornerShape(6.dp), placeholder: Color? = null) {
+fun Cover(url: String?, modifier: Modifier = Modifier, shape: Shape = RoundedCornerShape((LocalSettings.current.corners / 2).dp), placeholder: Color? = null) {
     Box(
         modifier
             .clip(shape)
@@ -233,19 +236,37 @@ fun BigButton(
 @Composable
 fun GradientBackground(modifier: Modifier = Modifier, tint: Color? = null, content: @Composable BoxScope.() -> Unit) {
     val v = LocalVibes.current
-    Box(
-        modifier
-            .fillMaxSize()
-            .background(MaterialTheme.colorScheme.background)
-            .background(
+    val prefs = LocalSettings.current
+    val bg = if (prefs.background == "amoled") Color.Black else MaterialTheme.colorScheme.background
+    Box(modifier.fillMaxSize().background(bg)) {
+        if (prefs.background == "image") BackgroundImage(prefs.backgroundDim, prefs.backgroundBlur)
+        if (prefs.background != "solid" && prefs.background != "amoled" || tint != null) Box(
+            Modifier.matchParentSize().background(
                 Brush.verticalGradient(
-                    0f to (tint ?: v.bgTop).copy(alpha = 0.95f),
-                    0.45f to (tint ?: v.bgTop).copy(alpha = 0.25f),
+                    0f to (tint ?: v.bgTop).copy(alpha = if (prefs.background == "image") 0.55f else 0.95f),
+                    0.45f to (tint ?: v.bgTop).copy(alpha = if (prefs.background == "image") 0.12f else 0.25f),
                     1f to Color.Transparent,
                 )
-            ),
-        content = content
+            )
+        )
+        content()
+    }
+}
+
+/** The user's own photo as app background, darkened (and blurred on Android 12+). */
+@Composable
+private fun BoxScope.BackgroundImage(dim: Float, blur: Int) {
+    val file = dev.brahmkshatriya.echo.vibes.VibesGraph.prefs.backgroundFile
+    val stamp = file.lastModified()
+    val bmp = androidx.compose.runtime.remember(stamp) {
+        runCatching { android.graphics.BitmapFactory.decodeFile(file.path)?.asImageBitmap() }.getOrNull()
+    } ?: return
+    androidx.compose.foundation.Image(
+        bmp, null, contentScale = androidx.compose.ui.layout.ContentScale.Crop,
+        modifier = Modifier.matchParentSize()
+            .then(if (android.os.Build.VERSION.SDK_INT >= 31 && blur > 0) Modifier.blur(blur.dp) else Modifier)
     )
+    Box(Modifier.matchParentSize().background(Color.Black.copy(alpha = dim)))
 }
 
 @Composable

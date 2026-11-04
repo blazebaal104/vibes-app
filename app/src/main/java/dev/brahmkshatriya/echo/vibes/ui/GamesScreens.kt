@@ -41,6 +41,8 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
+import androidx.compose.material.icons.rounded.CheckCircle
+import dev.brahmkshatriya.echo.vibes.games.GameSource
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material3.AlertDialog
@@ -109,6 +111,8 @@ fun GamesScreen() {
     val app = LocalApp.current
     val nav = app.nav
     var challengeGame by remember { mutableStateOf<String?>(null) }
+    var challengeSource by remember { mutableStateOf(GameSource.Random) }
+    var setupFor by remember { mutableStateOf<String?>(null) } // "solo" | "challenge"
     GradientBackground {
         LazyColumn(contentPadding = ScreenPadding) {
             item {
@@ -122,7 +126,7 @@ fun GamesScreen() {
                 GameCard(
                     "Indovina il brano", "Ascolta 0,1 secondi. Poi 1, 2, 5, 10. Riconosci la canzone prima che finiscano i tentativi.",
                     "🎯", listOf(GameColors.Easy, GameColors.Medium, GameColors.Hard, GameColors.Impossible),
-                    onSolo = { nav.open(Route.Guess(null)) }, onChallenge = { challengeGame = "guess" }, index = 0
+                    onSolo = { setupFor = "solo" }, onChallenge = { setupFor = "challenge" }, index = 0
                 )
             }
             item {
@@ -134,7 +138,136 @@ fun GamesScreen() {
             }
         }
     }
-    challengeGame?.let { g -> ChallengeDialog(g) { challengeGame = null } }
+    challengeGame?.let { g -> ChallengeDialog(g, if (g == "guess") challengeSource else GameSource.Random) { challengeGame = null } }
+    setupFor?.let { mode ->
+        GameSetupSheet(
+            onDismiss = { setupFor = null },
+            action = if (mode == "solo") "Gioca" else "Scegli chi sfidare",
+        ) { src ->
+            setupFor = null
+            if (mode == "solo") nav.open(Route.Guess(null, src)) else { challengeSource = src; challengeGame = "guess" }
+        }
+    }
+}
+
+/** "Con quali brani?": random, one artist, or one genre. */
+@OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class, androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+@Composable
+private fun GameSetupSheet(onDismiss: () -> Unit, action: String, onStart: (GameSource) -> Unit) {
+    val scope = rememberCoroutineScope()
+    var tab by remember { mutableIntStateOf(0) }
+    var source by remember { mutableStateOf(GameSource.Random) }
+    var query by remember { mutableStateOf("") }
+    var artists by remember { mutableStateOf<List<dev.brahmkshatriya.echo.vibes.music.DeezerPublic.ArtistInfo>>(emptyList()) }
+    var checking by remember { mutableStateOf(false) }
+    var warn by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(query) {
+        if (query.isBlank()) { artists = emptyList(); return@LaunchedEffect }
+        kotlinx.coroutines.delay(300)
+        artists = runCatching { VibesGraph.deezer.searchArtists(query) }.getOrDefault(emptyList())
+    }
+    val accent = when (tab) { 1 -> Color(0xFFFF2E97); 2 -> Color(0xFF35D0F5); else -> GameColors.Easy }
+    androidx.compose.material3.ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        containerColor = LocalVibes.current.card,
+        sheetState = androidx.compose.material3.rememberModalBottomSheetState(skipPartiallyExpanded = true),
+    ) {
+        Column(Modifier.fillMaxWidth().imePadding().padding(horizontal = 18.dp).padding(bottom = 18.dp)) {
+            Text("Con quali brani giochi?", style = MaterialTheme.typography.headlineSmall)
+            Text("La difficoltà si adatta: le hit sono facili, i pezzi meno noti difficili.",
+                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(top = 2.dp, bottom = 14.dp))
+            // segmented selector with a sliding highlight
+            androidx.compose.foundation.layout.BoxWithConstraints(
+                Modifier.fillMaxWidth().height(46.dp).clip(CircleShape).background(LocalVibes.current.cardHigh)
+            ) {
+                val w = maxWidth / 3
+                val x by androidx.compose.animation.core.animateDpAsState(w * tab, spring(dampingRatio = 0.7f, stiffness = 500f), label = "seg")
+                val c by animateColorAsState(accent, label = "segc")
+                Box(Modifier.offset(x = x).width(w).fillMaxHeight().padding(4.dp).clip(CircleShape).background(c))
+                Row(Modifier.fillMaxSize()) {
+                    listOf("🎲 Casuale", "🎤 Artista", "🎸 Genere").forEachIndexed { i, l ->
+                        Box(Modifier.weight(1f).fillMaxHeight().bouncy({
+                            tab = i; warn = null
+                            if (i == 0) source = GameSource.Random
+                        }), contentAlignment = Alignment.Center) {
+                            Text(l, style = MaterialTheme.typography.labelLarge,
+                                color = if (tab == i) Color(0xFF111111) else MaterialTheme.colorScheme.onSurface)
+                        }
+                    }
+                }
+            }
+            Spacer(Modifier.height(14.dp))
+            androidx.compose.animation.AnimatedContent(tab, label = "setup") { t ->
+                when (t) {
+                    0 -> Column(Modifier.fillMaxWidth().height(300.dp), horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.Center) {
+                        Text("🎲", fontSize = 56.sp)
+                        Text("Brani scelti per te", style = MaterialTheme.typography.titleLarge, modifier = Modifier.padding(top = 8.dp))
+                        Text("Un mix tra quello che ascolti tu e le hit del momento.", textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                            style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                    1 -> Column(Modifier.fillMaxWidth().height(300.dp)) {
+                        VibesField(query, { query = it }, "Cerca un artista…")
+                        LazyColumn(Modifier.padding(top = 8.dp)) {
+                            items(artists, key = { it.id }) { a ->
+                                val sel = source.kind == GameSource.ARTIST && source.id == a.id
+                                Row(
+                                    Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp))
+                                        .background(if (sel) accent.copy(alpha = 0.22f) else Color.Transparent)
+                                        .bouncy({ source = GameSource(GameSource.ARTIST, a.id, a.name, a.picture); warn = null })
+                                        .padding(8.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Cover(a.picture, Modifier.size(48.dp), CircleShape)
+                                    Spacer(Modifier.width(12.dp))
+                                    Column(Modifier.weight(1f)) {
+                                        Text(a.name, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                        Text("${"%,d".format(a.fans).replace(',', '.')} fan", style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    }
+                                    if (sel) Icon(Icons.Rounded.CheckCircle, null, tint = accent)
+                                }
+                            }
+                        }
+                    }
+                    else -> androidx.compose.foundation.layout.FlowRow(
+                        Modifier.fillMaxWidth().height(300.dp).verticalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        dev.brahmkshatriya.echo.vibes.music.Genres.all.forEach { g ->
+                            val sel = source.kind == GameSource.GENRE && source.name == g.name
+                            val sc by animateFloatAsState(if (sel) 1.06f else 1f, spring(dampingRatio = 0.4f), label = "gs")
+                            Box(
+                                Modifier.scale(sc).clip(RoundedCornerShape(14.dp))
+                                    .background(Brush.linearGradient(listOf(Color(g.colors.first), Color(g.colors.second))))
+                                    .border(if (sel) 2.5.dp else 0.dp, Color.White, RoundedCornerShape(14.dp))
+                                    .bouncy({ source = GameSource(GameSource.GENRE, 0, g.name); warn = null })
+                                    .padding(horizontal = 14.dp, vertical = 12.dp)
+                            ) { Text(g.name, style = MaterialTheme.typography.titleSmall, color = Color.White) }
+                        }
+                    }
+                }
+            }
+            warn?.let { Text(it, color = Color(0xFFFF7A8F), style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(top = 8.dp)) }
+            Spacer(Modifier.height(12.dp))
+            val ready = tab == 0 || (tab == 1 && source.kind == GameSource.ARTIST) || (tab == 2 && source.kind == GameSource.GENRE)
+            BigButton(
+                if (ready && source.kind != GameSource.RANDOM) "$action · ${source.label}" else action,
+                {
+                    checking = true
+                    scope.launch {
+                        val n = VibesGraph.picker.count(source)
+                        checking = false
+                        if (n < 4) warn = "Non ci sono abbastanza brani con anteprima per ${source.label}: prova con un altro."
+                        else onStart(source)
+                    }
+                },
+                Modifier.fillMaxWidth(), enabled = ready, loading = checking,
+                container = accent, content = Color(0xFF111111)
+            )
+        }
+    }
 }
 
 @Composable
@@ -156,7 +289,7 @@ private fun GameCard(title: String, text: String, emoji: String, colors: List<Co
 }
 
 @Composable
-private fun ChallengeDialog(game: String, onDismiss: () -> Unit) {
+private fun ChallengeDialog(game: String, source: GameSource, onDismiss: () -> Unit) {
     val app = LocalApp.current
     val scope = rememberCoroutineScope()
     val friends by app.social.friends.collectAsState()
@@ -171,7 +304,7 @@ private fun ChallengeDialog(game: String, onDismiss: () -> Unit) {
                     Row(Modifier.fillMaxWidth().clickable(enabled = busy == null) {
                         busy = f.id
                         scope.launch {
-                            runCatching { createChallenge(game, f) }
+                            runCatching { createChallenge(game, f, source) }
                                 .onSuccess { lobby ->
                                     onDismiss()
                                     app.nav.open(if (game == "blindtest") Route.BlindTest(lobby.id) else Route.Guess(lobby.id))
@@ -191,11 +324,11 @@ private fun ChallengeDialog(game: String, onDismiss: () -> Unit) {
     )
 }
 
-private suspend fun createChallenge(game: String, friend: Profile): Lobby {
+private suspend fun createChallenge(game: String, friend: Profile, source: GameSource = GameSource.Random): Lobby {
     val social = VibesGraph.social
     val picker = VibesGraph.picker
     val state = if (game == "guess") {
-        val tracks = Difficulty.entries.mapNotNull { picker.pick(it) }
+        val tracks = Difficulty.entries.mapNotNull { picker.pick(it, source) }
         if (tracks.size < 4) throw IllegalStateException("Non riesco a preparare i brani, controlla la connessione")
         buildJsonObject { put("tracks", Supa.json.encodeToJsonElement(trackList, tracks)) }
     } else {
@@ -279,7 +412,8 @@ private fun WaitingFor(name: String, onCancel: () -> Unit) {
 private enum class RoundState { LOADING, PLAYING, WON, LOST, DONE }
 
 @Composable
-fun GuessGameScreen(lobbyId: String?) {
+fun GuessGameScreen(lobbyId: String?, source: GameSource? = null) {
+    val src = source ?: GameSource.Random
     val app = LocalApp.current
     val nav = app.nav
     val context = LocalContext.current
@@ -324,7 +458,7 @@ fun GuessGameScreen(lobbyId: String?) {
         if (round >= 3) { state = RoundState.DONE; return }
         round++
         state = RoundState.LOADING
-        scope.launch { startRound(VibesGraph.picker.pick(Difficulty.entries[round])) }
+        scope.launch { startRound(VibesGraph.picker.pick(Difficulty.entries[round], src)) }
     }
 
     fun finishRound(won: Boolean, note: String) {
@@ -338,7 +472,7 @@ fun GuessGameScreen(lobbyId: String?) {
 
     // ---- single player start
     LaunchedEffect(Unit) {
-        if (!multi) startRound(VibesGraph.picker.pick(Difficulty.EASY))
+        if (!multi) startRound(VibesGraph.picker.pick(Difficulty.EASY, src))
     }
 
     // ---- multiplayer: drive rounds from the lobby
@@ -456,11 +590,11 @@ fun GuessGameScreen(lobbyId: String?) {
                                 else -> "Pareggio!"
                             } else "$wins su 4 indovinati",
                             subtitle = "Facile, medio, difficile, impossibile: ogni livello conta.",
-                            onAgain = if (!multi) ({ wins = 0; round = 0; state = RoundState.LOADING; scope.launch { startRound(VibesGraph.picker.pick(Difficulty.EASY)) } }) else null,
+                            onAgain = if (!multi) ({ wins = 0; round = 0; state = RoundState.LOADING; scope.launch { startRound(VibesGraph.picker.pick(Difficulty.EASY, src)) } }) else null,
                         )
                         else -> GuessBoard(
                             difficulty = difficulty, color = color, step = step, attempts = attempts,
-                            playing = clipPlaying, roundLabel = "Brano ${round + 1} di 4",
+                            playing = clipPlaying, roundLabel = "Brano ${round + 1} di 4" + if (src.kind != GameSource.RANDOM) " · ${src.label}" else "",
                             onPlay = { clip.playClip(clipSteps[step]) },
                             query = query, onQuery = { query = it }, suggestions = suggestions,
                             onPick = { onGuess(it) },
@@ -477,7 +611,7 @@ fun GuessGameScreen(lobbyId: String?) {
                     onNext = { if (multi) clip.stop() else nextRoundLocal() })
             }
         }
-        if (state == RoundState.WON) Confetti()
+        if (state == RoundState.WON && LocalSettings.current.confetti) Confetti()
     }
 }
 
@@ -487,12 +621,30 @@ private fun GuessBoard(
     onPlay: () -> Unit, query: String, onQuery: (String) -> Unit, suggestions: List<GameTrack>,
     onPick: (GameTrack) -> Unit, onSkip: () -> Unit, onGiveUp: (() -> Unit)?,
 ) {
+    // with the keyboard open there is no room for everything: the attempts collapse into dots so the
+    // text field, the suggestions and the play button stay visible right above the keyboard
+    @OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+    val ime = androidx.compose.foundation.layout.WindowInsets.isImeVisible
     Column(Modifier.fillMaxSize().padding(horizontal = 18.dp)) {
         Text(roundLabel, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.align(Alignment.CenterHorizontally).padding(top = 6.dp))
-        Spacer(Modifier.height(14.dp))
+        Spacer(Modifier.height(if (ime) 8.dp else 14.dp))
+        AnimatedVisibility(ime) {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
+                (0 until clipSteps.size).forEach { i ->
+                    val a = attempts.getOrNull(i)
+                    Box(Modifier.padding(horizontal = 4.dp).size(if (i == attempts.size) 14.dp else 10.dp).clip(CircleShape).background(
+                        when {
+                            a == null && i == attempts.size -> color
+                            a == null -> LocalVibes.current.cardHigh
+                            a.startsWith("❌") -> Color(0xFFFF7A8F)
+                            else -> MaterialTheme.colorScheme.onSurfaceVariant
+                        }))
+                }
+            }
+        }
         // attempts
-        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        AnimatedVisibility(!ime) { Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
             (0 until clipSteps.size).forEach { i ->
                 val a = attempts.getOrNull(i)
                 Box(
@@ -506,7 +658,7 @@ private fun GuessBoard(
                         color = if (a?.startsWith("❌") == true) Color(0xFFFF7A8F) else MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
-        }
+        } }
         Spacer(Modifier.weight(1f))
         // timeline 0..10 s with markers at each unlock
         ClipTimeline(step, color, playing)
@@ -536,7 +688,7 @@ private fun GuessBoard(
         Spacer(Modifier.height(16.dp))
         // suggestions above the field
         Column(Modifier.clip(RoundedCornerShape(12.dp)).background(LocalVibes.current.cardHigh)) {
-            suggestions.forEach { g ->
+            suggestions.take(if (ime) 3 else 5).forEach { g ->
                 Row(Modifier.fillMaxWidth().clickable { onPick(g) }.padding(10.dp), verticalAlignment = Alignment.CenterVertically) {
                     Cover(g.cover, Modifier.size(38.dp))
                     Spacer(Modifier.width(10.dp))
@@ -768,7 +920,7 @@ fun BlindTestScreen(lobbyId: String?) {
                     GameOver(if (!multi || score >= otherScore) "🏆" else "🎧", title,
                         if (multi) "Tu $score · $otherName $otherScore" else "Quanti artisti hai riconosciuto in 8 brani.",
                         if (!multi) ({ score = 0; index = 0; finished = false; tracks = emptyList() }) else null)
-                    if (score > 0 && (!multi || (otherDone && score > otherScore))) Confetti()
+                    if (score > 0 && (!multi || (otherDone && score > otherScore)) && LocalSettings.current.confetti) Confetti()
                 }
                 t == null -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     androidx.compose.material3.CircularProgressIndicator()

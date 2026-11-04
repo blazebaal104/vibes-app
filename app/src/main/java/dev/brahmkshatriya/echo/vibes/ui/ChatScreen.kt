@@ -142,7 +142,7 @@ fun ChatScreen(friendId: String) {
     }
     LaunchedEffect(friendId) {
         runCatching { app.social.history(friendId) }.onSuccess { messages.clear(); messages.addAll(it) }
-        runCatching { app.social.markRead(friendId) }
+        if (dev.brahmkshatriya.echo.vibes.VibesGraph.prefs.value.readReceipts) runCatching { app.social.markRead(friendId) }
     }
     LaunchedEffect(friendId) {
         app.social.messageChanges.collect { m ->
@@ -154,7 +154,7 @@ fun ChatScreen(friendId: String) {
                 // replace the optimistic copy of my own message if it's still there
                 val p = messages.indexOfFirst { it.pending && it.senderId == m.senderId && it.body == m.body && it.kind == m.kind }
                 if (p >= 0) messages[p] = m else messages.add(m)
-                if (m.senderId == friendId) runCatching { app.social.markRead(friendId) }
+                if (m.senderId == friendId && dev.brahmkshatriya.echo.vibes.VibesGraph.prefs.value.readReceipts) runCatching { app.social.markRead(friendId) }
             }
         }
     }

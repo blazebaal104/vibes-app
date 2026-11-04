@@ -43,6 +43,16 @@ val clipSteps = listOf(100L, 1_000L, 2_000L, 5_000L, 10_000L)
  *  - songs you may never have played, by Deezer popularity (rank): global hits are Easy, deep cuts
  *    from artists related to your taste get rarer and rarer up to Impossible.
  */
+/** Which songs a game uses: anything (personalised), one artist, or one genre. */
+@kotlinx.serialization.Serializable
+data class GameSource(val kind: String = RANDOM, val id: Long = 0, val name: String = "", val image: String? = null) {
+    val label get() = when (kind) { ARTIST, GENRE -> name; else -> "Casuale" }
+    companion object {
+        const val RANDOM = "random"; const val ARTIST = "artist"; const val GENRE = "genre"
+        val Random = GameSource()
+    }
+}
+
 class TrackPicker(private val deezer: DeezerPublic, private val library: VibesLibrary) {
     private val mutex = Mutex()
     private val pool = mutableMapOf<Difficulty, MutableList<GameTrack>>()
@@ -91,6 +101,48 @@ class TrackPicker(private val deezer: DeezerPublic, private val library: VibesLi
             ?: Difficulty.entries.sortedBy { kotlin.math.abs(it.ordinal - d.ordinal) * 2 + if (it.ordinal > d.ordinal) 1 else 0 }
                 .firstNotNullOfOrNull { from(pool, it) ?: from(personal, it) }
         choice?.also { used += it.id }
+    }
+
+    private val sourcePools = mutableMapOf<String, List<GameTrack>>()
+
+    private suspend fun sourcePool(src: GameSource): List<GameTrack> {
+        val key = "${src.kind}:${src.id}:${src.name}"
+        sourcePools[key]?.let { return it }
+        val list = when (src.kind) {
+            GameSource.ARTIST -> {
+                val top = deezer.artistTop(src.id, 100)
+                // songs where the artist is only featured are fine, but keep the main artist's first
+                top.distinctBy { Matching.normalize(it.title) }
+            }
+            GameSource.GENRE -> dev.brahmkshatriya.echo.vibes.music.Genres.all.firstOrNull { it.name == src.name }
+                ?.let { dev.brahmkshatriya.echo.vibes.music.Genres.tracks(deezer, it) }.orEmpty()
+                .distinctBy { Matching.normalize(it.title) + "|" + it.artist }
+            else -> emptyList()
+        }.sortedByDescending { it.rank }
+        if (list.isNotEmpty()) sourcePools[key] = list
+        return list
+    }
+
+    /** How many playable songs a source has (to warn before starting). */
+    suspend fun count(src: GameSource): Int = if (src.kind == GameSource.RANDOM) 100 else mutex.withLock {
+        withContext(Dispatchers.IO) { runCatching { sourcePool(src).size }.getOrDefault(0) }
+    }
+
+    /**
+     * Pick from a chosen artist/genre. Difficulty is relative to that list: the artist's biggest hits
+     * are "easy", their deep cuts "impossible".
+     */
+    suspend fun pick(d: Difficulty, src: GameSource): GameTrack? {
+        if (src.kind == GameSource.RANDOM) return pick(d)
+        return mutex.withLock {
+            val list = withContext(Dispatchers.IO) { runCatching { sourcePool(src) }.getOrDefault(emptyList()) }
+            if (list.isEmpty()) return@withLock null
+            val q = (list.size / 4.0)
+            fun quarter(i: Int) = list.subList((i * q).toInt(), ((i + 1) * q).toInt().coerceAtMost(list.size))
+                .filter { it.id !in used }
+            val order = Difficulty.entries.sortedBy { kotlin.math.abs(it.ordinal - d.ordinal) * 2 + if (it.ordinal > d.ordinal) 1 else 0 }
+            order.firstNotNullOfOrNull { quarter(it.ordinal).randomOrNull() }?.also { used += it.id }
+        }
     }
 
     /** Distinct artists for multiple-choice options. */

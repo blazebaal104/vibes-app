@@ -33,6 +33,7 @@ import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.Remove
 import androidx.compose.material.icons.rounded.Send
 import androidx.compose.material.icons.rounded.Shuffle
+import androidx.compose.material.icons.rounded.Share
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -246,14 +247,16 @@ fun CollectionHeader(
             modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 18.dp))
         Text(subtitle, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp))
-        Row(Modifier.padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-            actions()
-            Spacer(Modifier.weight(1f))
-            IconButton(onClick = onShuffle) { Icon(Icons.Rounded.Shuffle, "Casuale", modifier = Modifier.size(28.dp)) }
+        // play on the LEFT (where most people expect it), then shuffle, then the other actions
+        Row(Modifier.padding(horizontal = 12.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
             Box(
-                Modifier.padding(end = 8.dp).size(56.dp).clip(CircleShape).background(MaterialTheme.colorScheme.primary).bouncy(onPlay),
+                Modifier.size(56.dp).clip(CircleShape).background(MaterialTheme.colorScheme.primary).bouncy(onPlay),
                 contentAlignment = Alignment.Center
             ) { Icon(Icons.Rounded.PlayArrow, "Riproduci", tint = MaterialTheme.colorScheme.onPrimary, modifier = Modifier.size(34.dp)) }
+            Spacer(Modifier.width(6.dp))
+            IconButton(onClick = onShuffle) { Icon(Icons.Rounded.Shuffle, "Casuale", modifier = Modifier.size(28.dp)) }
+            Spacer(Modifier.weight(1f))
+            actions()
         }
     }
 }
@@ -275,9 +278,9 @@ fun PlaylistScreen(id: String) {
                 CollectionHeader(
                     p.name, "${p.songs.size} brani" + (p.from?.let { " · da $it" } ?: ""),
                     art = { PlaylistArt(p, Modifier.size(220.dp)) },
-                    onPlay = { app.engine.playAll(p.songs) }, onShuffle = { app.engine.playAll(p.songs, shuffle = true) },
+                    onPlay = { app.engine.playAll(p.songs, ctx = p) }, onShuffle = { app.engine.playAll(p.songs, shuffle = true, ctx = p) },
                     actions = {
-                        IconButton(onClick = { nav.share = ShareItem.Playlist(p) }) { Icon(Icons.Rounded.Send, "Condividi") }
+                        IconButton(onClick = { nav.share = ShareItem.Playlist(p) }) { Icon(Icons.Rounded.Share, "Condividi") }
                         IconButton(onClick = { editing = true }) { Icon(Icons.Rounded.Edit, "Modifica") }
                         IconButton(onClick = { deleting = true }) { Icon(Icons.Rounded.Delete, "Elimina") }
                     }
@@ -290,7 +293,7 @@ fun PlaylistScreen(id: String) {
             }
             itemsIndexed(p.songs, key = { _, s -> s.key }) { i, s ->
                 SongRow(
-                    s, onClick = { app.engine.playAll(p.songs, i) }, playing = playing == s.key,
+                    s, onClick = { app.engine.playAll(p.songs, i, ctx = p) }, playing = playing == s.key,
                     onMore = { nav.share = ShareItem.Song(s) }, modifier = Modifier.enter(i),
                     trailing = {
                         IconButton(onClick = { app.library.removeFromPlaylist(p.id, s.key) }) {

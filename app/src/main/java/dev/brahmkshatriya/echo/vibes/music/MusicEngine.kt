@@ -215,8 +215,11 @@ class MusicEngine(
 
     fun play(song: SongRef) = play(song.ext, listOf(song.toTrack()))
 
-    fun playAll(songs: List<SongRef>, index: Int = 0, shuffle: Boolean = false) {
+    fun playAll(songs: List<SongRef>, index: Int = 0, shuffle: Boolean = false, ctx: VibesPlaylist? = null) {
         if (songs.isEmpty()) return
+        dev.brahmkshatriya.echo.vibes.VibesGraph.playContext = ctx?.let {
+            PlayContext(it.id, it.name, it.cover ?: it.songs.firstOrNull()?.cover, it.songs.map { s -> s.key }.toSet())
+        }
         val ext = songs[index.coerceIn(0, songs.size - 1)].ext
         val list = if (shuffle) songs.shuffled() else songs
         player.setQueue(ext, list.map { it.toTrack() }, if (shuffle) 0 else index, null)

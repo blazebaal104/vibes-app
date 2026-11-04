@@ -146,10 +146,54 @@ class Social(context: Context, val supa: Supa) {
         }
     }
 
+    /** Writes some profile columns and mirrors them locally. */
+    suspend fun patchProfile(patch: kotlinx.serialization.json.JsonObject, local: (Profile) -> Profile) {
+        val id = uid ?: return
+        supa.update("vibes_profiles", "id=eq.$id", patch)
+        _me.update { it?.let(local) }
+    }
+
+    suspend fun setFavArtist(a: FavArtist?) = patchProfile(buildJsonObject {
+        put("fav_artist", a?.let { json.encodeToJsonElement(FavArtist.serializer(), it) } ?: kotlinx.serialization.json.JsonNull)
+    }) { it.copy(favArtist = a) }
+
+    suspend fun setFavSong(s: SongRef?) = patchProfile(buildJsonObject {
+        put("fav_song", s?.let { json.encodeToJsonElement(SongRef.serializer(), it) } ?: kotlinx.serialization.json.JsonNull)
+    }) { it.copy(favSong = s) }
+
+    suspend fun setFavPlaylist(p: dev.brahmkshatriya.echo.vibes.music.VibesPlaylist?) {
+        val fav = p?.let {
+            val shared = publishPlaylist(SharedPlaylist(name = it.name, tracks = it.songs))
+            FavPlaylist(shared.id, it.name, it.cover ?: it.songs.firstOrNull()?.cover, it.songs.size, it.emoji, it.color)
+        }
+        patchProfile(buildJsonObject {
+            put("fav_playlist", fav?.let { json.encodeToJsonElement(FavPlaylist.serializer(), it) } ?: kotlinx.serialization.json.JsonNull)
+        }) { it.copy(favPlaylist = fav) }
+    }
+
+    suspend fun setPrivacy(p: Privacy) = patchProfile(buildJsonObject {
+        put("privacy", json.encodeToJsonElement(Privacy.serializer(), p))
+        if (!p.nowPlaying) put("now_playing", kotlinx.serialization.json.JsonNull)
+    }) { it.copy(privacy = p) }
+
+    /** Publishes this week's summary + all-time records (what friends can see). */
+    fun publishStats(week: WeekSummary?, records: Records?) {
+        if (uid == null || _me.value == null) return
+        scope.launch {
+            runCatching {
+                patchProfile(buildJsonObject {
+                    put("stats_week", week?.let { json.encodeToJsonElement(WeekSummary.serializer(), it) } ?: kotlinx.serialization.json.JsonNull)
+                    put("records", records?.let { json.encodeToJsonElement(Records.serializer(), it) } ?: kotlinx.serialization.json.JsonNull)
+                }) { it.copy(statsWeek = week, records = records) }
+            }
+        }
+    }
+
     /** Best effort "now playing" on my profile, so friends see what I'm listening to. */
     fun setNowPlaying(song: SongRef?) {
         val id = uid ?: return
         if (_me.value == null) return
+        if (_me.value?.privacy?.nowPlaying == false && song != null) return
         scope.launch {
             runCatching {
                 val patch = buildJsonObject {

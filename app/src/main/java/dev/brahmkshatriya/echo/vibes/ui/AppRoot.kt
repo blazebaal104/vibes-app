@@ -84,6 +84,7 @@ fun VibesApp(engine: MusicEngine, pendingLink: MutableStateFlow<Uri?>) {
     val state = remember {
         AppState(engine, nav, VibesThemes.current(context) ?: VibesThemes.presets.first())
     }
+    LocalAppHolder.app = state
     VibesMaterial(state.theme) {
         androidx.compose.runtime.CompositionLocalProvider(LocalApp provides state) {
             val session by state.supa.session.collectAsState()
@@ -92,6 +93,8 @@ fun VibesApp(engine: MusicEngine, pendingLink: MutableStateFlow<Uri?>) {
                 if (session == null) { state.social.clear(); return@LaunchedEffect }
                 // retry until the profile loads (offline at start-up, slow network...)
                 while (runCatching { state.social.bootstrap() }.isFailure) delay(3000)
+                // friends see this week's stats + records
+                dev.brahmkshatriya.echo.vibes.VibesGraph.onListened(force = true)
             }
             // Surface sets LocalContentColor, so every Text without an explicit colour is readable
             // on the theme background (white on dark themes, dark on light ones).
@@ -133,8 +136,9 @@ fun MainScaffold(pendingLink: MutableStateFlow<Uri?>) {
         handleLink(app, uri)
     }
 
-    BackHandler(enabled = nav.canGoBack || nav.playerOpen || nav.share != null || nav.addToPlaylist != null) {
-        nav.back()
+    val update by dev.brahmkshatriya.echo.vibes.VibesGraph.updater.pending.collectAsState()
+    BackHandler(enabled = update != null || nav.canGoBack || nav.playerOpen || nav.share != null || nav.addToPlaylist != null) {
+        if (update != null) dev.brahmkshatriya.echo.vibes.VibesGraph.updater.close() else nav.back()
     }
 
     Box(Modifier.fillMaxSize()) {
@@ -165,7 +169,9 @@ fun MainScaffold(pendingLink: MutableStateFlow<Uri?>) {
         ) { key -> Screen(key.route) }
 
         // games are full screen: no mini player / tab bar covering their controls
-        val inGame = nav.current is Route.Guess || nav.current is Route.BlindTest
+        @OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+        val imeOpen = androidx.compose.foundation.layout.WindowInsets.isImeVisible
+        val inGame = nav.current is Route.Guess || nav.current is Route.BlindTest || imeOpen
         AnimatedVisibility(
             !inGame, Modifier.align(Alignment.BottomCenter),
             enter = slideInVertically(tween(280)) { it } + fadeIn(tween(200)),
@@ -185,6 +191,7 @@ fun MainScaffold(pendingLink: MutableStateFlow<Uri?>) {
 
         nav.share?.let { ShareSheet(it) { nav.share = null } }
         nav.addToPlaylist?.let { AddToPlaylistSheet(it) { nav.addToPlaylist = null } }
+        UpdateHost()
         Toast(nav.toast) { nav.toast = null }
     }
 }
@@ -228,7 +235,9 @@ fun Screen(route: Route) {
         Route.Settings -> SettingsScreen()
         Route.DeezerLogin -> DeezerLoginScreen()
         is Route.SharedPlaylist -> SharedPlaylistScreen(route.id)
-        is Route.Guess -> GuessGameScreen(route.lobbyId)
+        is Route.Guess -> GuessGameScreen(route.lobbyId, route.source)
+        Route.Stats -> StatsScreen()
+        Route.History -> HistoryScreen()
         is Route.BlindTest -> BlindTestScreen(route.lobbyId)
         is Route.Genre -> GenreScreen(route.name)
         Route.Import -> ImportScreen()

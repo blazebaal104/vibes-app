@@ -61,6 +61,7 @@ fun nowPlayingKey(): String? {
 /** Little "rise and fade in" used for list entries, staggered by [index]. */
 @Composable
 fun Modifier.enter(index: Int): Modifier {
+    if (LocalSettings.current.reduceMotion) return this
     val a = remember { Animatable(0f) }
     LaunchedEffect(Unit) { a.animateTo(1f, tween(420, delayMillis = (index * 45).coerceAtMost(400))) }
     return this.graphicsLayer {
@@ -77,6 +78,7 @@ fun HomeScreen() {
     val recent by app.library.recent.collectAsState()
     val friends by app.social.friends.collectAsState()
     val loggedIn by app.engine.deezerLoggedIn.collectAsState(initial = true)
+    val prefs = LocalSettings.current
     var shelves by remember { mutableStateOf<List<MusicEngine.UiShelf>?>(null) }
     var error by remember { mutableStateOf<String?>(null) }
     var extId by remember { mutableStateOf(MusicEngine.DEEZER) }
@@ -116,7 +118,7 @@ fun HomeScreen() {
             if (recent.isNotEmpty()) item {
                 QuickGrid(recent.take(6)) { song -> app.engine.play(song) }
             }
-            recs.forEachIndexed { si, sec ->
+            if (prefs.homeRecommendations) recs.forEachIndexed { si, sec ->
                 item(key = "rec_t$si") {
                     Column(Modifier.enter(si)) {
                         SectionTitle(sec.title)
@@ -128,7 +130,7 @@ fun HomeScreen() {
                 }
                 item(key = "rec_c$si") { SongCarousel(sec.songs) }
             }
-            val listening = friends.filter { it.nowPlaying != null }
+            val listening = if (prefs.homeFriends) friends.filter { it.nowPlaying != null } else emptyList()
             if (listening.isNotEmpty()) {
                 item { SectionTitle("I tuoi amici ascoltano") }
                 item {

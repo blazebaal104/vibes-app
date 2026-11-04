@@ -86,6 +86,29 @@ class DeezerPublic(private val http: OkHttpClient) {
     suspend fun playlist(id: Long, limit: Int = 100): List<GameTrack> =
         list(get("https://api.deezer.com/playlist/$id/tracks?limit=$limit"))
 
+    data class ArtistInfo(val id: Long, val name: String, val picture: String?, val fans: Int)
+
+    suspend fun searchArtists(q: String, limit: Int = 12): List<ArtistInfo> {
+        if (q.isBlank()) return emptyList()
+        return get("https://api.deezer.com/search/artist?limit=$limit&q=" + URLEncoder.encode(q, "UTF-8"))
+            ?.get("data")?.jsonArray?.mapNotNull { e ->
+                val o = e as? JsonObject ?: return@mapNotNull null
+                ArtistInfo(
+                    o["id"]?.jsonPrimitive?.longOrNull ?: return@mapNotNull null,
+                    o["name"]?.jsonPrimitive?.contentOrNull ?: return@mapNotNull null,
+                    o["picture_xl"]?.jsonPrimitive?.contentOrNull ?: o["picture_big"]?.jsonPrimitive?.contentOrNull,
+                    o["nb_fan"]?.jsonPrimitive?.intOrNull ?: 0,
+                )
+            }.orEmpty()
+    }
+
+    /** Main genre of a track, from its album ("Rap/Hip Hop", "Pop", …). */
+    suspend fun trackGenre(trackId: Long): String? {
+        val albumId = get("https://api.deezer.com/track/$trackId")?.get("album")?.jsonObject?.get("id")?.jsonPrimitive?.longOrNull ?: return null
+        val album = get("https://api.deezer.com/album/$albumId") ?: return null
+        return album["genres"]?.jsonObject?.get("data")?.jsonArray?.firstOrNull()?.jsonObject?.get("name")?.jsonPrimitive?.contentOrNull
+    }
+
     suspend fun artistTop(artistId: Long, limit: Int = 10): List<GameTrack> =
         list(get("https://api.deezer.com/artist/$artistId/top?limit=$limit"))
 

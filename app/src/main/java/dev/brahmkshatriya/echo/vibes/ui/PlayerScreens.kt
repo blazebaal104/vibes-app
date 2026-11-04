@@ -4,6 +4,7 @@ import android.os.Build
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
@@ -127,7 +128,7 @@ fun MiniPlayer() {
                         color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
-            IconButton(onClick = { app.nav.share = ShareItem.Song(song) }) { Icon(Icons.Rounded.Send, "Invia a un amico") }
+            IconButton(onClick = { app.nav.share = ShareItem.Song(song) }) { Icon(Icons.Rounded.Share, "Condividi") }
             IconButton(onClick = { app.engine.togglePlay() }) {
                 Icon(if (playing) Icons.Rounded.Pause else Icons.Rounded.PlayArrow, if (playing) "Pausa" else "Play", modifier = Modifier.size(30.dp))
             }
@@ -152,7 +153,13 @@ fun FullPlayer() {
     var seekValue by remember { mutableFloatStateOf(0f) }
     var shuffle by remember { mutableStateOf(app.engine.player.browser.value?.shuffleModeEnabled == true) }
     var repeat by remember { mutableIntStateOf(app.engine.player.browser.value?.repeatMode ?: 0) }
-    val coverScale by animateFloatAsState(if (playing) 1f else 0.86f, spring(dampingRatio = 0.6f, stiffness = 300f), label = "cover")
+    val baseScale by animateFloatAsState(if (playing) 1f else 0.86f, spring(dampingRatio = 0.6f, stiffness = 300f), label = "cover")
+    // "canvas": the cover slowly breathes while the song plays
+    val breathe by androidx.compose.animation.core.rememberInfiniteTransition(label = "br").animateFloat(
+        1f, 1.035f, androidx.compose.animation.core.infiniteRepeatable(
+            androidx.compose.animation.core.tween(2600, easing = androidx.compose.animation.core.FastOutSlowInEasing),
+            androidx.compose.animation.core.RepeatMode.Reverse), label = "brv")
+    val coverScale = baseScale * if (playing && LocalSettings.current.canvasCovers && !LocalSettings.current.reduceMotion) breathe else 1f
     val v = LocalVibes.current
 
     Box(
@@ -255,9 +262,9 @@ fun FullPlayer() {
                         .bouncy({ app.nav.share = ShareItem.Song(song) }),
                     horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Icon(Icons.Rounded.Send, null, tint = MaterialTheme.colorScheme.onPrimary, modifier = Modifier.size(20.dp))
+                    Icon(Icons.Rounded.Share, null, tint = MaterialTheme.colorScheme.onPrimary, modifier = Modifier.size(20.dp))
                     Spacer(Modifier.width(8.dp))
-                    Text("Invia a un amico", color = MaterialTheme.colorScheme.onPrimary, style = MaterialTheme.typography.titleSmall)
+                    Text("Condividi", color = MaterialTheme.colorScheme.onPrimary, style = MaterialTheme.typography.titleSmall)
                 }
                 Box(
                     Modifier.size(46.dp).clip(CircleShape).background(LocalVibes.current.cardHigh)

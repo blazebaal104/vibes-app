@@ -26,10 +26,12 @@ sealed interface Route {
     data object Settings : Route
     data object DeezerLogin : Route
     data class SharedPlaylist(val id: String) : Route
-    data class Guess(val lobbyId: String? = null) : Route
+    data class Guess(val lobbyId: String? = null, val source: dev.brahmkshatriya.echo.vibes.games.GameSource? = null) : Route
     data class BlindTest(val lobbyId: String? = null) : Route
     data class Genre(val name: String) : Route
     data object Import : Route
+    data object Stats : Route
+    data object History : Route
 }
 
 val tabs = listOf(Route.Home, Route.Search, Route.Library, Route.Friends, Route.Games)
@@ -43,7 +45,10 @@ sealed interface ShareItem {
 /** Simple back-stack navigation: one stack per tab, like Spotify. */
 @Stable
 class Navigator {
-    var tab by mutableStateOf<Route>(Route.Home)
+    var tab by mutableStateOf<Route>(when (dev.brahmkshatriya.echo.vibes.VibesGraph.prefs.value.startTab) {
+        "search" -> Route.Search; "library" -> Route.Library; "friends" -> Route.Friends; "games" -> Route.Games
+        else -> Route.Home
+    })
         private set
     private val stacks = mutableMapOf<Route, androidx.compose.runtime.snapshots.SnapshotStateList<Route>>()
 

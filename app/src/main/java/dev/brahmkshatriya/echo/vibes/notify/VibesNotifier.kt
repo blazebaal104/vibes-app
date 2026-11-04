@@ -82,6 +82,13 @@ object VibesNotifier {
         if (Build.VERSION.SDK_INT >= 33 &&
             ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
         ) return
+        val prefs = VibesGraph.prefs.value
+        val allowed = when (m.kind) {
+            "challenge" -> prefs.notifyChallenges
+            "track", "playlist" -> prefs.notifySongs
+            else -> prefs.notifyMessages
+        }
+        if (!allowed) return
         val social = VibesGraph.social
         val name = social.friendName(m.senderId)
         val line = text(m)

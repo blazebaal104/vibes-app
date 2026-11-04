@@ -100,6 +100,7 @@ fun SettingsScreen() {
                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(16.dp))
             }
+            vibesSettings()
             item { SectionTitle("Musica") }
             item {
                 SettingRow(

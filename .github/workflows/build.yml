@@ -7,6 +7,7 @@ on:
 
 permissions:
   contents: write
+  id-token: write
 
 jobs:
   build:
@@ -61,3 +62,33 @@ jobs:
           body: APK di Vibes.
           files: out/Vibes.apk
           make_latest: true
+
+      - name: Publish in-app update
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -o pipefail
+          N=${{ steps.apk.outputs.count }}
+          FN=https://kxgswrwitsedppjzcokh.supabase.co/functions/v1/vibes-release
+          PUB=https://kxgswrwitsedppjzcokh.supabase.co/storage/v1/object/public/vibes-updates
+          {
+            TOKEN=$(curl -sS -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=vibes-release" | jq -r .value)
+            R=$(curl -sS --fail-with-body -X POST "$FN" -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" -d "{\"version\":$N}")
+            echo "function: ok"
+            APK_URL=$(echo "$R" | jq -r .apk); LATEST_URL=$(echo "$R" | jq -r .latest)
+            curl -sS --fail-with-body -X PUT "$APK_URL" -H "Content-Type: application/vnd.android.package-archive" -H "x-upsert: true" --data-binary @out/Vibes.apk
+            echo; echo "apk: uploaded"
+            TITLE=$(jq -r '.title // "Aggiornamento"' RELEASE_NOTES.json 2>/dev/null || echo "Aggiornamento")
+            NOTES=$(jq -c '.notes // []' RELEASE_NOTES.json 2>/dev/null || echo "[]")
+            SIZE=$(stat -c %s out/Vibes.apk)
+            jq -n --argjson code "$N" --arg name "1.0.$N" --arg title "$TITLE" --argjson notes "$NOTES" \
+              --arg apk "$PUB/Vibes-$N.apk" --argjson size "$SIZE" --arg date "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+              '{versionCode:$code, versionName:$name, title:$title, notes:$notes, apk:$apk, size:$size, date:$date}' > latest.json
+            cat latest.json
+            curl -sS --fail-with-body -X PUT "$LATEST_URL" -H "Content-Type: application/json" -H "x-upsert: true" --data-binary @latest.json
+            echo; echo "latest.json: uploaded"
+          } 2>&1 | tee update-log.txt
+          RC=${PIPESTATUS[0]}
+          gh release upload build-$N update-log.txt --clobber || true
+          exit $RC

@@ -508,6 +508,7 @@ class PlayerService : MediaLibraryService() {
         )
         trackingListener = tracking
         player.addListener(tracking)
+        vibesTracker = dev.brahmkshatriya.echo.vibes.music.ListenTracker(player, this).also { player.addListener(it) }
         player.addListener(effects)
         audioFocusListener = AudioFocusListener(this, player)
         carConnection = CarConnection(this)
@@ -917,7 +918,10 @@ class PlayerService : MediaLibraryService() {
         override fun getNotificationChannelInfo() = delegate.notificationChannelInfo
     }
 
+    private var vibesTracker: dev.brahmkshatriya.echo.vibes.music.ListenTracker? = null
+
     override fun onDestroy() {
+        runCatching { vibesTracker?.flush() }
         // ⚠⚠ FIRST, BEFORE ANY RELEASE. From here on, a message-less IllegalStateException
         // out of media3's close() cascade is a genuine teardown race and PlayerEventListener's
         // isDataSourceTeardownRace may absorb it. Set before the player, the session and the

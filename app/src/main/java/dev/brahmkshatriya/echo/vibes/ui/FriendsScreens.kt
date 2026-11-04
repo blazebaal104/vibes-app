@@ -338,6 +338,14 @@ fun ProfileScreen(userId: String?) {
                     }
                 }
             }
+            if (isMe) item {
+                Row(Modifier.padding(horizontal = 16.dp, vertical = 6.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    ProfileButton("📊", "Statistiche", Modifier.weight(1f)) { nav.open(Route.Stats) }
+                    ProfileButton("🕘", "Cronologia", Modifier.weight(1f)) { nav.open(Route.History) }
+                }
+            }
+            if (!isMe && p.privacy.weekStats) item { FriendWeekCard(p, Modifier.padding(16.dp)) }
+            if (isMe || p.privacy.favorites) item { FavoritesSection(p, isMe) }
             item {
                 SectionTitle("Top 4")
                 Row(Modifier.padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -363,6 +371,10 @@ fun ProfileScreen(userId: String?) {
                     modifier = Modifier.padding(16.dp)
                 )
             }
+            if (isMe) item {
+                val r = remember { runCatching { dev.brahmkshatriya.echo.vibes.VibesGraph.listens.records() }.getOrNull() }
+                r?.takeIf { it.mostMinutes > 0 }?.let { RecordsCard(it, Modifier.padding(16.dp)) }
+            } else if (p.privacy.records) p.records?.takeIf { it.mostMinutes > 0 }?.let { r -> item { RecordsCard(r, Modifier.padding(16.dp)) } }
         }
     }
     if (removing) AlertDialog(
@@ -513,4 +525,215 @@ fun squareJpeg(context: android.content.Context, uri: android.net.Uri, size: Int
     val square = android.graphics.Bitmap.createBitmap(bmp, (bmp.width - side) / 2, (bmp.height - side) / 2, side, side)
     val scaled = android.graphics.Bitmap.createScaledBitmap(square, size, size, true)
     return java.io.ByteArrayOutputStream().use { out -> scaled.compress(android.graphics.Bitmap.CompressFormat.JPEG, 88, out); out.toByteArray() }
+}
+
+@Composable
+private fun ProfileButton(emoji: String, label: String, modifier: Modifier, onClick: () -> Unit) {
+    Row(
+        modifier.clip(RoundedCornerShape(16.dp)).background(LocalVibes.current.card).bouncy(onClick).padding(14.dp),
+        verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.Center
+    ) {
+        Text(emoji, fontSize = 20.sp)
+        Spacer(Modifier.width(8.dp))
+        Text(label, style = MaterialTheme.typography.titleSmall)
+    }
+}
+
+/** Favourite artist, favourite song by that artist and a pinned (saveable) playlist. */
+@Composable
+private fun FavoritesSection(p: Profile, isMe: Boolean) {
+    val app = LocalApp.current
+    val nav = app.nav
+    val scope = rememberCoroutineScope()
+    var pickArtist by remember { mutableStateOf(false) }
+    var pickSong by remember { mutableStateOf(false) }
+    var pickPlaylist by remember { mutableStateOf(false) }
+    if (!isMe && p.favArtist == null && p.favSong == null && p.favPlaylist == null) return
+    Column(Modifier.padding(horizontal = 16.dp)) {
+        SectionTitle("Preferiti", Modifier.padding(start = 0.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            // artist
+            Column(
+                Modifier.weight(1f).clip(RoundedCornerShape(18.dp)).background(LocalVibes.current.card)
+                    .bouncy({
+                        if (isMe) pickArtist = true
+                        else p.favArtist?.let { a -> scope.launch {
+                            runCatching { dev.brahmkshatriya.echo.vibes.VibesGraph.deezer.artistTop(a.id, 25).map { it.toSongRef() } }
+                                .onSuccess { app.engine.playAll(it) }
+                        } }
+                    })
+                    .padding(14.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Text("Artista preferito", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Spacer(Modifier.height(10.dp))
+                val a = p.favArtist
+                if (a != null) Cover(a.image, Modifier.size(96.dp), CircleShape)
+                else Box(Modifier.size(96.dp).clip(CircleShape).background(LocalVibes.current.cardHigh), contentAlignment = Alignment.Center) {
+                    Text("+", style = MaterialTheme.typography.headlineMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                Text(a?.name ?: "Scegli", style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.padding(top = 8.dp))
+            }
+            // song by that artist
+            Column(
+                Modifier.weight(1f).clip(RoundedCornerShape(18.dp)).background(LocalVibes.current.card)
+                    .bouncy({
+                        val s = p.favSong
+                        if (isMe) { if (p.favArtist == null) pickArtist = true else pickSong = true }
+                        else if (s != null) app.engine.play(s)
+                    }, p.favSong?.let { s -> { app.engine.play(s) } })
+                    .padding(14.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Text(p.favArtist?.let { "Il brano di ${it.name}" } ?: "Brano preferito", style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Spacer(Modifier.height(10.dp))
+                val s = p.favSong
+                if (s != null) Cover(s.cover, Modifier.size(96.dp), RoundedCornerShape(10.dp))
+                else Box(Modifier.size(96.dp).clip(RoundedCornerShape(10.dp)).background(LocalVibes.current.cardHigh), contentAlignment = Alignment.Center) {
+                    Text("+", style = MaterialTheme.typography.headlineMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                Text(s?.title ?: "Scegli", style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.padding(top = 8.dp))
+            }
+        }
+        // pinned playlist
+        val fp = p.favPlaylist
+        Row(
+            Modifier.padding(top = 10.dp).fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(LocalVibes.current.card)
+                .bouncy({ if (fp != null) nav.open(Route.SharedPlaylist(fp.sharedId)) else if (isMe) pickPlaylist = true },
+                    if (isMe) ({ pickPlaylist = true }) else null)
+                .padding(12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            if (fp != null) {
+                if (fp.cover != null) Cover(fp.cover, Modifier.size(64.dp), RoundedCornerShape(10.dp))
+                else Box(Modifier.size(64.dp).clip(RoundedCornerShape(10.dp)).background(parseColor(fp.color)), contentAlignment = Alignment.Center) {
+                    Text(fp.emoji, fontSize = 28.sp)
+                }
+            } else Box(Modifier.size(64.dp).clip(RoundedCornerShape(10.dp)).background(LocalVibes.current.cardHigh), contentAlignment = Alignment.Center) {
+                Text("+", style = MaterialTheme.typography.headlineMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            Spacer(Modifier.width(12.dp))
+            Column(Modifier.weight(1f)) {
+                Text("Playlist preferita", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(fp?.name ?: "Fissa una tua playlist sul profilo", style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                if (fp != null) Text("${fp.count} brani · tocca per aprirla e salvarla", style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            if (isMe && fp != null) IconButton(onClick = { pickPlaylist = true }) { Icon(Icons.Rounded.Edit, "Cambia") }
+        }
+    }
+
+    if (pickArtist) ArtistPickerDialog(onDismiss = { pickArtist = false }) { a ->
+        pickArtist = false
+        scope.launch {
+            runCatching {
+                app.social.setFavArtist(a)
+                // the song must be by that artist: clear it if it isn't, then ask for one
+                if (p.favSong?.artist?.contains(a.name, true) != true) app.social.setFavSong(null)
+            }.onFailure { nav.toast(it.message ?: "Errore") }
+            pickSong = true
+        }
+    }
+    if (pickSong) p.favArtist?.let { a ->
+        ArtistSongDialog(a, onDismiss = { pickSong = false }) { s ->
+            pickSong = false
+            scope.launch { runCatching { app.social.setFavSong(s) }.onFailure { nav.toast(it.message ?: "Errore") } }
+        }
+    }
+    if (pickPlaylist) {
+        val lists by app.library.playlists.collectAsState()
+        AlertDialog(
+            onDismissRequest = { pickPlaylist = false },
+            title = { Text("Quale playlist fissi sul profilo?") },
+            text = {
+                if (lists.isEmpty()) Text("Crea prima una playlist nella Libreria.")
+                else LazyColumn(Modifier.height(360.dp)) {
+                    items(lists, key = { it.id }) { pl ->
+                        Row(Modifier.fillMaxWidth().clickable {
+                            pickPlaylist = false
+                            scope.launch {
+                                runCatching { app.social.setFavPlaylist(pl) }
+                                    .onSuccess { nav.toast("\"${pl.name}\" ora è sul tuo profilo") }
+                                    .onFailure { nav.toast(it.message ?: "Errore") }
+                            }
+                        }.padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                            PlaylistArt(pl, Modifier.size(48.dp))
+                            Spacer(Modifier.width(12.dp))
+                            Column {
+                                Text(pl.name, style = MaterialTheme.typography.titleMedium)
+                                Text("${pl.songs.size} brani", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                if (p.favPlaylist != null) TextButton(onClick = { pickPlaylist = false; scope.launch { runCatching { app.social.setFavPlaylist(null) } } }) { Text("Rimuovi") }
+                else TextButton(onClick = { pickPlaylist = false }) { Text("Chiudi") }
+            }
+        )
+    }
+}
+
+@Composable
+fun ArtistPickerDialog(onDismiss: () -> Unit, onPick: (dev.brahmkshatriya.echo.vibes.backend.FavArtist) -> Unit) {
+    var q by remember { mutableStateOf("") }
+    var results by remember { mutableStateOf<List<dev.brahmkshatriya.echo.vibes.music.DeezerPublic.ArtistInfo>>(emptyList()) }
+    LaunchedEffect(q) {
+        delay(300)
+        results = runCatching { dev.brahmkshatriya.echo.vibes.VibesGraph.deezer.searchArtists(q) }.getOrDefault(emptyList())
+    }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Il tuo artista preferito") },
+        text = {
+            Column {
+                VibesField(q, { q = it }, "Cerca un artista")
+                LazyColumn(Modifier.height(320.dp).padding(top = 8.dp)) {
+                    items(results, key = { it.id }) { a ->
+                        Row(Modifier.fillMaxWidth().clickable { onPick(dev.brahmkshatriya.echo.vibes.backend.FavArtist(a.id, a.name, a.picture)) }
+                            .padding(vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Cover(a.picture, Modifier.size(46.dp), CircleShape)
+                            Spacer(Modifier.width(12.dp))
+                            Text(a.name, style = MaterialTheme.typography.titleMedium)
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = { TextButton(onClick = onDismiss) { Text("Annulla") } }
+    )
+}
+
+@Composable
+private fun ArtistSongDialog(a: dev.brahmkshatriya.echo.vibes.backend.FavArtist, onDismiss: () -> Unit, onPick: (SongRef) -> Unit) {
+    var songs by remember { mutableStateOf<List<SongRef>?>(null) }
+    LaunchedEffect(a.id) {
+        songs = runCatching { dev.brahmkshatriya.echo.vibes.VibesGraph.deezer.artistTop(a.id, 50).map { it.toSongRef() }.distinctBy { it.title.lowercase() } }
+            .getOrDefault(emptyList())
+    }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Il tuo brano preferito di ${a.name}") },
+        text = {
+            val list = songs
+            if (list == null) Box(Modifier.fillMaxWidth().height(120.dp), contentAlignment = Alignment.Center) { androidx.compose.material3.CircularProgressIndicator() }
+            else LazyColumn(Modifier.height(380.dp)) {
+                items(list, key = { it.key }) { s ->
+                    Row(Modifier.fillMaxWidth().clickable { onPick(s) }.padding(vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Cover(s.cover, Modifier.size(46.dp))
+                        Spacer(Modifier.width(12.dp))
+                        Column {
+                            Text(s.title, style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            Text(s.album ?: s.artist, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = { TextButton(onClick = onDismiss) { Text("Annulla") } }
+    )
 }

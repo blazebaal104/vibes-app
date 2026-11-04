@@ -67,9 +67,63 @@ data class Profile(
     val top4: List<SongRef> = emptyList(),
     @SerialName("now_playing") val nowPlaying: SongRef? = null,
     @SerialName("last_seen") val lastSeen: String? = null,
+    @SerialName("fav_artist") val favArtist: FavArtist? = null,
+    @SerialName("fav_song") val favSong: SongRef? = null,
+    @SerialName("fav_playlist") val favPlaylist: FavPlaylist? = null,
+    @SerialName("stats_week") val statsWeek: WeekSummary? = null,
+    val records: Records? = null,
+    val privacy: Privacy = Privacy(),
 ) {
     val name get() = displayName.ifBlank { username }
 }
+
+@Serializable
+data class FavArtist(val id: Long = 0, val name: String, val image: String? = null)
+
+/** A playlist pinned on the profile; [sharedId] points at vibes_shared_playlists so anyone can save it. */
+@Serializable
+data class FavPlaylist(val sharedId: String, val name: String, val cover: String? = null, val count: Int = 0, val emoji: String = "🎵", val color: String = "#B84DFF")
+
+@Serializable
+data class RankedArtist(val name: String, val image: String? = null, val minutes: Int = 0)
+
+@Serializable
+data class RankedSong(val song: SongRef, val plays: Int = 0, val minutes: Int = 0)
+
+@Serializable
+data class RankedName(val name: String, val minutes: Int = 0, val cover: String? = null, val id: String? = null)
+
+/** One week of listening, Monday to Sunday (also what friends see for the current week). */
+@Serializable
+data class WeekSummary(
+    val weekStart: String,               // ISO date of the Monday
+    val minutes: Int = 0,
+    val plays: Int = 0,
+    val artists: List<RankedArtist> = emptyList(),
+    val songs: List<RankedSong> = emptyList(),
+    val playlists: List<RankedName> = emptyList(),
+    val genres: List<RankedName> = emptyList(),
+    val newArtists: Int = 0,
+    val activeDays: Int = 0,
+)
+
+@Serializable
+data class Records(
+    val mostPlaysSong: SongRef? = null,
+    val mostPlays: Int = 0,
+    val mostPlaysWeek: String? = null,
+    val mostMinutes: Int = 0,
+    val mostMinutesWeek: String? = null,
+    val longestStreakDays: Int = 0,
+)
+
+@Serializable
+data class Privacy(
+    val nowPlaying: Boolean = true,
+    val weekStats: Boolean = true,
+    val records: Boolean = true,
+    val favorites: Boolean = true,
+)
 
 @Serializable
 data class Message(
