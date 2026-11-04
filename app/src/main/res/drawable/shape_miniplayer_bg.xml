@@ -4,5 +4,5 @@
      still colors it) but with 0dp corners. Dedicated to the mini-player so the global
      ?itemCorner / shape_rounded_item_corner stay untouched. -->
 <shape xmlns:android="http://schemas.android.com/apk/res/android">
-    <corners android:radius="0dp" />
+    <corners android:radius="14dp" />
 </shape>

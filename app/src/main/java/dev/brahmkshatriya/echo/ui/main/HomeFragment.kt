@@ -84,7 +84,7 @@ class HomeFragment : Fragment(R.layout.fragment_home) {
         getTouchHelper(listener).attachToRecyclerView(recyclerView)
         configureGridLayout(
             recyclerView,
-            feedAdapter.withLoading(this, HeaderAdapter(this)),
+            feedAdapter.withLoading(this, HeaderAdapter(this), dev.brahmkshatriya.echo.vibes.home.VibesHomeAdapter(this)),
         )
         (recyclerView as? TvAwareRecyclerView)?.navRailView =
             requireActivity().findViewById(R.id.navRailContainer)

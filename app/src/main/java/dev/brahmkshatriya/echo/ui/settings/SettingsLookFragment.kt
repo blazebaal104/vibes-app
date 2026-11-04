@@ -54,6 +54,15 @@ class SettingsLookFragment : BaseSettingsFragment() {
             preferenceScreen = screen
 
             PreferenceCategory(context).apply {
+                title = "Temi Vibes"
+                key = "vibes_themes"
+                isIconSpaceReserved = false
+                layoutResource = R.layout.preference_category
+                screen.addPreference(this)
+                addPreference(dev.brahmkshatriya.echo.vibes.theme.ThemePickerPreference(context))
+            }
+
+            PreferenceCategory(context).apply {
                 title = getString(R.string.colors)
                 key = "colors"
                 isIconSpaceReserved = false
@@ -223,6 +232,14 @@ class SettingsLookFragment : BaseSettingsFragment() {
         }
 
         val listener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
+            // Vibes themes: one recreate per theme change, not one per colour key it writes.
+            if (key == dev.brahmkshatriya.echo.vibes.theme.VibesThemes.THEME_ID_KEY ||
+                key == dev.brahmkshatriya.echo.vibes.theme.VibesThemes.THEME_BG_KEY
+            ) {
+                if (!dev.brahmkshatriya.echo.vibes.theme.VibesThemes.applying) requireActivity().recreate()
+                return@OnSharedPreferenceChangeListener
+            }
+            if (dev.brahmkshatriya.echo.vibes.theme.VibesThemes.applying) return@OnSharedPreferenceChangeListener
             when (key) {
                 THEME_KEY, CUSTOM_THEME_KEY, COLOR_KEY, AMOLED_KEY,
                 BIG_COVER, NAVBAR_GRADIENT, BACKGROUND_GRADIENT,

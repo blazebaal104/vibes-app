@@ -75,12 +75,15 @@
     <style name="BottomNavbarActiveIndicator" parent="Widget.Material3.BottomNavigationView.ActiveIndicator">
         <item name="android:width">56dp</item>
         <item name="android:height">32dp</item>
-        <item name="android:color">?navBarBackground</item>
+        <!-- Vibes: Spotify-style nav, no pill behind the active item -->
+        <item name="android:color">@android:color/transparent</item>
     </style>
 
     <style name="NavView" parent="Widget.Material3.BottomNavigationView">
         <item name="itemActiveIndicatorStyle">@style/BottomNavbarActiveIndicator</item>
-        <item name="itemTextAppearanceActiveBoldEnabled">false</item>
+        <item name="itemTextAppearanceActiveBoldEnabled">true</item>
+        <item name="itemTextColor">@color/nav_bar_icon</item>
+        <item name="itemRippleColor">@android:color/transparent</item>
         <item name="itemTextAppearanceActive">@style/TextAppearance.Material3.BodySmall</item>
         <item name="itemTextAppearanceInactive">@style/TextAppearance.Material3.BodySmall</item>
         <item name="itemIconTint">@color/nav_bar_icon</item>

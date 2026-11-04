@@ -469,10 +469,16 @@ class UiViewModel(
         suspend fun Fragment.applyGradient(view: View, drawable: Drawable?) {
             val settings = requireContext().getSettings()
             val isGradient = settings.getBoolean(BACKGROUND_GRADIENT, true)
+            // Vibes: the active theme's background gradient replaces the plain primary-colour fallback,
+            // and with "always use theme background" on it also wins over the cover-derived drawable.
+            val vibesTheme = dev.brahmkshatriya.echo.vibes.theme.VibesThemes.current(requireContext())
+            val themeBg = vibesTheme?.takeIf {
+                dev.brahmkshatriya.echo.vibes.theme.VibesThemes.backgroundEnabled(requireContext())
+            }?.gradient()
             val source = if (isGradient) {
-                drawable ?: MaterialColors.getColor(view, androidx.appcompat.R.attr.colorPrimary)
+                themeBg ?: drawable ?: MaterialColors.getColor(view, androidx.appcompat.R.attr.colorPrimary)
                     .toDrawable()
-            } else null
+            } else themeBg
             val context = view.context
             val bitmap: Bitmap? = source?.toBitmap(
                 source.intrinsicWidth.coerceAtLeast(1),
