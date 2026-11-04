@@ -1,5 +1,7 @@
 package dev.brahmkshatriya.echo.vibes.ui
 
+import androidx.compose.foundation.layout.isImeVisible
+import androidx.compose.foundation.layout.WindowInsets
 import android.net.Uri
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedContent
@@ -170,7 +172,7 @@ fun MainScaffold(pendingLink: MutableStateFlow<Uri?>) {
 
         // games are full screen: no mini player / tab bar covering their controls
         @OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
-        val imeOpen = androidx.compose.foundation.layout.WindowInsets.isImeVisible
+        val imeOpen = WindowInsets.isImeVisible
         val inGame = nav.current is Route.Guess || nav.current is Route.BlindTest || imeOpen
         AnimatedVisibility(
             !inGame, Modifier.align(Alignment.BottomCenter),

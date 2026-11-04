@@ -1,5 +1,8 @@
 package dev.brahmkshatriya.echo.vibes.ui
 
+import androidx.compose.ui.graphics.drawscope.clipPath
+import androidx.compose.foundation.layout.isImeVisible
+import androidx.compose.foundation.layout.WindowInsets
 import android.os.Build
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.AnimatedVisibility
@@ -624,7 +627,7 @@ private fun GuessBoard(
     // with the keyboard open there is no room for everything: the attempts collapse into dots so the
     // text field, the suggestions and the play button stay visible right above the keyboard
     @OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
-    val ime = androidx.compose.foundation.layout.WindowInsets.isImeVisible
+    val ime = WindowInsets.isImeVisible
     Column(Modifier.fillMaxSize().padding(horizontal = 18.dp)) {
         Text(roundLabel, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.align(Alignment.CenterHorizontally).padding(top = 6.dp))
@@ -752,7 +755,7 @@ private fun ClipTimeline(step: Int, color: Color, playing: Boolean) {
         val bar = androidx.compose.ui.graphics.Path().apply {
             addRoundRect(androidx.compose.ui.geometry.RoundRect(0f, 0f, size.width, h, r))
         }
-        androidx.compose.ui.graphics.drawscope.clipPath(bar) {
+        clipPath(bar) {
             // whole song length (locked)
             drawRect(locked)
             // unlocked so far: dim colour
