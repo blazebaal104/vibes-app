@@ -164,9 +164,17 @@ fun MainScaffold(pendingLink: MutableStateFlow<Uri?>) {
             label = "screen"
         ) { key -> Screen(key.route) }
 
-        Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth()) {
-            MiniPlayer()
-            BottomBar()
+        // games are full screen: no mini player / tab bar covering their controls
+        val inGame = nav.current is Route.Guess || nav.current is Route.BlindTest
+        AnimatedVisibility(
+            !inGame, Modifier.align(Alignment.BottomCenter),
+            enter = slideInVertically(tween(280)) { it } + fadeIn(tween(200)),
+            exit = slideOutVertically(tween(240)) { it } + fadeOut(tween(160)),
+        ) {
+            Column(Modifier.fillMaxWidth()) {
+                MiniPlayer()
+                BottomBar()
+            }
         }
 
         AnimatedVisibility(

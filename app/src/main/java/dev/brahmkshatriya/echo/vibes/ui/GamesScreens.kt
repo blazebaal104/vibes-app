@@ -512,8 +512,18 @@ private fun GuessBoard(
         ClipTimeline(step, color, playing)
         Spacer(Modifier.height(14.dp))
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text("+${fmtStep(clipSteps.getOrNull(step + 1))}", style = MaterialTheme.typography.labelLarge,
-                color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f))
+            Box(Modifier.weight(1f), contentAlignment = Alignment.CenterStart) {
+                val last = step >= clipSteps.lastIndex
+                Row(
+                    Modifier.clip(CircleShape).background(if (last) Color(0xFFFF3B5C).copy(alpha = 0.22f) else color.copy(alpha = 0.18f))
+                        .border(1.dp, if (last) Color(0xFFFF3B5C) else color.copy(alpha = 0.6f), CircleShape)
+                        .bouncy(onSkip).padding(horizontal = 14.dp, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(if (last) "Mi arrendo" else "Salta +${fmtStep(clipSteps.getOrNull(step + 1)?.minus(clipSteps[step]))}",
+                        style = MaterialTheme.typography.labelLarge, color = if (last) Color(0xFFFF7A8F) else color)
+                }
+            }
             val s by animateFloatAsState(if (playing) 0.92f else 1f, spring(dampingRatio = 0.4f), label = "pl")
             Box(
                 Modifier.size(78.dp).scale(s).clip(CircleShape).background(color).bouncy(onPlay),
@@ -552,52 +562,78 @@ private fun GuessBoard(
                     cursorBrush = SolidColor(color), modifier = Modifier.fillMaxWidth())
             }
         }
-        Spacer(Modifier.height(10.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            BigButton(if (step >= clipSteps.lastIndex) "Mi arrendo" else "Salta (+${fmtStep(clipSteps.getOrNull(step + 1))})",
-                onSkip, Modifier.weight(1f), container = LocalVibes.current.cardHigh, content = MaterialTheme.colorScheme.onSurface)
-            if (onGiveUp != null) BigButton("Non lo so", onGiveUp, Modifier.weight(1f), container = Color(0xFFFF3B5C), content = Color.White)
+        if (onGiveUp != null) {
+            Spacer(Modifier.height(10.dp))
+            BigButton("Non lo so", onGiveUp, Modifier.fillMaxWidth(), container = Color(0xFFFF3B5C), content = Color.White)
         }
-        Spacer(Modifier.height(12.dp))
+        Spacer(Modifier.height(14.dp))
     }
 }
 
 private fun fmtStep(ms: Long?): String = when {
     ms == null -> "—"
-    ms < 1000 -> "0,1s"
+    ms < 1000 -> "0,${ms / 100}s"
     else -> "${ms / 1000}s"
 }
 
 @Composable
 private fun ClipTimeline(step: Int, color: Color, playing: Boolean) {
     val max = clipSteps.last().toFloat()
-    val unlocked = clipSteps[step] / max
+    // unlocked region grows with a springy animation when you skip
+    val unlocked by animateFloatAsState(clipSteps[step] / max, spring(dampingRatio = 0.55f, stiffness = 220f), label = "unl")
     val progress = remember { Animatable(0f) }
-    LaunchedEffect(playing) {
+    LaunchedEffect(playing, step) {
         if (playing) {
             progress.snapTo(0f)
-            progress.animateTo(unlocked, tween(clipSteps[step].toInt(), easing = LinearEasing))
-        } else progress.snapTo(0f)
-    }
-    BoxWithConstraints(Modifier.fillMaxWidth().height(34.dp)) {
-        val w = maxWidth
-        // track
-        Box(Modifier.align(Alignment.Center).fillMaxWidth().height(10.dp).clip(CircleShape).background(LocalVibes.current.cardHigh))
-        // unlocked part
-        Box(Modifier.align(Alignment.CenterStart).width(w * unlocked.coerceAtLeast(0.012f)).height(10.dp).clip(CircleShape).background(color.copy(alpha = 0.4f)))
-        // playing indicator
-        Box(Modifier.align(Alignment.CenterStart).width(w * progress.value).height(10.dp).clip(CircleShape).background(color))
-        // markers
-        clipSteps.forEachIndexed { i, ms ->
-            val x = w * (ms / max)
-            Box(
-                Modifier.align(Alignment.CenterStart).offset(x = x - 2.dp).width(4.dp).fillMaxHeight()
-                    .clip(CircleShape).background(if (i <= step) color else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f))
-            )
+            progress.animateTo(clipSteps[step] / max, tween(clipSteps[step].toInt(), easing = LinearEasing))
         }
     }
-    Row(Modifier.fillMaxWidth()) {
+    // dark, desaturated version of the difficulty colour for the "not played yet" part
+    val dim = androidx.compose.ui.graphics.lerp(color, Color(0xFF0E0E12), 0.62f)
+    val locked = LocalVibes.current.card
+    val glow by androidx.compose.animation.core.rememberInfiniteTransition(label = "g")
+        .animateFloat(0.35f, 0.8f, androidx.compose.animation.core.infiniteRepeatable(tween(700), androidx.compose.animation.core.RepeatMode.Reverse), label = "ga")
+    val tick = MaterialTheme.colorScheme.onSurfaceVariant
+    androidx.compose.foundation.Canvas(Modifier.fillMaxWidth().height(30.dp)) {
+        val h = size.height
+        val r = androidx.compose.ui.geometry.CornerRadius(h / 2, h / 2)
+        val bar = androidx.compose.ui.graphics.Path().apply {
+            addRoundRect(androidx.compose.ui.geometry.RoundRect(0f, 0f, size.width, h, r))
+        }
+        androidx.compose.ui.graphics.drawscope.clipPath(bar) {
+            // whole song length (locked)
+            drawRect(locked)
+            // unlocked so far: dim colour
+            drawRect(dim, size = androidx.compose.ui.geometry.Size(size.width * unlocked, h))
+            // what is playing / was played: full colour with soft gloss
+            val pw = size.width * progress.value
+            if (pw > 0f) {
+                drawRect(
+                    androidx.compose.ui.graphics.Brush.verticalGradient(listOf(color, androidx.compose.ui.graphics.lerp(color, Color.Black, 0.18f))),
+                    size = androidx.compose.ui.geometry.Size(pw, h)
+                )
+            }
+            // segment dividers at each unlock point
+            clipSteps.dropLast(1).forEachIndexed { i, ms ->
+                val x = size.width * (ms / max)
+                drawRect(
+                    if (i < step) Color.Black.copy(alpha = 0.35f) else tick.copy(alpha = 0.25f),
+                    topLeft = androidx.compose.ui.geometry.Offset(x - 1.5f, 0f),
+                    size = androidx.compose.ui.geometry.Size(3f, h)
+                )
+            }
+        }
+        // playhead
+        if (playing) {
+            val x = (size.width * progress.value).coerceIn(h / 2, size.width - h / 2)
+            drawCircle(color.copy(alpha = glow * 0.5f), radius = h * 0.75f, center = androidx.compose.ui.geometry.Offset(x, h / 2))
+            drawCircle(Color.White, radius = h * 0.36f, center = androidx.compose.ui.geometry.Offset(x, h / 2))
+        }
+    }
+    Row(Modifier.fillMaxWidth().padding(top = 6.dp)) {
         Text("0s", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Spacer(Modifier.weight(1f))
+        Text("Sbloccati ${fmtStep(clipSteps[step])}", style = MaterialTheme.typography.labelSmall, color = color)
         Spacer(Modifier.weight(1f))
         Text("10s", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
