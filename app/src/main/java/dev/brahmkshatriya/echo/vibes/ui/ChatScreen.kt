@@ -1,5 +1,7 @@
 package dev.brahmkshatriya.echo.vibes.ui
 
+import androidx.compose.foundation.layout.isImeVisible
+import androidx.compose.foundation.layout.WindowInsets
 import android.Manifest
 import android.content.Context
 import android.content.Intent
@@ -158,7 +160,6 @@ fun ChatScreen(friendId: String) {
             }
         }
     }
-    LaunchedEffect(messages.size) { if (messages.isNotEmpty()) listState.animateScrollToItem(messages.lastIndex) }
 
     fun sendText() {
         val body = text.trim()
@@ -224,6 +225,12 @@ fun ChatScreen(friendId: String) {
         f.delete()
     }
 
+    // keyboard opens -> keep the latest message right above the input bar
+    @OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+    val imeOpen = WindowInsets.isImeVisible
+    LaunchedEffect(imeOpen, messages.size) {
+        if (messages.isNotEmpty()) listState.animateScrollToItem(messages.lastIndex)
+    }
     Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background).imePadding()) {
         // header
         Row(

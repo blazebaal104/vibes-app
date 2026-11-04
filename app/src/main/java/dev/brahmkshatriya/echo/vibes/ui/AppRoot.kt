@@ -173,7 +173,11 @@ fun MainScaffold(pendingLink: MutableStateFlow<Uri?>) {
         // games are full screen: no mini player / tab bar covering their controls
         @OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
         val imeOpen = WindowInsets.isImeVisible
-        val inGame = nav.current is Route.Guess || nav.current is Route.BlindTest || imeOpen
+        // screens with something to type / controls at the bottom are full screen, like WhatsApp:
+        // the mini player and the tab bar never cover their input bar
+        val cur = nav.current
+        val inGame = imeOpen || nav.playerOpen || cur is Route.Guess || cur is Route.BlindTest || cur is Route.Chat ||
+                cur is Route.EditProfile || cur is Route.AddFriend || cur is Route.DeezerLogin || cur is Route.Import
         AnimatedVisibility(
             !inGame, Modifier.align(Alignment.BottomCenter),
             enter = slideInVertically(tween(280)) { it } + fadeIn(tween(200)),

@@ -1,12 +1,9 @@
 {
-  "title": "Bug fix e aggiunta di funzionalità",
+  "title": "Chat sistemata",
   "notes": [
-    "Aggiornamenti automatici dentro l'app",
-    "Statistiche settimanali in stile Spotify, record e cronologia",
-    "Profilo con artista, brano e playlist preferiti",
-    "Impostazioni nuove: font, sfondo, dissolvenza, qualità audio, privacy",
-    "Indovina il brano: scegli artista o genere, nuova barra, gioco a schermo intero",
-    "Play a sinistra nelle playlist e icona di condivisione classica",
-    "Foto profilo e tastiera nel gioco sistemate"
+    "La barra per scrivere non finisce più sotto ai menu: chat a schermo intero come WhatsApp",
+    "Con la tastiera aperta vedi sempre l'ultimo messaggio",
+    "Stesso fix per modifica profilo, aggiungi amico, importa playlist e login Deezer",
+    "Menu e mini player si nascondono ovunque quando scrivi"
   ]
 }
