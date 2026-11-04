@@ -1,6 +1,7 @@
 package dev.brahmkshatriya.echo.vibes.ui
 
 import android.os.Build
+import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.Animatable

@@ -1,5 +1,6 @@
 package dev.brahmkshatriya.echo.vibes.ui
 
+import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.foundation.background
