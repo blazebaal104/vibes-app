@@ -273,6 +273,18 @@ android {
             initWith(getByName("release"))
             matchingFallbacks += "release"
         }
+        // Vibes in-app updates: same app id + same signature as release (installs over it), but
+        // no R8/shrinking so CI builds take a few minutes instead of ~15.
+        create("fast") {
+            initWith(getByName("release"))
+            isMinifyEnabled = false
+            isShrinkResources = false
+            matchingFallbacks += "release"
+        }
+    }
+    lint {
+        checkReleaseBuilds = false
+        abortOnError = false
     }
 
     buildFeatures {
