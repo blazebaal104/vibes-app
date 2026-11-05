@@ -38,10 +38,16 @@ jobs:
           set -o pipefail
           ./gradlew :app:assembleRelease --build-cache --parallel --stacktrace --no-configuration-cache 2>&1 | tee build.log
 
+      - name: Playback tests (Deezer login recovery)
+        run: |
+          set -o pipefail
+          ./gradlew :app:testReleaseUnitTest --tests "dev.brahmkshatriya.echo.vibes.*" --build-cache --parallel --no-configuration-cache 2>&1 | tee -a build.log
+          ls app/build/test-results/testReleaseUnitTest/ || true
+
       - name: Publish build errors
         if: failure()
         run: |
-          grep -E "^e: |error:|ERROR:|What went wrong|AAPT|Unresolved|FAILED" -A2 build.log | head -400 > build-errors.txt || true
+          grep -E "^e: |error:|ERROR:|What went wrong|AAPT|Unresolved|FAILED|Test.*>|AssertionError|Exception" -A3 build.log | head -400 > build-errors.txt || true
           tail -80 build.log >> build-errors.txt
           gh release delete build-errors -y --cleanup-tag || true
           gh release create build-errors build-errors.txt --title "Build errors" --notes "run ${{ github.run_id }}" --prerelease

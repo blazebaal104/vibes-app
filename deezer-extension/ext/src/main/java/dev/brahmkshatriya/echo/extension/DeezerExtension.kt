@@ -925,9 +925,11 @@ class DeezerExtension : HomeFeedClient, TrackClient, LikeClient, RadioClient,
             // The silent re-login path needs none of this - callApi's CSRF branch calls setLoginUser
             // directly and synchronously, and `session` is a singleton, so it clears immediately.
             session.setCredentialsRejected(false)
+            session.isArlExpired(false)
             return userList
         } else {
             session.updateCredentials(arl = data["arl"] ?: "")
+            session.isArlExpired(false) // Vibes: a new ARL is not the old expired one
             api.getSid()
             val userList = api.makeUser()
             userList.firstOrNull()?.extras?.let { extras ->
@@ -956,6 +958,10 @@ class DeezerExtension : HomeFeedClient, TrackClient, LikeClient, RadioClient,
         // switch or a logout - see DeezerSession.lastSentCountry.
         session.setLastSentCountry(null)
         if (user != null) {
+            // Vibes: fresh credentials from the DB/a new login -> the in-memory "ARL expired" flag set
+            // by an earlier refusal must not survive, otherwise every call keeps throwing
+            // LoginRequired until the app is killed even after the user re-linked Deezer.
+            session.isArlExpired(false)
             session.updateCredentials(
                 arl = user.extras["arl"] ?: "",
                 sid = user.extras["sid"] ?: "",

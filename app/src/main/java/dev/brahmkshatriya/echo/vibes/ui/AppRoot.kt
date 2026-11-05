@@ -214,6 +214,7 @@ fun MainScaffold(pendingLink: MutableStateFlow<Uri?>) {
         nav.share?.let { ShareSheet(it) { nav.share = null } }
         nav.addToPlaylist?.let { AddToPlaylistSheet(it) { nav.addToPlaylist = null } }
         UpdateHost()
+        DeezerAuthHost()
         Toast(nav.toast) { nav.toast = null }
     }
     }

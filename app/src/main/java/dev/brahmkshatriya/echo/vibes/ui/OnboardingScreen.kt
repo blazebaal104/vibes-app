@@ -114,6 +114,7 @@ fun OnboardingScreen() {
             delay(600)
             VibesGraph.prefs.update { it.copy(needsOnboarding = false) }
             app.nav.toast("Le tue playlist sono pronte in Libreria 🎉")
+            if (dev.brahmkshatriya.echo.vibes.music.DeezerAuth.loggedIn == false) app.nav.open(Route.DeezerLogin)
         }
     }
 

@@ -1,12 +1,9 @@
 {
-  "title": "Musica ok, ricerca nuova e brani più veloci",
+  "title": "Fix play: ricollega Deezer",
   "notes": [
-    "Ricerca nuova stile Spotify: risultato migliore, brani, artisti, album e playlist",
-    "Artisti senza doppioni e senza profili falsi: prima quelli ufficiali e più seguiti",
-    "Filtri Tutto / Brani / Artisti / Album / Playlist, risultati mentre scrivi",
-    "Risolto: premendo play la musica non partiva",
-    "Il brano successivo viene pre-caricato: parte all'istante",
-    "Ascolta insieme più rapido e preciso: impara quanto ci mette il tuo telefono e si sincronizza al secondo",
-    "Registro errori: se un brano non parte, Vibes manda il motivo per poterlo sistemare"
+    "Trovato il motivo per cui il play non partiva: Deezer aveva chiuso la sessione e Vibes non te lo diceva",
+    "Ora se Deezer rifiuta un brano compare subito \"Ricollega Deezer\" invece di restare fermo",
+    "Risolto: dopo aver ricollegato Deezer i brani restavano bloccati fino al riavvio dell'app",
+    "Chi non ha ancora collegato Deezer viene guidato a farlo alla prima riproduzione"
   ]
 }

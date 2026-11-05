@@ -320,7 +320,7 @@ fun DeezerLoginScreen() {
                     loading = true; error = null
                     scope.launch {
                         runCatching { if (tab == 0) app.engine.loginWithPassword(email, pass) else app.engine.loginWithArl(arl) }
-                            .onSuccess { nav.toast("Deezer collegato 🎉"); nav.back() }
+                            .onSuccess { dev.brahmkshatriya.echo.vibes.music.DeezerAuth.linked(); nav.toast("Deezer collegato 🎉"); nav.back() }
                             .onFailure {
                                 error = (it.message ?: "Accesso non riuscito") +
                                         if (tab == 0) "\nProva con il codice ARL." else ""
