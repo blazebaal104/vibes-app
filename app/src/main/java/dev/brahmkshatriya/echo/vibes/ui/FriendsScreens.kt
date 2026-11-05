@@ -274,14 +274,6 @@ fun AddFriendScreen() {
             }
             items(results, key = { it.id }) { p ->
                 val isFriend = friends.any { it.id == p.id }
-    val storyGroups by app.social.stories.collectAsState()
-    val myFollowing by app.social.following.collectAsState()
-    val myFollowers by app.social.followers.collectAsState()
-    var counts by remember(p.id) { mutableStateOf<Pair<Int, Int>?>(null) }
-    LaunchedEffect(p.id, myFollowing.size, myFollowers.size) {
-        counts = runCatching { app.social.followLists(p.id) }.getOrNull()?.let { it.first.size to it.second.size }
-    }
-    val group = storyGroups.firstOrNull { it.user.id == p.id }
                 Row(Modifier.fillMaxWidth().clickable { nav.open(Route.Profile(p.id)) }.padding(horizontal = 16.dp, vertical = 8.dp),
                     verticalAlignment = Alignment.CenterVertically) {
                     Avatar(p, 46.dp)
@@ -313,6 +305,14 @@ fun ProfileScreen(userId: String?) {
     val p = if (isMe) meProfile else other
     if (p == null) { Box(Modifier.fillMaxWidth().padding(80.dp), contentAlignment = Alignment.Center) { androidx.compose.material3.CircularProgressIndicator() }; return }
     val isFriend = friends.any { it.id == p.id }
+    val storyGroups by app.social.stories.collectAsState()
+    val myFollowing by app.social.following.collectAsState()
+    val myFollowers by app.social.followers.collectAsState()
+    var counts by remember(p.id) { mutableStateOf<Pair<Int, Int>?>(null) }
+    LaunchedEffect(p.id, myFollowing.size, myFollowers.size) {
+        counts = runCatching { app.social.followLists(p.id) }.getOrNull()?.let { it.first.size to it.second.size }
+    }
+    val group = storyGroups.firstOrNull { it.user.id == p.id }
 
     GradientBackground(tint = parseColor(p.avatarColor)) {
         LazyColumn(contentPadding = ScreenPadding) {
