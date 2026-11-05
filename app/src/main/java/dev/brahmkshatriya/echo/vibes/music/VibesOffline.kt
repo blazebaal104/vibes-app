@@ -4,6 +4,8 @@ import android.content.Context
 import dev.brahmkshatriya.echo.common.clients.TrackClient
 import dev.brahmkshatriya.echo.common.models.Streamable
 import dev.brahmkshatriya.echo.common.models.Track
+import dev.brahmkshatriya.echo.extensions.ExtensionUtils.getAs
+import dev.brahmkshatriya.echo.utils.Serializer.toJson
 import dev.brahmkshatriya.echo.vibes.backend.SongRef
 import dev.brahmkshatriya.echo.vibes.backend.Supa
 import kotlinx.coroutines.CoroutineScope
@@ -37,6 +39,8 @@ object VibesOffline {
     }
 
     private lateinit var appContext: Context
+    /** Set by VibesActivity once the engine exists (downloads need the Deezer extension). */
+    @Volatile var engine: MusicEngine? = null
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val queue = Channel<SongRef>(Channel.UNLIMITED)
     private var worker: Job? = null
@@ -105,9 +109,9 @@ object VibesOffline {
 
     private suspend fun fetch(song: SongRef) {
         _states.update { it + (song.key to State.Downloading(0f)) }
-        val engine = dev.brahmkshatriya.echo.vibes.VibesGraph.engine
-        val ext = engine.extension()
-        val (full, media) = withTimeout(30_000) {
+        val eng = this.engine ?: throw IllegalStateException("Apri Vibes per scaricare")
+        val ext = eng.extension()
+        val (full: Track, media: Streamable.Media.Server) = withTimeout(30_000) {
             val full = ext.getAs<TrackClient, Track> { loadTrack(song.toTrack(), false) }.getOrThrow()
             val server = full.servers.firstOrNull() ?: throw IllegalStateException("Brano non disponibile")
             full to (ext.getAs<TrackClient, Streamable.Media> { loadStreamableMedia(server, false) }.getOrThrow()
@@ -142,7 +146,7 @@ object VibesOffline {
         if (total < 50_000) { tmp.delete(); throw IllegalStateException("Download incompleto") }
         tmp.renameTo(out)
         // keep the full track (with its Deezer extras) so the player can show it without network
-        val stored = song.copy(data = runCatching { with(dev.brahmkshatriya.echo.utils.Serializer) { full.toJson() } }.getOrNull() ?: song.data)
+        val stored = song.copy(data = runCatching { full.toJson() }.getOrNull() ?: song.data)
         _entries.update { it + (song.key to Entry(stored, out.absolutePath, total)) }
         save()
     }

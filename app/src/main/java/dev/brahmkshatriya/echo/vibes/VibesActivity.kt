@@ -59,6 +59,7 @@ class VibesActivity : ComponentActivity() {
         ) notifPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
 
         val engine = MusicEngine(extensionLoader, playerViewModel)
+        dev.brahmkshatriya.echo.vibes.music.VibesOffline.engine = engine
         VibesNotifier.start(applicationContext)
         handleIntent(intent)
 
