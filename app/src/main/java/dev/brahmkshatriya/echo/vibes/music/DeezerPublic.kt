@@ -198,6 +198,10 @@ class DeezerPublic(private val http: OkHttpClient) {
                 o["picture_xl"]?.jsonPrimitive?.contentOrNull ?: o["picture_big"]?.jsonPrimitive?.contentOrNull, o["nb_fan"]?.jsonPrimitive?.intOrNull ?: 0)
         }.orEmpty()
 
+    suspend fun searchAlbums(q: String, limit: Int = 20): List<AlbumBrief> =
+        get("https://api.deezer.com/search/album?limit=$limit&q=" + URLEncoder.encode(q, "UTF-8"))
+            ?.get("data")?.jsonArray?.mapNotNull { (it as? JsonObject)?.toAlbumBrief() }.orEmpty()
+
     suspend fun artistInfo(id: Long): ArtistInfo? {
         val o = get("https://api.deezer.com/artist/$id") ?: return null
         if (o["error"] != null) return null

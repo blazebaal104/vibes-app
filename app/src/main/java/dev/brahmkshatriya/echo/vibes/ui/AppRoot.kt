@@ -254,6 +254,7 @@ fun Screen(route: Route) {
         is Route.Media -> (route.item as? dev.brahmkshatriya.echo.common.models.Artist)?.let { ArtistFromEngine(it) } ?: MediaScreen(route.item)
         is Route.DzArtist -> ArtistScreen(route.id, route.name)
         is Route.DzAlbum -> DzAlbumScreen(route.id)
+        is Route.DzPlaylist -> DzPlaylistScreen(route.id)
         is Route.Chat -> ChatScreen(route.friendId)
         is Route.Profile -> ProfileScreen(route.userId)
         Route.EditProfile -> EditProfileScreen()

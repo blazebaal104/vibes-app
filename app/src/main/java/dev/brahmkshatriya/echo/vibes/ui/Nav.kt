@@ -37,6 +37,7 @@ sealed interface Route {
     data object Layers : Route
     data class DzArtist(val id: Long, val name: String = "") : Route
     data class DzAlbum(val id: Long) : Route
+    data class DzPlaylist(val id: Long) : Route
     data class Stories(val userId: String) : Route
     data class NewStory(val song: SongRef? = null) : Route
     data class StoryRecap(val month: String) : Route

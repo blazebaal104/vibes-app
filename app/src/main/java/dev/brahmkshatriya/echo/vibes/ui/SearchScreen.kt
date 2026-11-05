@@ -1,5 +1,8 @@
 package dev.brahmkshatriya.echo.vibes.ui
 
+import androidx.compose.foundation.lazy.items
+import kotlinx.coroutines.launch
+import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -56,27 +59,26 @@ fun SearchScreen() {
     val app = LocalApp.current
     val nav = app.nav
     var query by rememberSaveable { mutableStateOf("") }
-    var result by remember { mutableStateOf<MusicEngine.SearchResult?>(null) }
+    var result by remember { mutableStateOf<dev.brahmkshatriya.echo.vibes.music.VibesSearch.Result?>(null) }
     var loading by remember { mutableStateOf(false) }
-    var error by remember { mutableStateOf<String?>(null) }
-    var extId by remember { mutableStateOf(MusicEngine.DEEZER) }
+    var filter by rememberSaveable { mutableStateOf(0) } // 0 tutto, 1 brani, 2 artisti, 3 album, 4 playlist
     val searches by app.library.searches.collectAsState()
     val playing = nowPlayingKey()
 
     var genre by remember { mutableStateOf<Genre?>(null) }
     var genreSongs by remember { mutableStateOf<List<SongRef>>(emptyList()) }
     LaunchedEffect(query) {
-        if (query.isBlank()) { result = null; genre = null; return@LaunchedEffect }
-        delay(380)
+        if (query.isBlank()) { result = null; genre = null; loading = false; return@LaunchedEffect }
+        delay(250)
         loading = true
         // "pop", "rap", "lofi"… → songs OF that genre, not songs with that word in the title
         genre = Genres.match(query)
         genreSongs = genre?.let { g -> runCatching { Genres.tracks(app.deezer, g).map { it.toSongRef() } }.getOrDefault(emptyList()) }.orEmpty()
-        runCatching { extId = app.engine.extensionId(); app.engine.search(query) }
-            .onSuccess { result = it; error = null }
-            .onFailure { error = it.message }
+        result = runCatching { dev.brahmkshatriya.echo.vibes.VibesGraph.search.search(query) }.getOrNull()
         loading = false
     }
+    val r = result
+    fun saveQuery() { if (query.isNotBlank()) app.library.addSearch(query.trim()) }
 
     GradientBackground {
         LazyColumn(contentPadding = ScreenPadding) {
@@ -86,40 +88,43 @@ fun SearchScreen() {
             }
             item {
                 Row(
-                    Modifier.padding(horizontal = 16.dp).fillMaxWidth().height(50.dp).clip(RoundedCornerShape(10.dp))
-                        .background(MaterialTheme.colorScheme.onSurface).padding(horizontal = 14.dp),
+                    Modifier.padding(horizontal = 16.dp).fillMaxWidth().height(52.dp)
+                        .glass(RoundedCornerShape(16.dp), fallback = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.12f)).padding(horizontal = 14.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Icon(Icons.Rounded.Search, null, tint = MaterialTheme.colorScheme.surface)
+                    Icon(Icons.Rounded.Search, null, tint = MaterialTheme.colorScheme.onSurface)
                     Spacer(Modifier.width(10.dp))
                     Box(Modifier.weight(1f)) {
-                        if (query.isEmpty()) Text("Cosa vuoi ascoltare?", color = MaterialTheme.colorScheme.surface.copy(alpha = 0.6f),
-                            style = MaterialTheme.typography.titleMedium)
+                        if (query.isEmpty()) Text("Artisti, brani, album o playlist", color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            style = MaterialTheme.typography.titleMedium, maxLines = 1)
                         BasicTextField(
                             query, { query = it }, singleLine = true,
-                            textStyle = MaterialTheme.typography.titleMedium.copy(color = MaterialTheme.colorScheme.surface),
+                            textStyle = MaterialTheme.typography.titleMedium.copy(color = MaterialTheme.colorScheme.onSurface),
                             cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
                             keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-                            keyboardActions = KeyboardActions(onSearch = { if (query.isNotBlank()) app.library.addSearch(query) }),
+                            keyboardActions = KeyboardActions(onSearch = { saveQuery() }),
                             modifier = Modifier.fillMaxWidth()
                         )
                     }
-                    if (query.isNotEmpty()) Icon(
-                        Icons.Rounded.Close, "Cancella", tint = MaterialTheme.colorScheme.surface,
-                        modifier = Modifier.clickable { query = "" }
-                    )
+                    if (loading) androidx.compose.material3.CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
+                    if (query.isNotEmpty()) Icon(Icons.Rounded.Close, "Cancella", tint = MaterialTheme.colorScheme.onSurface,
+                        modifier = Modifier.padding(start = 8.dp).clickable { query = "" })
+                }
+            }
+            if (query.isNotBlank()) item {
+                androidx.compose.foundation.lazy.LazyRow(contentPadding = androidx.compose.foundation.layout.PaddingValues(16.dp, 12.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    val labels = listOf("Tutto", "Brani", "Artisti", "Album", "Playlist")
+                    items(labels.size) { i -> Pill(labels[i], filter == i, { filter = i }) }
                 }
             }
 
-            val r = result
             if (query.isBlank()) {
                 if (searches.isNotEmpty()) {
                     item { SectionTitle("Ricerche recenti", action = "Cancella") { app.library.clearSearches() } }
                     itemsIndexed(searches) { _, s ->
-                        Row(
-                            Modifier.fillMaxWidth().clickable { query = s }.padding(horizontal = 16.dp, vertical = 10.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
+                        Row(Modifier.fillMaxWidth().clickable { query = s }.padding(horizontal = 16.dp, vertical = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically) {
                             Icon(Icons.Rounded.History, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
                             Spacer(Modifier.width(14.dp))
                             Text(s, style = MaterialTheme.typography.bodyLarge)
@@ -135,48 +140,166 @@ fun SearchScreen() {
                         }
                     }
                 }
-            } else if (loading && r == null) {
+            } else if (r == null && loading) {
                 item { Box(Modifier.fillMaxWidth().padding(40.dp), contentAlignment = Alignment.Center) { androidx.compose.material3.CircularProgressIndicator() } }
-            } else if (r != null && r.isEmpty) {
-                item { EmptyState("🔍", "Nessun risultato", error ?: "Prova con un'altra parola.") }
-            } else if (r != null) {
-                if (genre != null) {
-                    item {
-                        GenreBanner(genre!!) { nav.open(Route.Genre(genre!!.name)) }
-                    }
+            } else if (r == null || (r.isEmpty && genreSongs.isEmpty())) {
+                if (!loading) item { EmptyState("🔍", "Nessun risultato per \"$query\"", "Controlla come l'hai scritto o prova con meno parole.") }
+            } else {
+                if (genre != null && filter == 0) {
+                    item { GenreBanner(genre!!) { nav.open(Route.Genre(genre!!.name)) } }
                     if (genreSongs.isNotEmpty()) {
                         item { SectionTitle("Brani ${genre!!.name}", action = "Vedi tutti") { nav.open(Route.Genre(genre!!.name)) } }
-                        itemsIndexed(genreSongs.take(10), key = { _, s -> "g" + s.key }) { i, song ->
-                            SongRow(song, playing = playing == song.key,
-                                onClick = { app.library.addSearch(query); app.engine.playAll(genreSongs, i) },
+                        itemsIndexed(genreSongs.take(6), key = { _, s -> "g" + s.key }) { i, song ->
+                            SongRow(song, playing = playing == song.key, onClick = { saveQuery(); app.engine.playAll(genreSongs, i) },
                                 onMore = { nav.share = ShareItem.Song(song) }, modifier = Modifier.enter(i))
                         }
                     }
                 }
-                if (r.tracks.isNotEmpty() && genre == null) {
-                    item { SectionTitle("Brani") }
-                    itemsIndexed(r.tracks.take(12), key = { _, t -> "t" + t.id }) { i, t ->
-                        val song = SongRef.from(extId, t)
-                        SongRow(
-                            song, playing = playing == song.key,
-                            onClick = { app.library.addSearch(query); app.engine.play(extId, r.tracks, i) },
-                            onMore = { nav.share = ShareItem.Song(song) },
-                            modifier = Modifier.enter(i)
-                        )
+                // ---- top result (Spotify style)
+                if (filter == 0) r.top?.let { top ->
+                    item { SectionTitle("Risultato migliore") }
+                    item { TopResultCard(top, r.songs) { saveQuery() } }
+                }
+                if ((filter == 0 || filter == 1) && r.songs.isNotEmpty()) {
+                    if (filter == 0) item { SectionTitle("Brani") }
+                    val list = if (filter == 0) r.songs.take(5) else r.songs
+                    itemsIndexed(list, key = { _, s -> "t" + s.key }) { i, song ->
+                        SongRow(song, playing = playing == song.key, onClick = { saveQuery(); app.engine.playAll(r.songs, i) },
+                            onMore = { nav.share = ShareItem.Song(song) }, modifier = Modifier.enter(i))
                     }
                 }
-                if (r.artists.isNotEmpty()) {
-                    item { SectionTitle("Artisti") }
-                    item { MediaCarousel(r.artists) { nav.open(Route.Media(it)) } }
+                if ((filter == 0 || filter == 2) && r.artists.isNotEmpty()) {
+                    if (filter == 0) {
+                        item { SectionTitle("Artisti") }
+                        item {
+                            androidx.compose.foundation.lazy.LazyRow(contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 16.dp),
+                                horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+                                items(r.artists.size) { i -> ArtistBubble(r.artists[i]) { saveQuery(); nav.open(Route.DzArtist(r.artists[i].id, r.artists[i].name)) } }
+                            }
+                        }
+                    } else itemsIndexed(r.artists, key = { _, a -> "a" + a.id }) { i, a ->
+                        Row(Modifier.fillMaxWidth().enter(i).clickable { saveQuery(); nav.open(Route.DzArtist(a.id, a.name)) }.padding(horizontal = 16.dp, vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically) {
+                            Cover(a.picture, Modifier.size(56.dp), androidx.compose.foundation.shape.CircleShape)
+                            Spacer(Modifier.width(12.dp))
+                            Column {
+                                Text(a.name, style = MaterialTheme.typography.titleMedium)
+                                Text("Artista · ${fmtInt(a.fans)} fan", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                        }
+                    }
                 }
-                if (r.albums.isNotEmpty()) {
-                    item { SectionTitle("Album") }
-                    item { MediaCarousel(r.albums) { nav.open(Route.Media(it)) } }
+                if ((filter == 0 || filter == 3) && r.albums.isNotEmpty()) {
+                    if (filter == 0) { item { SectionTitle("Album") }; item { AlbumCarousel(r.albums, showArtist = true) } }
+                    else itemsIndexed(r.albums, key = { _, a -> "al" + a.id }) { i, al ->
+                        Row(Modifier.fillMaxWidth().enter(i).clickable { saveQuery(); nav.open(Route.DzAlbum(al.id)) }.padding(horizontal = 16.dp, vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically) {
+                            Cover(al.cover, Modifier.size(56.dp))
+                            Spacer(Modifier.width(12.dp))
+                            Column {
+                                Text(al.title, style = MaterialTheme.typography.titleMedium, maxLines = 1)
+                                Text("${if (al.type == "single") "Singolo" else if (al.type == "ep") "EP" else "Album"} · ${al.artist} · ${al.date.take(4)}",
+                                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
+                            }
+                        }
+                    }
                 }
-                if (r.playlists.isNotEmpty()) {
-                    item { SectionTitle("Playlist") }
-                    item { MediaCarousel(r.playlists) { nav.open(Route.Media(it)) } }
+                if ((filter == 0 || filter == 4) && r.playlists.isNotEmpty()) {
+                    if (filter == 0) item { SectionTitle("Playlist") }
+                    val list = if (filter == 0) r.playlists.take(4) else r.playlists
+                    itemsIndexed(list, key = { _, p -> "p" + p.id }) { i, pl ->
+                        Row(Modifier.fillMaxWidth().enter(i).clickable { saveQuery(); nav.open(Route.DzPlaylist(pl.id)) }.padding(horizontal = 16.dp, vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically) {
+                            Cover(pl.picture, Modifier.size(56.dp))
+                            Spacer(Modifier.width(12.dp))
+                            Column {
+                                Text(pl.title, style = MaterialTheme.typography.titleMedium, maxLines = 1)
+                                Text("Playlist · ${pl.owner} · ${pl.count} brani", style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
+                            }
+                        }
+                    }
                 }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ArtistBubble(a: dev.brahmkshatriya.echo.vibes.music.DeezerPublic.ArtistInfo, onClick: () -> Unit) {
+    Column(Modifier.width(110.dp).bouncy(onClick), horizontalAlignment = Alignment.CenterHorizontally) {
+        Cover(a.picture, Modifier.size(110.dp), androidx.compose.foundation.shape.CircleShape)
+        Text(a.name, style = MaterialTheme.typography.labelLarge, maxLines = 1, modifier = Modifier.padding(top = 6.dp))
+        Text("${fmtInt(a.fans)} fan", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    }
+}
+
+/** Big "top result" card: the artist (round photo) or the best song, with a play button. */
+@Composable
+private fun TopResultCard(top: dev.brahmkshatriya.echo.vibes.music.VibesSearch.Top, songs: List<SongRef>, onUse: () -> Unit) {
+    val app = LocalApp.current
+    val nav = app.nav
+    val scope = androidx.compose.runtime.rememberCoroutineScope()
+    val (img, title, sub, round) = when (top) {
+        is dev.brahmkshatriya.echo.vibes.music.VibesSearch.Top.ArtistTop -> listOf(top.a.picture, top.a.name, "Artista · ${fmtInt(top.a.fans)} fan", true)
+        is dev.brahmkshatriya.echo.vibes.music.VibesSearch.Top.SongTop -> listOf(top.s.cover, top.s.title, "Brano · ${top.s.artist}", false)
+    }
+    Box(Modifier.padding(horizontal = 16.dp).fillMaxWidth().glass(RoundedCornerShape(20.dp)).bouncy({
+        onUse()
+        when (top) {
+            is dev.brahmkshatriya.echo.vibes.music.VibesSearch.Top.ArtistTop -> nav.open(Route.DzArtist(top.a.id, top.a.name))
+            is dev.brahmkshatriya.echo.vibes.music.VibesSearch.Top.SongTop -> app.engine.playAll(songs, top.index)
+        }
+    }).padding(16.dp)) {
+        Column {
+            Cover(img as String?, Modifier.size(96.dp), if (round as Boolean) androidx.compose.foundation.shape.CircleShape else RoundedCornerShape(8.dp))
+            Text(title as String, style = MaterialTheme.typography.headlineSmall, maxLines = 2, modifier = Modifier.padding(top = 12.dp))
+            Text(sub as String, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
+        }
+        Box(Modifier.align(Alignment.BottomEnd).size(52.dp).clip(androidx.compose.foundation.shape.CircleShape)
+            .background(MaterialTheme.colorScheme.primary).bouncy({
+                onUse()
+                when (top) {
+                    is dev.brahmkshatriya.echo.vibes.music.VibesSearch.Top.ArtistTop -> scope.launch {
+                        runCatching { app.deezer.artistTop(top.a.id, 30).map { it.toSongRef() } }.onSuccess { app.engine.playAll(it) }
+                    }
+                    is dev.brahmkshatriya.echo.vibes.music.VibesSearch.Top.SongTop -> app.engine.playAll(songs, top.index)
+                }
+            }), contentAlignment = Alignment.Center) {
+            Icon(androidx.compose.material.icons.Icons.Rounded.PlayArrow, "Riproduci", tint = MaterialTheme.colorScheme.onPrimary, modifier = Modifier.size(30.dp))
+        }
+    }
+}
+
+/** A Deezer playlist from search results. */
+@Composable
+fun DzPlaylistScreen(id: Long) {
+    val app = LocalApp.current
+    val nav = app.nav
+    var info by remember { mutableStateOf<dev.brahmkshatriya.echo.vibes.music.DeezerPublic.PlaylistInfo?>(null) }
+    var songs by remember { mutableStateOf<List<SongRef>?>(null) }
+    val playing = nowPlayingKey()
+    LaunchedEffect(id) {
+        info = runCatching { app.deezer.playlistInfo(id) }.getOrNull()
+        songs = runCatching { app.deezer.playlistTracks(id, 300).map { it.toSongRef() } }.getOrDefault(emptyList())
+    }
+    val list = songs.orEmpty()
+    GradientBackground {
+        LazyColumn(contentPadding = ScreenPadding) {
+            item {
+                CollectionHeader(info?.title ?: "", "${info?.owner ?: ""} · ${list.size} brani",
+                    art = { Cover(info?.picture, Modifier.size(220.dp), RoundedCornerShape(8.dp)) },
+                    onPlay = { app.engine.playAll(list) }, onShuffle = { app.engine.playAll(list, shuffle = true) },
+                    actions = {
+                        if (list.isNotEmpty()) androidx.compose.material3.IconButton(onClick = {
+                            val p = app.library.createPlaylist(info?.title ?: "Playlist", "🎵", avatarColors.random(), list, cover = info?.picture)
+                            nav.toast("Salvata in Vibes"); nav.open(Route.Playlist(p.id))
+                        }) { Icon(Icons.Rounded.Add, "Salva in Vibes") }
+                    })
+            }
+            if (songs == null) item { Box(Modifier.fillMaxWidth().padding(40.dp), contentAlignment = Alignment.Center) { androidx.compose.material3.CircularProgressIndicator() } }
+            itemsIndexed(list, key = { i, s -> "$i${s.key}" }) { i, s ->
+                SongRow(s, playing = playing == s.key, onClick = { app.engine.playAll(list, i) }, onMore = { nav.share = ShareItem.Song(s) }, modifier = Modifier.enter(i))
             }
         }
     }
