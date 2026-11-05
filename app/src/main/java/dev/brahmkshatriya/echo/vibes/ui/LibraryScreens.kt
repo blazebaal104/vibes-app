@@ -139,6 +139,17 @@ fun LibraryScreen() {
                     }
                 ) { nav.open(Route.Liked) }
             }
+            if (filter != 2) item {
+                val off by dev.brahmkshatriya.echo.vibes.music.VibesOffline.entries.collectAsState()
+                LibraryRow(
+                    title = "Scaricati", subtitle = "Offline · ${off.size} brani · ${formatBytes(off.values.sumOf { it.size })}",
+                    art = {
+                        Box(Modifier.size(64.dp).clip(RoundedCornerShape(6.dp))
+                            .background(Brush.linearGradient(listOf(Color(0xFF0E7A3A), OfflineGreen))),
+                            contentAlignment = Alignment.Center) { Icon(Icons.Rounded.Download, null, tint = Color.White) }
+                    }
+                ) { nav.open(Route.Downloads) }
+            }
             val shown = when (filter) {
                 2 -> playlists.filter { it.from != null }
                 3 -> emptyList()
@@ -301,6 +312,7 @@ fun PlaylistScreen(id: String) {
                     art = { PlaylistArt(p, Modifier.size(220.dp)) },
                     onPlay = { app.engine.playAll(p.songs, ctx = p) }, onShuffle = { app.engine.playAll(p.songs, shuffle = true, ctx = p) },
                     actions = {
+                        DownloadAllButton(p.songs, p.name)
                         IconButton(onClick = { nav.share = ShareItem.Playlist(p) }) { Icon(Icons.Rounded.Share, "Condividi") }
                         IconButton(onClick = { editing = true }) { Icon(Icons.Rounded.Edit, "Modifica") }
                         IconButton(onClick = {
@@ -352,7 +364,8 @@ fun LikedScreen() {
                             .background(Brush.linearGradient(listOf(Color(0xFF4A1FB8), Color(0xFF8E8EE5)))),
                             contentAlignment = Alignment.Center) { Icon(Icons.Rounded.Favorite, null, tint = Color.White, modifier = Modifier.size(80.dp)) }
                     },
-                    onPlay = { app.engine.playAll(liked) }, onShuffle = { app.engine.playAll(liked, shuffle = true) }
+                    onPlay = { app.engine.playAll(liked) }, onShuffle = { app.engine.playAll(liked, shuffle = true) },
+                    actions = { DownloadAllButton(liked, "Brani che ti piacciono") }
                 )
             }
             if (liked.isEmpty()) item { EmptyState("💜", "Nessun brano", "Tocca il cuore nel player per salvare i brani qui.") }
@@ -545,4 +558,50 @@ fun TransferBanner(modifier: Modifier = Modifier, onClick: () -> Unit) {
             Text("›", fontSize = 34.sp, color = Color.White)
         }
     }
+}
+
+
+/** Every downloaded song: plays with no connection. */
+@Composable
+fun DownloadsScreen() {
+    val app = LocalApp.current
+    val entries by dev.brahmkshatriya.echo.vibes.music.VibesOffline.entries.collectAsState()
+    val songs = entries.values.sortedByDescending { it.at }.map { it.song }
+    val playing = nowPlayingKey()
+    var clearing by remember { mutableStateOf(false) }
+    GradientBackground(tint = Color(0xFF0E7A3A)) {
+        LazyColumn(contentPadding = ScreenPadding) {
+            item {
+                CollectionHeader(
+                    "Scaricati", "${songs.size} brani · ${formatBytes(entries.values.sumOf { it.size })} · ascoltabili senza internet",
+                    art = {
+                        Box(Modifier.size(220.dp).clip(RoundedCornerShape(8.dp))
+                            .background(Brush.linearGradient(listOf(Color(0xFF0E7A3A), OfflineGreen))),
+                            contentAlignment = Alignment.Center) { Icon(Icons.Rounded.Download, null, tint = Color.White, modifier = Modifier.size(80.dp)) }
+                    },
+                    onPlay = { app.engine.playAll(songs) }, onShuffle = { app.engine.playAll(songs, shuffle = true) },
+                    actions = { if (songs.isNotEmpty()) IconButton(onClick = { clearing = true }) { Icon(Icons.Rounded.Delete, "Elimina tutti") } }
+                )
+            }
+            if (songs.isEmpty()) item {
+                EmptyState("⬇️", "Nessun download", "Apri una playlist e tocca la freccia: i brani restano sul telefono e li ascolti anche offline.")
+            }
+            itemsIndexed(songs, key = { _, s -> s.key }) { i, s ->
+                SongRow(s, onClick = { app.engine.playAll(songs, i) }, playing = playing == s.key,
+                    onMore = { app.nav.share = ShareItem.Song(s) }, modifier = Modifier.enter(i),
+                    trailing = {
+                        IconButton(onClick = { dev.brahmkshatriya.echo.vibes.music.VibesOffline.remove(listOf(s)) }) {
+                            Icon(Icons.Rounded.Remove, "Rimuovi download", tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    })
+            }
+        }
+    }
+    if (clearing) AlertDialog(
+        onDismissRequest = { clearing = false },
+        title = { Text("Eliminare tutti i download?") },
+        text = { Text("Liberi ${formatBytes(entries.values.sumOf { it.size })}. Le playlist restano, solo non più offline.") },
+        confirmButton = { TextButton(onClick = { clearing = false; dev.brahmkshatriya.echo.vibes.music.VibesOffline.removeAll() }) { Text("Elimina") } },
+        dismissButton = { TextButton(onClick = { clearing = false }) { Text("Annulla") } }
+    )
 }

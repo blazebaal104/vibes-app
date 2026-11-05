@@ -162,10 +162,13 @@ fun SongRow(
                 song.title, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis,
                 color = if (playing) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
             )
-            Text(
-                song.artist, style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                OfflineMark(song)
+                Text(
+                    song.artist, style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
         }
         if (playing) EqualizerBars(Modifier.padding(horizontal = 8.dp).size(18.dp))
         trailing?.invoke()

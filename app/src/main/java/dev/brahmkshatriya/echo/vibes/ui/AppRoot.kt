@@ -252,6 +252,7 @@ fun Screen(route: Route) {
         Route.Games -> GamesScreen()
         is Route.Playlist -> PlaylistScreen(route.id)
         Route.Liked -> LikedScreen()
+        Route.Downloads -> DownloadsScreen()
         is Route.Media -> (route.item as? dev.brahmkshatriya.echo.common.models.Artist)?.let { ArtistFromEngine(it) } ?: MediaScreen(route.item)
         is Route.DzArtist -> ArtistScreen(route.id, route.name)
         is Route.DzAlbum -> DzAlbumScreen(route.id)

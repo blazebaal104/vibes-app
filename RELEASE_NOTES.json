@@ -1,9 +1,10 @@
 {
-  "title": "Collega Deezer e la musica parte",
+  "title": "YouTube Music e brani offline",
   "notes": [
-    "All'apertura Vibes controlla se Deezer funziona: se no, ti chiede di collegarlo",
-    "Crea un account Deezer gratis o accedi direttamente dentro Vibes, in un minuto",
-    "Appena hai finito Vibes si collega da solo e la musica parte",
-    "I nuovi utenti lo fanno subito dopo la registrazione"
+    "Trasferimento da YouTube Music riparato: YouTube aveva cambiato formato e Vibes non trovava più le canzoni",
+    "Ora prende nome, copertina e tutte le canzoni, anche playlist lunghe con più di 100 brani",
+    "Nuovo: scarica playlist e brani preferiti con la freccia ⬇ e ascoltali senza internet",
+    "In Libreria trovi «Scaricati» con tutti i brani offline e quanto spazio occupano",
+    "Quando importi una playlist puoi scaricarla subito"
   ]
 }

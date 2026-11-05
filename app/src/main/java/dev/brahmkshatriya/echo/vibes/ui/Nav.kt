@@ -18,6 +18,7 @@ sealed interface Route {
 
     data class Playlist(val id: String) : Route
     data object Liked : Route
+    data object Downloads : Route
     data class Media(val item: EchoMediaItem) : Route
     data class Chat(val friendId: String) : Route
     data class Profile(val userId: String?) : Route

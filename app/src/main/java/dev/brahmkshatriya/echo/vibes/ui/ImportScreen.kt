@@ -196,10 +196,21 @@ fun ImportScreen() {
                     }
                 }
                 item {
+                    var offline by remember { mutableStateOf(false) }
+                    Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp).bouncy({ offline = !offline }).padding(vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically) {
+                        Column(Modifier.weight(1f)) {
+                            Text("Scarica per ascoltarla offline", style = MaterialTheme.typography.titleSmall)
+                            Text("I brani restano sul telefono: niente internet, niente dati", style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                        androidx.compose.material3.Switch(offline, { offline = it })
+                    }
                     BigButton("Aggiungi a Vibes (${included.count { it }} brani)", {
                         saving = true
                         val songs = items.mapIndexedNotNull { i, it -> if (included.getOrElse(i) { false }) it.match else null }
                         val pl = VibesGraph.importer.save(name, cover, songs)
+                        if (offline) dev.brahmkshatriya.echo.vibes.music.VibesOffline.download(pl.songs)
                         saving = false
                         nav.toast("\"${pl.name}\" aggiunta: ${pl.songs.size} brani 🎉")
                         nav.back(); nav.open(Route.Playlist(pl.id))

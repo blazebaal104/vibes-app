@@ -79,6 +79,15 @@ class StreamableLoader(
 
     private suspend fun loadTrack(item: MediaItem): MediaState.Loaded<Track> {
         val stub = item.state.item
+        // Vibes offline: a downloaded song must start without network. Use the cached track if
+        // it comes quickly, otherwise the stub (the file is served by loadServer below).
+        if (dev.brahmkshatriya.echo.vibes.music.VibesOffline.fileFor(app.context, item.extensionId, stub.id) != null) {
+            val cached = runCatching {
+                withTimeout(4_000) { withClient(item) { Cached.loadMedia(app, it, item.state, preferCache = true) }.getOrThrow() }
+            }.getOrNull()
+            if (cached != null) return cached
+            return MediaState.Loaded(item.extensionId, stub, null, null, null, null, null, false, false, probesDegraded = true)
+        }
         Log.d("GladixPlayback", "loadTrack stub: id=${stub.id} servers=${stub.servers.map { it.id }} extras=${stub.extras}")
         val track = withClient(item) {
             // preferCache = true: the ONLY caller that passes it. See Cached.loadMedia — this keeps a
@@ -93,6 +102,9 @@ class StreamableLoader(
     }
 
     private suspend fun loadServer(mediaItem: MediaItem): Result<Streamable.Media.Server> {
+        dev.brahmkshatriya.echo.vibes.music.VibesOffline.fileFor(app.context, mediaItem.extensionId, mediaItem.track.id)?.let { f ->
+            return Result.success(Streamable.Media.Server(listOf(Uri.fromFile(f).toString().toSource()), true))
+        }
         val downloaded = mediaItem.downloaded
         val servers = mediaItem.track.servers
         val index = mediaItem.serverIndex

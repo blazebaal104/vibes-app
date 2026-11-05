@@ -24,7 +24,8 @@ import java.util.concurrent.atomic.AtomicInteger
  * Supported: Deezer links (public API) and Spotify links (the public embed page, which lists up to
  * ~100 tracks without needing a Spotify account).
  */
-class Importer(private val deezer: DeezerPublic, private val library: VibesLibrary, private val http: okhttp3.OkHttpClient) {
+class Importer(private val deezer: DeezerPublic, private val libraryProvider: () -> VibesLibrary, private val http: okhttp3.OkHttpClient) {
+    private val library get() = libraryProvider()
 
     data class Progress(val done: Int, val total: Int, val found: Int, val stage: String)
     data class Source(val name: String, val cover: String?, val items: List<Pair<String, String>>?, val deezerTracks: List<DeezerPublic.GameTrack>?)
@@ -33,7 +34,7 @@ class Importer(private val deezer: DeezerPublic, private val library: VibesLibra
     data class PreviewItem(val title: String, val artist: String, val match: SongRef?)
     data class Preview(val service: String, val name: String, val cover: String?, val items: List<PreviewItem>)
 
-    private val youtubeRe = Regex("""(?:youtube\.com|youtu\.be).*[?&]list=([A-Za-z0-9_-]+)""")
+    private val youtubeRe = Regex("""(?:youtube\.com|youtu\.be)(?:.*[?&]list=|/browse/VL)([A-Za-z0-9_-]+)""")
 
     /** Name of the service if the text contains a link Vibes can import, else null. */
     fun detect(raw: String): String? {
@@ -129,46 +130,112 @@ class Importer(private val deezer: DeezerPublic, private val library: VibesLibra
         return t to a
     }
 
-    private suspend fun fromYouTube(url: String): Source {
+    /**
+     * YouTube / YouTube Music playlist. Since late 2026 the youtube.com playlist page no longer has
+     * playlistVideoRenderer items (everything is lockupViewModel), so the import found 0 songs.
+     * The YouTube Music API (WEB_REMIX) gives clean title + artist columns and pages of 100:
+     * verified from CI on public playlists of 52, 150 and 182 songs.
+     */
+    internal suspend fun fromYouTube(url: String): Source {
         val list = youtubeRe.find(url)!!.groupValues[1]
-        val html = ytRequest(okhttp3.Request.Builder().url("https://www.youtube.com/playlist?list=$list&hl=it&gl=IT"))
-            ?: throw IllegalStateException("Non riesco a leggere la playlist di YouTube")
-        val raw = Regex("""ytInitialData\s*=\s*(\{.*?\});\s*</script>""", RegexOption.DOT_MATCHES_ALL).find(html)?.groupValues?.get(1)
-            ?: throw IllegalStateException("La playlist è privata o YouTube ha cambiato formato")
-        val root = Supa.json.parseToJsonElement(raw)
-        val key = Regex(""""INNERTUBE_API_KEY":"([^"]+)"""").find(html)?.groupValues?.get(1)
-        val version = Regex(""""INNERTUBE_CLIENT_VERSION":"([^"]+)"""").find(html)?.groupValues?.get(1) ?: "2.20240101.00.00"
-        val meta = mutableListOf<JsonObject>(); findAll(root, "playlistMetadataRenderer", meta)
-        val micro = mutableListOf<JsonObject>(); findAll(root, "microformatDataRenderer", micro)
-        val name = meta.firstOrNull()?.s("title") ?: micro.firstOrNull()?.s("title") ?: "Da YouTube Music"
-        val items = mutableListOf<Pair<String, String>>()
-        var thumb: String? = (micro.firstOrNull()?.get("thumbnail") as? JsonObject)?.let { t ->
-            (t["thumbnails"] as? JsonArray)?.mapNotNull { (it as? JsonObject)?.s("url") }?.lastOrNull()
+        return runCatching { fromYouTubeMusic(list) }.getOrElse { first ->
+            runCatching { fromYouTubeWeb(list) }.getOrElse { throw first }
         }
+    }
+
+    private suspend fun ytmBrowse(body: String): JsonElement? {
+        val res = ytRequest(okhttp3.Request.Builder()
+            .url("https://music.youtube.com/youtubei/v1/browse?prettyPrint=false")
+            .header("Origin", "https://music.youtube.com").header("Referer", "https://music.youtube.com/")
+            .post(body.toRequestBody("application/json".toMediaType()))) ?: return null
+        return runCatching { Supa.json.parseToJsonElement(res) }.getOrNull()
+    }
+
+    private val ytmContext = """{"client":{"clientName":"WEB_REMIX","clientVersion":"1.20241030.01.00","hl":"it","gl":"IT"}}"""
+
+    /** Largest image url found in any "thumbnails" list under this node. */
+    private fun JsonObject.thumbs(): String? {
+        var best: String? = null; var bestW = -1
+        fun walk(e: JsonElement) {
+            when (e) {
+                is JsonObject -> e.forEach { (k, v) ->
+                    if (k == "thumbnails" && v is JsonArray) v.forEach { t ->
+                        val o = t as? JsonObject ?: return@forEach
+                        val w = (o["width"] as? JsonPrimitive)?.contentOrNull?.toIntOrNull() ?: 0
+                        val u = o.s("url")
+                        if (u != null && w > bestW) { best = u; bestW = w }
+                    } else walk(v)
+                }
+                is JsonArray -> e.forEach { walk(it) }
+                else -> {}
+            }
+        }
+        walk(this)
+        return best
+    }
+
+    private suspend fun fromYouTubeMusic(list: String): Source {
+        val root = ytmBrowse("""{"context":$ytmContext,"browseId":"VL$list"}""")
+            ?: throw IllegalStateException("Non riesco a contattare YouTube Music")
+        val headers = mutableListOf<JsonObject>()
+        listOf("musicResponsiveHeaderRenderer", "musicDetailHeaderRenderer", "musicEditablePlaylistDetailHeaderRenderer")
+            .forEach { findAll(root, it, headers) }
+        val name = headers.firstNotNullOfOrNull { it.runsText("title") }?.takeIf { it.isNotBlank() } ?: "Da YouTube Music"
+        var cover = headers.firstNotNullOfOrNull { it.thumbs() }
+        val items = mutableListOf<Pair<String, String>>()
         fun collect(e: JsonElement) {
-            val vids = mutableListOf<JsonObject>(); findAll(e, "playlistVideoRenderer", vids)
-            vids.forEach { v ->
-                val title = v.runsText("title") ?: return@forEach
-                val channel = v.runsText("shortBylineText") ?: ""
-                items += cleanYt(title, channel)
-                if (thumb == null) thumb = (v["thumbnail"] as? JsonObject)?.let { t -> (t["thumbnails"] as? JsonArray)?.mapNotNull { (it as? JsonObject)?.s("url") }?.lastOrNull() }
+            val rows = mutableListOf<JsonObject>(); findAll(e, "musicResponsiveListItemRenderer", rows)
+            rows.forEach { r ->
+                val cols = (r["flexColumns"] as? JsonArray)?.mapNotNull {
+                    ((it as? JsonObject)?.get("musicResponsiveListItemFlexColumnRenderer") as? JsonObject)?.get("text") as? JsonObject
+                } ?: return@forEach
+                val title = cols.getOrNull(0)?.let { c -> (c["runs"] as? JsonArray)?.firstOrNull()?.let { (it as? JsonObject)?.s("text") } }
+                    ?: return@forEach
+                val runs = (cols.getOrNull(1)?.get("runs") as? JsonArray)?.mapNotNull { it as? JsonObject }.orEmpty()
+                // artists are the runs that link to a page; the rest is " e ", " • ", views...
+                val artists = runs.filter { it["navigationEndpoint"] != null }.mapNotNull { it.s("text") }
+                val artist = artists.firstOrNull() ?: runs.firstOrNull()?.s("text").orEmpty()
+                items += cleanYt(title, if (artist.isNotBlank()) "$artist - Topic" else "")
+                if (cover == null) cover = r.thumbs()
             }
         }
         collect(root)
         var token = continuationToken(root)
         var pages = 0
-        while (token != null && key != null && pages < 15 && items.size < 1000) {
-            val body = """{"context":{"client":{"clientName":"WEB","clientVersion":"$version","hl":"it","gl":"IT"}},"continuation":"$token"}"""
-            val res = ytRequest(okhttp3.Request.Builder().url("https://www.youtube.com/youtubei/v1/browse?key=$key&prettyPrint=false")
-                .post(body.toRequestBody("application/json".toMediaType()))) ?: break
-            val json = runCatching { Supa.json.parseToJsonElement(res) }.getOrNull() ?: break
+        while (token != null && pages < 25 && items.size < 2500) {
+            val page = ytmBrowse("""{"context":$ytmContext,"continuation":"$token"}""") ?: break
             val before = items.size
-            collect(json)
-            token = continuationToken(json).takeIf { items.size > before }
+            collect(page)
+            token = continuationToken(page).takeIf { items.size > before }
             pages++
         }
+        if (items.isEmpty()) throw IllegalStateException("Playlist vuota o privata: su YouTube Music mettila «Pubblica» o «Non in elenco»")
+        return Source(name, cover?.substringBefore("?")?.replace(Regex("""=w\d+-h\d+.*$"""), "=w544-h544"), items, null)
+    }
+
+    /** Fallback: the youtube.com page (old playlistVideoRenderer items and the new lockupViewModel ones). */
+    private suspend fun fromYouTubeWeb(list: String): Source {
+        val html = ytRequest(okhttp3.Request.Builder().url("https://www.youtube.com/playlist?list=$list&hl=it&gl=IT")
+            .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"))
+            ?: throw IllegalStateException("Non riesco a leggere la playlist di YouTube")
+        val raw = Regex("""ytInitialData\s*=\s*(\{.*?\});\s*</script>""", RegexOption.DOT_MATCHES_ALL).find(html)?.groupValues?.get(1)
+            ?: throw IllegalStateException("La playlist è privata o YouTube ha cambiato formato")
+        val root = Supa.json.parseToJsonElement(raw)
+        val meta = mutableListOf<JsonObject>(); findAll(root, "playlistMetadataRenderer", meta)
+        val name = meta.firstOrNull()?.s("title") ?: "Da YouTube"
+        val items = mutableListOf<Pair<String, String>>()
+        val vids = mutableListOf<JsonObject>(); findAll(root, "playlistVideoRenderer", vids)
+        vids.forEach { v -> items += cleanYt(v.runsText("title") ?: return@forEach, v.runsText("shortBylineText") ?: "") }
+        val locks = mutableListOf<JsonObject>(); findAll(root, "lockupMetadataViewModel", locks)
+        locks.forEach { l ->
+            val title = (l["title"] as? JsonObject)?.s("content") ?: return@forEach
+            val parts = mutableListOf<JsonObject>(); findAll(l, "metadataParts", parts)
+            val texts = mutableListOf<JsonObject>(); findAll(l, "text", texts)
+            val channel = texts.mapNotNull { it.s("content") }.firstOrNull { it != title && !it.any(Char::isDigit) } ?: ""
+            items += cleanYt(title, channel)
+        }
         if (items.isEmpty()) throw IllegalStateException("Playlist di YouTube vuota o privata")
-        return Source(name, thumb?.substringBefore("?"), items, null)
+        return Source(name, null, items, null)
     }
 
     private val deezerRe = Regex("""deezer\.com/(?:[a-z]{2}(?:-[a-z]{2})?/)?(playlist|album)/(\d+)""")
