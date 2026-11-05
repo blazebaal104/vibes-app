@@ -36,7 +36,7 @@ jobs:
         run: |
           chmod +x gradlew
           set -o pipefail
-          ./gradlew :app:assembleFast --build-cache --parallel --stacktrace --no-configuration-cache 2>&1 | tee build.log
+          ./gradlew :app:assembleRelease --build-cache --parallel --stacktrace --no-configuration-cache 2>&1 | tee build.log
 
       - name: Publish build errors
         if: failure()
@@ -51,7 +51,7 @@ jobs:
       - name: Collect APK
         id: apk
         run: |
-          APK=$(ls app/build/outputs/apk/fast/*.apk | head -n 1)
+          APK=$(ls app/build/outputs/apk/release/*.apk | head -n 1)
           mkdir -p out
           cp "$APK" out/Vibes.apk
           echo "count=$(git rev-list --count HEAD)" >> "$GITHUB_OUTPUT"

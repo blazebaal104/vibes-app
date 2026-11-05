@@ -4,6 +4,7 @@ import dev.brahmkshatriya.echo.vibes.VibesGraph
 import dev.brahmkshatriya.echo.vibes.backend.LiveListen
 import dev.brahmkshatriya.echo.vibes.backend.Profile
 import dev.brahmkshatriya.echo.playback.MediaItemUtils.extensionId
+import dev.brahmkshatriya.echo.playback.MediaItemUtils.track
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.MainScope
 import kotlinx.coroutines.delay
@@ -25,6 +26,9 @@ class ListenAlong(private val engine: MusicEngine) {
     private val scope = MainScope()
     private var job: Job? = null
     private var expectedKey: String? = null
+    /** How long a song takes to start on this phone (learned): we jump that far ahead so we land in sync. */
+    private var startLatency = 1800L
+    private var switchedAt = 0L
 
     private val browser get() = engine.player.browser.value
     private fun currentKey(): String? = engine.player.playerState.current.value?.let { "${it.mediaItem.extensionId}:${it.track.id}" }
@@ -46,7 +50,7 @@ class ListenAlong(private val engine: MusicEngine) {
                     goneSince = 0
                     sync(live)
                 }
-                delay(2000)
+                delay(1200)
             }
         }
     }
@@ -57,18 +61,37 @@ class ListenAlong(private val engine: MusicEngine) {
         // I chose another song myself -> leave the session
         if (expectedKey != null && mine != null && mine != expectedKey && mine != live.song.key &&
             live.queue.none { it.key == mine }) { stop(); return }
-        val target = live.positionNow() + 350 // network + start latency
+        val target = live.positionNow() + 300 // network delay of the poll
         if (mine != live.song.key) {
-            val songs = listOf(live.song) + live.queue
-            engine.player.setQueue(live.song.ext, songs.map { it.toTrack() }, 0, null)
+            // they moved to the song that is next in OUR queue (we mirror theirs): just skip, it's
+            // already preloaded, so it starts instantly
+            val nextIdx = b.currentMediaItemIndex + 1
+            val nextKey = if (nextIdx < b.mediaItemCount) runCatching {
+                b.getMediaItemAt(nextIdx).let { "${it.extensionId}:${it.track.id}" }
+            }.getOrNull() else null
+            if (nextKey == live.song.key) {
+                b.seekTo(nextIdx, target)
+            } else {
+                val songs = listOf(live.song) + live.queue
+                engine.player.setQueue(live.song.ext, songs.map { it.toTrack() }, 0, null)
+                // land where they will be once our song has actually started
+                b.seekTo(target + startLatency)
+            }
             expectedKey = live.song.key
-            b.seekTo(target)
+            switchedAt = System.currentTimeMillis()
             if (live.playing) b.play() else b.pause()
             return
         }
+        if (switchedAt != 0L && b.isPlaying) {
+            // learn how long starting took on this phone/network (smoothed)
+            val took = (System.currentTimeMillis() - switchedAt).coerceIn(300, 8000)
+            startLatency = (startLatency * 2 + took) / 3
+            switchedAt = 0
+        }
         expectedKey = live.song.key
         if (live.playing) {
-            if (abs(b.currentPosition - target) > 2500) b.seekTo(target)
+            // small drift is fine (a seek costs a re-buffer): only correct a real gap
+            if (abs(b.currentPosition - target) > 1800) b.seekTo(target + if (b.bufferedPosition < target) startLatency / 2 else 0)
             if (!b.isPlaying) b.play()
         } else {
             if (b.isPlaying) b.pause()

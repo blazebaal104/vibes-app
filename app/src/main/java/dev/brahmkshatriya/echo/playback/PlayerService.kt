@@ -1243,6 +1243,9 @@ class PlayerService : MediaLibraryService() {
                     .setAudioOffloadPreferences(audioOffloadPreferences)
                     .build()
                 it.skipSilenceEnabled = app.settings.getBoolean(SKIP_SILENCE, true)
+                // Vibes: buffer the first seconds of the NEXT song in the queue ahead of time, so
+                // skipping / the next track / "Ascolta insieme" transitions start instantly.
+                runCatching { it.preloadConfiguration = ExoPlayer.PreloadConfiguration(8_000_000L) }
             }
     }
 
