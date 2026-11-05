@@ -93,6 +93,9 @@ base {
 }
 
 android {
+    // Vibes: host unit tests run on the release variant (AGP 9 only creates them for testBuildType),
+    // so CI reuses the release compilation instead of building debug too
+    testBuildType = "release"
     namespace = "dev.brahmkshatriya.echo"
     compileSdk = 37
 
