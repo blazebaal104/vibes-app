@@ -266,6 +266,11 @@ data class Upload(
     @SerialName("duration_ms") val durationMs: Long = 0,
     val genre: String = "",
     val plays: Int = 0,
+    val description: String = "",
+    val tags: List<String> = emptyList(),
+    val visibility: String = "public",
+    val explicit: Boolean = false,
+    val likes: Int = 0,
     @SerialName("created_at") val createdAt: String? = null,
 )
 

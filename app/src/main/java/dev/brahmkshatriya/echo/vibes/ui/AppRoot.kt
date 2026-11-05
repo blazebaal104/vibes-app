@@ -1,5 +1,9 @@
 package dev.brahmkshatriya.echo.vibes.ui
 
+import dev.chrisbanes.haze.hazeSource
+import androidx.compose.ui.unit.sp
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.isImeVisible
 import androidx.compose.foundation.layout.WindowInsets
 import android.net.Uri
@@ -147,8 +151,11 @@ fun MainScaffold(pendingLink: MutableStateFlow<Uri?>) {
         if (update != null) dev.brahmkshatriya.echo.vibes.VibesGraph.updater.close() else nav.back()
     }
 
+    val hazeState = remember { dev.chrisbanes.haze.HazeState() }
+    androidx.compose.runtime.CompositionLocalProvider(LocalHaze provides hazeState) {
     Box(Modifier.fillMaxSize()) {
         AnimatedContent(
+            modifier = Modifier.fillMaxSize().hazeSource(hazeState),
             targetState = ScreenKey(tabs.indexOf(nav.tab), nav.depth, nav.current),
             contentKey = { it.route },
             transitionSpec = {
@@ -206,6 +213,7 @@ fun MainScaffold(pendingLink: MutableStateFlow<Uri?>) {
         nav.addToPlaylist?.let { AddToPlaylistSheet(it) { nav.addToPlaylist = null } }
         UpdateHost()
         Toast(nav.toast) { nav.toast = null }
+    }
     }
 }
 
@@ -275,20 +283,44 @@ private fun BottomBar() {
     val unread by app.social.unread.collectAsState()
     val requests by app.social.requests.collectAsState()
     val badge = unread.values.sum() + requests.size
-    val bg = MaterialTheme.colorScheme.background
-    Row(
-        Modifier
-            .fillMaxWidth()
-            .background(Brush.verticalGradient(listOf(bg.copy(alpha = 0.0f), bg.copy(alpha = 0.92f), bg)))
-            .navigationBarsPadding()
-            .padding(top = 10.dp, bottom = 6.dp),
-        horizontalArrangement = androidx.compose.foundation.layout.Arrangement.SpaceEvenly,
-    ) {
-        NavItem("Home", Icons.Rounded.Home, Icons.Outlined.Home, nav.tab == Route.Home) { nav.selectTab(Route.Home) }
-        NavItem("Cerca", Icons.Rounded.Search, Icons.Outlined.Search, nav.tab == Route.Search) { nav.selectTab(Route.Search) }
-        NavItem("Libreria", Icons.Rounded.LibraryMusic, Icons.Outlined.LibraryMusic, nav.tab == Route.Library) { nav.selectTab(Route.Library) }
-        NavItem("Amici", Icons.Rounded.Forum, Icons.Outlined.Forum, nav.tab == Route.Friends, badge) { nav.selectTab(Route.Friends) }
-        NavItem("Giochi", Icons.Rounded.SportsEsports, Icons.Outlined.SportsEsports, nav.tab == Route.Games) { nav.selectTab(Route.Games) }
+    // floating liquid-glass pill; Studio is the special orb in the middle
+    Box(Modifier.fillMaxWidth().navigationBarsPadding().padding(start = 10.dp, end = 10.dp, top = 6.dp, bottom = 8.dp)) {
+        Row(
+            Modifier.fillMaxWidth().padding(top = 14.dp).glass(RoundedCornerShape(30.dp), blur = true).padding(vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Box(Modifier.weight(1f), contentAlignment = Alignment.Center) { NavItem("Home", Icons.Rounded.Home, Icons.Outlined.Home, nav.tab == Route.Home) { nav.selectTab(Route.Home) } }
+            Box(Modifier.weight(1f), contentAlignment = Alignment.Center) { NavItem("Cerca", Icons.Rounded.Search, Icons.Outlined.Search, nav.tab == Route.Search) { nav.selectTab(Route.Search) } }
+            Box(Modifier.weight(1f), contentAlignment = Alignment.Center) { NavItem("Libreria", Icons.Rounded.LibraryMusic, Icons.Outlined.LibraryMusic, nav.tab == Route.Library) { nav.selectTab(Route.Library) } }
+            Spacer(Modifier.width(70.dp))
+            Box(Modifier.weight(1.5f), contentAlignment = Alignment.Center) { NavItem("Amici", Icons.Rounded.Forum, Icons.Outlined.Forum, nav.tab == Route.Friends, badge) { nav.selectTab(Route.Friends) } }
+            Box(Modifier.weight(1.5f), contentAlignment = Alignment.Center) { NavItem("Giochi", Icons.Rounded.SportsEsports, Icons.Outlined.SportsEsports, nav.tab == Route.Games) { nav.selectTab(Route.Games) } }
+        }
+        StudioOrb(nav.tab == Route.Studio, Modifier.align(Alignment.TopCenter).offset(x = 6.dp)) { nav.selectTab(Route.Studio) }
+    }
+}
+
+/** The Studio button: a glowing glass orb with a slowly turning aurora inside. */
+@Composable
+private fun StudioOrb(selected: Boolean, modifier: Modifier, onClick: () -> Unit) {
+    val t = androidx.compose.animation.core.rememberInfiniteTransition(label = "orb")
+    val spin by t.animateFloat(0f, 360f, androidx.compose.animation.core.infiniteRepeatable(tween(6000, easing = androidx.compose.animation.core.LinearEasing)), label = "spin")
+    val pulse by t.animateFloat(1f, 1.07f, androidx.compose.animation.core.infiniteRepeatable(tween(1400), androidx.compose.animation.core.RepeatMode.Reverse), label = "pulse")
+    val scale by androidx.compose.animation.core.animateFloatAsState(if (selected) 1.1f else 1f, androidx.compose.animation.core.spring(dampingRatio = 0.45f), label = "orbs")
+    Column(modifier.bouncy(onClick), horizontalAlignment = Alignment.CenterHorizontally) {
+        Box(
+            Modifier.size(62.dp).graphicsLayer { scaleX = scale * pulse; scaleY = scale * pulse }
+                .clip(androidx.compose.foundation.shape.CircleShape)
+                .background(Brush.sweepGradient(listOf(Color(0xFFFF8A2B), Color(0xFFFF2E97), Color(0xFFB84DFF), Color(0xFF35D0F5), Color(0xFFFF8A2B))))
+                .graphicsLayer { rotationZ = spin },
+            contentAlignment = Alignment.Center
+        ) {
+            Box(Modifier.size(54.dp).graphicsLayer { rotationZ = -spin }.glass(androidx.compose.foundation.shape.CircleShape, blur = true), contentAlignment = Alignment.Center) {
+                Text("🎛️", fontSize = 24.sp)
+            }
+        }
+        Text("Studio", style = MaterialTheme.typography.labelSmall, color = if (selected) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(top = 2.dp))
     }
 }
 
@@ -334,9 +366,9 @@ private fun Toast(message: String?, onDone: () -> Unit) {
     Box(Modifier.fillMaxSize().padding(bottom = 170.dp), contentAlignment = Alignment.BottomCenter) {
         AnimatedVisibility(shown != null, enter = fadeIn() + slideInVertically { it }, exit = fadeOut()) {
             Box(
-                Modifier.padding(horizontal = 24.dp).clip(RoundedCornerShape(12.dp))
-                    .background(MaterialTheme.colorScheme.onSurface).padding(horizontal = 16.dp, vertical = 12.dp)
-            ) { Text(shown ?: "", color = MaterialTheme.colorScheme.surface, style = MaterialTheme.typography.bodyMedium) }
+                Modifier.padding(horizontal = 24.dp).glass(RoundedCornerShape(18.dp), blur = true, fallback = MaterialTheme.colorScheme.onSurface)
+                    .padding(horizontal = 16.dp, vertical = 12.dp)
+            ) { Text(shown ?: "", color = if (LocalSettings.current.liquidGlass) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.surface, style = MaterialTheme.typography.bodyMedium) }
         }
     }
 }

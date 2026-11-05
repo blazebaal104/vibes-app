@@ -131,7 +131,7 @@ fun LazyListScope.vibesSettings() {
                 items(VibesFonts, key = { it.first }) { (k, name) ->
                     val sel = k == s.font
                     Column(
-                        Modifier.width(112.dp).clip(RoundedCornerShape(16.dp)).background(LocalVibes.current.card)
+                        Modifier.width(112.dp).glass(RoundedCornerShape(16.dp))
                             .border(if (sel) 2.5.dp else 1.dp, if (sel) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(16.dp))
                             .bouncy({ upd { it.copy(font = k) } }).padding(12.dp)
                     ) {
@@ -192,6 +192,18 @@ fun LazyListScope.vibesSettings() {
         var v by remember { mutableFloatStateOf(s.corners.toFloat()) }
         SliderRow("Angoli delle copertine", "${v.toInt()} dp", v, 0f..28f, onChange = { v = it }, onDone = { upd { it.copy(corners = v.toInt()) } })
     }
+    item { val s = LocalSettings.current; SwitchRow("Liquid glass", "Barre e schede di vetro smerigliato che lasciano intravedere ciò che c'è sotto", s.liquidGlass) { b -> upd { it.copy(liquidGlass = b) } } }
+    item {
+        val s = LocalSettings.current
+        AnimatedVisibility(s.liquidGlass) {
+            Column {
+                var v by remember { mutableFloatStateOf(s.glassBlur) }
+                SliderRow("Intensità del vetro", when { v < 0.8f -> "leggero"; v < 1.4f -> "normale"; else -> "forte" }, v, 0.4f..2f,
+                    subtitle = "Quanto è sfocato quello che passa sotto (Android 12+)", onChange = { v = it }, onDone = { upd { it.copy(glassBlur = v) } })
+                SwitchRow("Riflessi animati", "Una luce che scorre piano sul vetro", s.glassShine) { b -> upd { it.copy(glassShine = b) } }
+            }
+        }
+    }
     item { val s = LocalSettings.current; SwitchRow("Riduci animazioni", "Meno movimento, transizioni più semplici", s.reduceMotion) { b -> upd { it.copy(reduceMotion = b) } } }
     item { val s = LocalSettings.current; SwitchRow("Vibrazione al tocco", "Un piccolo feedback quando premi i bottoni", s.haptics) { b -> upd { it.copy(haptics = b) } } }
     item { val s = LocalSettings.current; SwitchRow("Copertina animata", "La copertina \"respira\" nel player a schermo intero", s.canvasCovers) { b -> upd { it.copy(canvasCovers = b) } } }
@@ -203,7 +215,7 @@ fun LazyListScope.vibesSettings() {
     item { val s = LocalSettings.current; SwitchRow("Cosa ascoltano gli amici", null, s.homeFriends) { b -> upd { it.copy(homeFriends = b) } } }
     item {
         val s = LocalSettings.current
-        ChoiceRow("Scheda all'avvio", null, listOf("home" to "Home", "search" to "Cerca", "library" to "Libreria", "friends" to "Amici", "games" to "Giochi"), s.startTab) { k -> upd { it.copy(startTab = k) } }
+        ChoiceRow("Scheda all'avvio", null, listOf("home" to "Home", "search" to "Cerca", "library" to "Libreria", "studio" to "Studio", "friends" to "Amici", "games" to "Giochi"), s.startTab) { k -> upd { it.copy(startTab = k) } }
     }
 
     // ---------------- playback (Gladix engine settings)

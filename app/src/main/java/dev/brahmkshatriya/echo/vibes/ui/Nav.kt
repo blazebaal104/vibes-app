@@ -44,7 +44,7 @@ sealed interface Route {
     data object History : Route
 }
 
-val tabs = listOf(Route.Home, Route.Search, Route.Library, Route.Friends, Route.Games)
+val tabs = listOf(Route.Home, Route.Search, Route.Library, Route.Studio, Route.Friends, Route.Games)
 
 /** What the share sheet is sharing. */
 sealed interface ShareItem {
@@ -56,7 +56,7 @@ sealed interface ShareItem {
 @Stable
 class Navigator {
     var tab by mutableStateOf<Route>(when (dev.brahmkshatriya.echo.vibes.VibesGraph.prefs.value.startTab) {
-        "search" -> Route.Search; "library" -> Route.Library; "friends" -> Route.Friends; "games" -> Route.Games
+        "search" -> Route.Search; "library" -> Route.Library; "friends" -> Route.Friends; "games" -> Route.Games; "studio" -> Route.Studio
         else -> Route.Home
     })
         private set

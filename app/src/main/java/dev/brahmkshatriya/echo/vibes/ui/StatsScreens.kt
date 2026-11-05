@@ -329,7 +329,7 @@ private fun StatTile(label: String, value: String, color: Color, modifier: Modif
 
 @Composable
 private fun StatCard(title: String, content: @Composable () -> Unit) {
-    Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)).background(LocalVibes.current.card).padding(16.dp)) {
+    Column(Modifier.fillMaxWidth().glass(RoundedCornerShape(20.dp)).padding(16.dp)) {
         Text(title, style = MaterialTheme.typography.titleLarge, modifier = Modifier.padding(bottom = 8.dp))
         content()
     }
@@ -338,7 +338,7 @@ private fun StatCard(title: String, content: @Composable () -> Unit) {
 @Composable
 fun RecordsCard(r: Records, modifier: Modifier = Modifier) {
     val app = LocalApp.current
-    Column(modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)).background(LocalVibes.current.card).padding(16.dp)) {
+    Column(modifier.fillMaxWidth().glass(RoundedCornerShape(20.dp)).padding(16.dp)) {
         Text("🏆 Record", style = MaterialTheme.typography.titleLarge)
         Spacer(Modifier.height(10.dp))
         r.mostPlaysSong?.let { s ->

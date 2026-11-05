@@ -269,7 +269,7 @@ fun AddFriendScreen() {
                 Column(Modifier.padding(16.dp)) {
                     Text("Cerca per username", style = MaterialTheme.typography.titleLarge)
                     Spacer(Modifier.height(10.dp))
-                    VibesField(query, { query = it }, "@username")
+                    SearchField(query, { query = it }, "@username")
                 }
             }
             items(results, key = { it.id }) { p ->
@@ -381,7 +381,7 @@ fun ProfileScreen(userId: String?) {
                             if (s != null && !isMe) app.engine.play(s)
                             else if (isMe) pickingSlot = i
                         }, if (s != null) ({ app.engine.play(s) }) else null)) {
-                            Box(Modifier.fillMaxWidth().aspectRatio(0.7f).clip(RoundedCornerShape(8.dp)).background(LocalVibes.current.card),
+                            Box(Modifier.fillMaxWidth().aspectRatio(0.7f).glass(RoundedCornerShape(8.dp)),
                                 contentAlignment = Alignment.Center) {
                                 if (s != null) Cover(s.cover, Modifier.fillMaxWidth().aspectRatio(0.7f), RoundedCornerShape(8.dp))
                                 else Text(if (isMe) "+" else "—", style = MaterialTheme.typography.headlineMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -556,7 +556,7 @@ fun squareJpeg(context: android.content.Context, uri: android.net.Uri, size: Int
 @Composable
 private fun ProfileButton(emoji: String, label: String, modifier: Modifier, onClick: () -> Unit) {
     Row(
-        modifier.clip(RoundedCornerShape(16.dp)).background(LocalVibes.current.card).bouncy(onClick).padding(14.dp),
+        modifier.glass(RoundedCornerShape(16.dp)).bouncy(onClick).padding(14.dp),
         verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.Center
     ) {
         Text(emoji, fontSize = 20.sp)
@@ -580,7 +580,7 @@ private fun FavoritesSection(p: Profile, isMe: Boolean) {
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             // artist
             Column(
-                Modifier.weight(1f).clip(RoundedCornerShape(18.dp)).background(LocalVibes.current.card)
+                Modifier.weight(1f).glass(RoundedCornerShape(18.dp))
                     .bouncy({
                         if (isMe) pickArtist = true
                         else p.favArtist?.let { a -> scope.launch {
@@ -603,7 +603,7 @@ private fun FavoritesSection(p: Profile, isMe: Boolean) {
             }
             // song by that artist
             Column(
-                Modifier.weight(1f).clip(RoundedCornerShape(18.dp)).background(LocalVibes.current.card)
+                Modifier.weight(1f).glass(RoundedCornerShape(18.dp))
                     .bouncy({
                         val s = p.favSong
                         if (isMe) { if (p.favArtist == null) pickArtist = true else pickSong = true }
@@ -627,7 +627,7 @@ private fun FavoritesSection(p: Profile, isMe: Boolean) {
         // pinned playlist
         val fp = p.favPlaylist
         Row(
-            Modifier.padding(top = 10.dp).fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(LocalVibes.current.card)
+            Modifier.padding(top = 10.dp).fillMaxWidth().glass(RoundedCornerShape(18.dp))
                 .bouncy({ if (fp != null) nav.open(Route.SharedPlaylist(fp.sharedId)) else if (isMe) pickPlaylist = true },
                     if (isMe) ({ pickPlaylist = true }) else null)
                 .padding(12.dp),
@@ -717,7 +717,7 @@ fun ArtistPickerDialog(onDismiss: () -> Unit, onPick: (dev.brahmkshatriya.echo.v
         title = { Text("Il tuo artista preferito") },
         text = {
             Column {
-                VibesField(q, { q = it }, "Cerca un artista")
+                SearchField(q, { q = it }, "Cerca un artista")
                 LazyColumn(Modifier.height(320.dp).padding(top = 8.dp)) {
                     items(results, key = { it.id }) { a ->
                         Row(Modifier.fillMaxWidth().clickable { onPick(dev.brahmkshatriya.echo.vibes.backend.FavArtist(a.id, a.name, a.picture)) }

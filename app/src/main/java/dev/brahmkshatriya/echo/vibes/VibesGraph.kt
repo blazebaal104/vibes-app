@@ -27,6 +27,7 @@ object VibesGraph {
     val picker by lazy { dev.brahmkshatriya.echo.vibes.games.TrackPicker(deezer, library) }
     val prefs by lazy { VibesPrefs(app) }
     val studio by lazy { dev.brahmkshatriya.echo.vibes.music.StudioPlayer(app) }
+    val webSamples by lazy { dev.brahmkshatriya.echo.vibes.music.WebSamples(supa.http) }
     val listens by lazy { dev.brahmkshatriya.echo.vibes.music.ListenLog(app, deezer) }
     val updater by lazy { dev.brahmkshatriya.echo.vibes.update.Updater(app, supa.http) }
 

@@ -117,7 +117,6 @@ fun LibraryScreen() {
                     Avatar(me, 36.dp, Modifier.bouncy({ nav.open(Route.Profile(null)) }))
                     Spacer(Modifier.width(12.dp))
                     Text("La tua libreria", style = MaterialTheme.typography.headlineMedium, modifier = Modifier.weight(1f))
-                    IconButton(onClick = { nav.open(Route.Studio) }) { Text("🎛️", fontSize = 22.sp) }
                     IconButton(onClick = { creating = true }) { Icon(Icons.Rounded.Add, "Crea playlist", modifier = Modifier.size(28.dp)) }
                 }
             }

@@ -148,7 +148,7 @@ fun LayersGameScreen() {
                 val on = i <= layer
                 val w by animateFloatAsState(if (on) 1f else 0.35f, spring(dampingRatio = 0.6f), label = "lw$i")
                 Row(Modifier.fillMaxWidth().padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Box(Modifier.weight(1f).height(38.dp).clip(RoundedCornerShape(10.dp)).background(LocalVibes.current.card)) {
+                    Box(Modifier.weight(1f).height(38.dp).glass(RoundedCornerShape(10.dp))) {
                         Box(Modifier.fillMaxWidth(w).height(38.dp).clip(RoundedCornerShape(10.dp))
                             .background(if (on) color.copy(alpha = 0.35f + 0.13f * i) else Color.Transparent))
                         Text(label, style = MaterialTheme.typography.labelLarge, modifier = Modifier.align(Alignment.CenterStart).padding(start = 12.dp),

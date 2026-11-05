@@ -44,6 +44,9 @@ class StudioPlayer(context: Context) {
         publish()
     }
 
+    /** Tempo match: plays samples faster/slower to fit the project BPM. */
+    fun setSpeed(speed: Float) { player.setPlaybackSpeed(speed.coerceIn(0.5f, 2f)) }
+
     fun toggle() { if (player.isPlaying) player.pause() else player.play() }
     fun next() { if (player.hasNextMediaItem()) player.seekToNextMediaItem() }
     fun previous() { player.seekToPreviousMediaItem() }

@@ -383,6 +383,8 @@ class Social(context: Context, val supa: Supa) {
                 u.album?.let { put("album", it) }; u.albumId?.let { put("album_id", it) }
                 put("track_no", u.trackNo); u.cover?.let { put("cover", it) }; put("url", u.url)
                 put("duration_ms", u.durationMs); put("genre", u.genre)
+                put("description", u.description); put("visibility", u.visibility); put("explicit", u.explicit)
+                put("tags", kotlinx.serialization.json.JsonArray(u.tags.map { kotlinx.serialization.json.JsonPrimitive(it) }))
             }
         }), false)
     }
@@ -419,6 +421,26 @@ class Social(context: Context, val supa: Supa) {
         bpmMax?.let { f += "bpm=lte.$it" }
         return supa.select("vibes_samples", f.joinToString("&")).map { json.decodeFromJsonElement<Sample>(it) }
     }
+
+    /** Uploads I liked. */
+    suspend fun myLikes(): Set<String> {
+        val id = uid ?: return emptySet()
+        return supa.select("vibes_upload_likes", "user_id=eq.$id&select=upload_id").mapNotNull { (it as JsonObject).str("upload_id") }.toSet()
+    }
+
+    suspend fun like(uploadId: String, on: Boolean) {
+        val id = uid ?: return
+        if (on) supa.insertIgnore("vibes_upload_likes", buildJsonObject { put("upload_id", uploadId); put("user_id", id) })
+        else supa.delete("vibes_upload_likes", "upload_id=eq.$uploadId&user_id=eq.$id")
+    }
+
+    suspend fun trendingUploads(limit: Int = 20): List<Upload> =
+        supa.select("vibes_uploads", "select=*&order=plays.desc,likes.desc&limit=$limit").map { json.decodeFromJsonElement<Upload>(it) }
+
+    suspend fun uploadsFrom(userIds: Collection<String>, limit: Int = 30): List<Upload> =
+        if (userIds.isEmpty()) emptyList() else
+            supa.select("vibes_uploads", "user_id=in.(${userIds.joinToString(",")})&select=*&order=created_at.desc&limit=$limit")
+                .map { json.decodeFromJsonElement<Upload>(it) }
 
     fun count(kind: String, item: String) {
         scope.launch { runCatching { supa.rpc("vibes_count", buildJsonObject { put("kind", kind); put("item", item) }) } }

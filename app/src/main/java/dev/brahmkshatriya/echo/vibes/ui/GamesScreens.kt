@@ -219,7 +219,7 @@ private fun GameSetupSheet(onDismiss: () -> Unit, action: String, onStart: (Game
                             style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                     1 -> Column(Modifier.fillMaxWidth().height(300.dp)) {
-                        VibesField(query, { query = it }, "Cerca un artista…")
+                        SearchField(query, { query = it }, "Cerca un artista…")
                         LazyColumn(Modifier.padding(top = 8.dp)) {
                             items(artists, key = { it.id }) { a ->
                                 val sel = source.kind == GameSource.ARTIST && source.id == a.id
@@ -715,7 +715,7 @@ private fun GuessBoard(
         }
         Spacer(Modifier.height(8.dp))
         Row(
-            Modifier.fillMaxWidth().height(52.dp).clip(RoundedCornerShape(12.dp)).background(LocalVibes.current.card)
+            Modifier.fillMaxWidth().height(52.dp).glass(RoundedCornerShape(12.dp))
                 .border(1.5.dp, color, RoundedCornerShape(12.dp)).padding(horizontal = 12.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
@@ -1013,7 +1013,7 @@ fun BlindTestScreen(lobbyId: String?) {
 /** Friends' best scores, gold/silver/bronze. */
 @Composable
 fun Leaderboard(rows: List<Pair<Profile, Int>>, me: String?, modifier: Modifier = Modifier) {
-    Column(modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(LocalVibes.current.card).padding(12.dp)) {
+    Column(modifier.fillMaxWidth().glass(RoundedCornerShape(18.dp)).padding(12.dp)) {
         Text("🏆 Classifica amici", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(bottom = 6.dp))
         rows.take(10).forEachIndexed { i, (p, sc) ->
             Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp))

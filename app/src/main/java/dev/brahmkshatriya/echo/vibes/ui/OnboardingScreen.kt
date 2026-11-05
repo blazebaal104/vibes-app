@@ -130,7 +130,7 @@ fun OnboardingScreen() {
                     Text("Chi ascolti di più?", style = MaterialTheme.typography.headlineLarge)
                     Text("Scegli almeno 3 artisti: ti creo subito delle playlist con loro e con artisti simili.",
                         style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 4.dp, bottom = 10.dp))
-                    VibesField(q, { q = it }, "Cerca un artista")
+                    SearchField(q, { q = it }, "Cerca un artista")
                 }
                 val list = if (q.isNotBlank()) results else popular
                 LazyVerticalGrid(GridCells.Fixed(3), Modifier.weight(1f), contentPadding = PaddingValues(12.dp),

@@ -622,7 +622,7 @@ fun GlobalSongPicker(onDismiss: () -> Unit, onPick: (SongRef) -> Unit) {
         Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background).statusBarsPadding().navigationBarsPadding().imePadding()) {
             Row(Modifier.fillMaxWidth().padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
                 IconButton(onClick = onDismiss) { Icon(Icons.Rounded.Close, "Chiudi") }
-                VibesField(q, { q = it }, "Cerca qualsiasi brano o artista…", Modifier.weight(1f))
+                SearchField(q, { q = it }, "Cerca qualsiasi brano o artista…", Modifier.weight(1f))
             }
             LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 24.dp)) {
                 if (q.isNotBlank()) {

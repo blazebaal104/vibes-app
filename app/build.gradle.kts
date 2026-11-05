@@ -342,6 +342,8 @@ dependencies {
     implementation(libs.compose.animation)
     implementation(libs.activity.compose)
     implementation(libs.coil.compose)
+    // Liquid glass: real backdrop blur on Android 12+
+    implementation("dev.chrisbanes.haze:haze:1.7.2")
     implementation(libs.okhttp)
 
     implementation(libs.zxing.core)

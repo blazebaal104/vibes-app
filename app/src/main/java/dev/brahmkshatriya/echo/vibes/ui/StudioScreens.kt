@@ -1,5 +1,8 @@
 package dev.brahmkshatriya.echo.vibes.ui
 
+import androidx.compose.runtime.mutableStateMapOf
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.ui.graphics.graphicsLayer
 import android.app.DownloadManager
 import android.content.Context
 import android.net.Uri
@@ -117,7 +120,8 @@ fun StudioBar() {
         val s = st ?: return@AnimatedVisibility
         Row(
             Modifier.padding(horizontal = 8.dp, vertical = 4.dp).fillMaxWidth().clip(RoundedCornerShape(10.dp))
-                .background(Brush.horizontalGradient(listOf(Color(0xFFFF8A2B), Color(0xFFB84DFF)))).padding(horizontal = 10.dp, vertical = 6.dp),
+                .glass(RoundedCornerShape(14.dp), tint = Color(0xFFFF8A2B), blur = true)
+                .background(Brush.horizontalGradient(listOf(Color(0xFFFF8A2B).copy(alpha = 0.55f), Color(0xFFB84DFF).copy(alpha = 0.45f)))).padding(horizontal = 10.dp, vertical = 6.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             if (s.item.cover != null) Cover(s.item.cover, Modifier.size(36.dp)) else Text(if (s.item.sample) "🎛️" else "🎙️", fontSize = 24.sp)
@@ -136,37 +140,180 @@ fun StudioBar() {
 
 // =====================================================================================  hub
 
+/** Aurora palettes the user can pick for the Studio ("vibe dello studio"). */
+val studioVibes = listOf(
+    "neon" to listOf(Color(0xFFFF2E97), Color(0xFF35D0F5), Color(0xFFB84DFF)),
+    "tramonto" to listOf(Color(0xFFFF8A2B), Color(0xFFFF2E97), Color(0xFFFFD43B)),
+    "oceano" to listOf(Color(0xFF1E6BFF), Color(0xFF00C2A8), Color(0xFF35D0F5)),
+    "vaporwave" to listOf(Color(0xFFFF71CE), Color(0xFF01CDFE), Color(0xFFB967FF)),
+    "foresta" to listOf(Color(0xFF1ED760), Color(0xFF0B6E4F), Color(0xFFC6F432)),
+    "mono" to listOf(Color(0xFFDDDDDD), Color(0xFF777777), Color(0xFF333333)),
+)
+private val vibeNames = mapOf("neon" to "Neon", "tramonto" to "Tramonto", "oceano" to "Oceano", "vaporwave" to "Vaporwave", "foresta" to "Foresta", "mono" to "Mono")
+
+/** Slowly drifting aurora blobs behind the Studio. */
+@Composable
+fun Aurora(colors: List<Color>, modifier: Modifier = Modifier) {
+    val t = androidx.compose.animation.core.rememberInfiniteTransition(label = "aurora")
+    val p1 by t.animateFloat(0f, 1f, androidx.compose.animation.core.infiniteRepeatable(androidx.compose.animation.core.tween(9000), androidx.compose.animation.core.RepeatMode.Reverse), label = "a1")
+    val p2 by t.animateFloat(0f, 1f, androidx.compose.animation.core.infiniteRepeatable(androidx.compose.animation.core.tween(13000), androidx.compose.animation.core.RepeatMode.Reverse), label = "a2")
+    val p3 by t.animateFloat(0f, 1f, androidx.compose.animation.core.infiniteRepeatable(androidx.compose.animation.core.tween(11000), androidx.compose.animation.core.RepeatMode.Reverse), label = "a3")
+    val bg = MaterialTheme.colorScheme.background
+    androidx.compose.foundation.Canvas(modifier.fillMaxSize().background(bg)) {
+        fun blob(c: Color, cx: Float, cy: Float, r: Float) =
+            drawCircle(Brush.radialGradient(listOf(c.copy(alpha = 0.55f), Color.Transparent), center = androidx.compose.ui.geometry.Offset(cx, cy), radius = r),
+                radius = r, center = androidx.compose.ui.geometry.Offset(cx, cy))
+        val w = size.width; val h = size.height
+        blob(colors[0], w * (0.15f + 0.5f * p1), h * (0.10f + 0.15f * p2), w * 0.75f)
+        blob(colors[1], w * (0.85f - 0.4f * p2), h * (0.30f + 0.2f * p3), w * 0.7f)
+        blob(colors[2], w * (0.3f + 0.4f * p3), h * (0.55f + 0.2f * p1), w * 0.8f)
+        drawRect(Brush.verticalGradient(listOf(Color.Transparent, bg.copy(alpha = 0.7f), bg), startY = h * 0.35f))
+    }
+}
+
+/** Search box without the floating label (no jumping text): glass, search icon, clear button. */
+@Composable
+fun SearchField(value: String, onChange: (String) -> Unit, placeholder: String, modifier: Modifier = Modifier) {
+    Row(modifier.fillMaxWidth().glass(RoundedCornerShape(16.dp), fallback = LocalVibes.current.card).padding(horizontal = 14.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically) {
+        Icon(androidx.compose.material.icons.Icons.Rounded.Search, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+        Spacer(Modifier.width(10.dp))
+        Box(Modifier.weight(1f)) {
+            if (value.isEmpty()) Text(placeholder, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodyLarge, maxLines = 1)
+            androidx.compose.foundation.text.BasicTextField(value, onChange, singleLine = true,
+                textStyle = MaterialTheme.typography.bodyLarge.copy(color = MaterialTheme.colorScheme.onSurface),
+                cursorBrush = androidx.compose.ui.graphics.SolidColor(MaterialTheme.colorScheme.primary), modifier = Modifier.fillMaxWidth())
+        }
+        if (value.isNotEmpty()) Icon(Icons.Rounded.Close, "Cancella", tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.size(22.dp).clip(CircleShape).clickable { onChange("") })
+    }
+}
+
 @Composable
 fun StudioScreen() {
     val app = LocalApp.current
     val nav = app.nav
+    val prefs = LocalSettings.current
+    val following by app.social.following.collectAsState()
     var latest by remember { mutableStateOf<List<Upload>?>(null) }
+    var trending by remember { mutableStateOf<List<Upload>>(emptyList()) }
+    var friends by remember { mutableStateOf<List<Upload>>(emptyList()) }
+    var mine by remember { mutableStateOf<List<Upload>>(emptyList()) }
+    var likes by remember { mutableStateOf<Set<String>>(emptySet()) }
     var people by remember { mutableStateOf<Map<String, Profile>>(emptyMap()) }
-    LaunchedEffect(Unit) {
-        latest = runCatching { app.social.latestUploads(50) }.getOrDefault(emptyList())
-        val ids = latest.orEmpty().map { it.userId }.distinct()
+    var vibePicker by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
+    LaunchedEffect(following.size) {
+        latest = runCatching { app.social.latestUploads(30) }.getOrDefault(emptyList())
+        trending = runCatching { app.social.trendingUploads(15) }.getOrDefault(emptyList()).filter { it.plays > 0 || it.likes > 0 }
+        friends = runCatching { app.social.uploadsFrom(following, 20) }.getOrDefault(emptyList())
+        mine = app.social.uid?.let { runCatching { app.social.uploadsOf(it) }.getOrNull() }.orEmpty()
+        likes = runCatching { app.social.myLikes() }.getOrDefault(emptySet())
+        val ids = (latest.orEmpty() + trending + friends).map { it.userId }.distinct()
         people = ids.mapNotNull { id -> runCatching { app.social.profile(id) }.getOrNull() }.associateBy { it.id }
     }
-    GradientBackground(tint = Color(0xFFFF8A2B)) {
+    val colors = studioVibes.firstOrNull { it.first == prefs.studioVibe }?.second ?: studioVibes[0].second
+    fun toggleLike(u: Upload) {
+        val on = u.id !in likes
+        likes = if (on) likes + u.id else likes - u.id
+        scope.launch { runCatching { app.social.like(u.id, on) } }
+    }
+    Box(Modifier.fillMaxSize()) {
+        Aurora(colors)
         LazyColumn(contentPadding = ScreenPadding) {
             item {
-                Row(Modifier.statusBarsPadding().padding(4.dp), verticalAlignment = Alignment.CenterVertically) {
-                    IconButton(onClick = { nav.back() }) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Indietro") }
-                    Text("Studio", style = MaterialTheme.typography.headlineMedium)
+                Row(Modifier.statusBarsPadding().padding(start = 18.dp, end = 10.dp, top = 14.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text("Studio", style = MaterialTheme.typography.displaySmall)
+                        Text("Crea, pubblica, campiona.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                    Box(Modifier.size(46.dp).glass(CircleShape).bouncy({ vibePicker = !vibePicker }), contentAlignment = Alignment.Center) { Text("🎨", fontSize = 22.sp) }
                 }
-                Text("La musica fatta da chi usa Vibes, e una libreria di sample per produrre.", style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(horizontal = 16.dp))
-                Row(Modifier.padding(16.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    StudioTile("🎙️", "Pubblica la tua musica", Color(0xFFFF8A2B), Modifier.weight(1f)) { nav.open(Route.Publish) }
-                    StudioTile("🎛️", "Libreria sample", Color(0xFFB84DFF), Modifier.weight(1f)) { nav.open(Route.Samples) }
+                AnimatedVisibility(vibePicker) {
+                    LazyRow(contentPadding = PaddingValues(16.dp, 10.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        items(studioVibes, key = { it.first }) { (k, c) ->
+                            Row(Modifier.glass(CircleShape).background(if (prefs.studioVibe == k) Color.White.copy(alpha = 0.25f) else Color.Transparent)
+                                .bouncy({ VibesGraph.prefs.update { it.copy(studioVibe = k) } }).padding(horizontal = 12.dp, vertical = 8.dp),
+                                verticalAlignment = Alignment.CenterVertically) {
+                                Box(Modifier.size(18.dp).clip(CircleShape).background(Brush.linearGradient(c)))
+                                Spacer(Modifier.width(6.dp))
+                                Text(vibeNames[k] ?: k, style = MaterialTheme.typography.labelLarge)
+                            }
+                        }
+                    }
                 }
             }
-            item { SectionTitle("Nuovi brani dai Viber") }
+            // the two halves
+            item {
+                Row(Modifier.padding(16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    StudioHalf("🎙️", "Pubblica", "I tuoi brani e album", colors[0], Modifier.weight(1f)) { nav.open(Route.Publish) }
+                    StudioHalf("🎛️", "Sample", "Loop e one-shot", colors[2], Modifier.weight(1f)) { nav.open(Route.Samples) }
+                }
+            }
+            // quick actions
+            item {
+                LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    item { QuickChip("🎲", "Sample a caso") { nav.open(Route.Samples); VibesGraph.prefs.update { it } ; nav.toast("Premi 🎲 nella libreria per un sample a sorpresa") } }
+                    item { QuickChip("❤️", "Sample preferiti") { nav.open(Route.Samples) } }
+                    item { QuickChip("➕", "Carica sample") { nav.open(Route.Samples) } }
+                    item { QuickChip("👤", "Il mio profilo") { nav.open(Route.Profile(null)) } }
+                }
+            }
+            if (mine.isNotEmpty()) item {
+                Row(Modifier.padding(16.dp).fillMaxWidth().glass(RoundedCornerShape(20.dp)).padding(16.dp), horizontalArrangement = Arrangement.SpaceAround) {
+                    StatBubble("${mine.size}", "brani")
+                    StatBubble(fmtInt(mine.sumOf { it.plays }), "ascolti")
+                    StatBubble(fmtInt(mine.sumOf { it.likes }), "❤️")
+                }
+            }
+            if (trending.isNotEmpty()) {
+                item { SectionTitle("🔥 Di tendenza") }
+                itemsIndexed(trending, key = { _, u -> "t" + u.id }) { i, u ->
+                    UploadRow(u, people[u.userId], Modifier.enter(i), liked = u.id in likes, onLike = { toggleLike(u) }) { playUploads(app, trending, i) }
+                }
+            }
+            if (friends.isNotEmpty()) {
+                item { SectionTitle("👥 Da chi segui") }
+                itemsIndexed(friends, key = { _, u -> "f" + u.id }) { i, u ->
+                    UploadRow(u, people[u.userId], Modifier.enter(i), liked = u.id in likes, onLike = { toggleLike(u) }) { playUploads(app, friends, i) }
+                }
+            }
+            item { SectionTitle("🆕 Nuovi dai Viber") }
             val list = latest
             if (list == null) item { Box(Modifier.fillMaxWidth().padding(30.dp), contentAlignment = Alignment.Center) { androidx.compose.material3.CircularProgressIndicator() } }
             else if (list.isEmpty()) item { EmptyState("🎙️", "Ancora nessun brano", "Sii il primo a pubblicare la tua musica su Vibes.") }
-            else itemsIndexed(list, key = { _, u -> u.id }) { i, u -> UploadRow(u, people[u.userId], Modifier.enter(i)) { playUploads(app, list, i) } }
+            else itemsIndexed(list, key = { _, u -> "n" + u.id }) { i, u ->
+                UploadRow(u, people[u.userId], Modifier.enter(i), liked = u.id in likes, onLike = { toggleLike(u) }) { playUploads(app, list, i) }
+            }
         }
+    }
+}
+
+@Composable
+private fun StudioHalf(emoji: String, title: String, sub: String, color: Color, modifier: Modifier, onClick: () -> Unit) {
+    val float by androidx.compose.animation.core.rememberInfiniteTransition(label = "half").animateFloat(-6f, 6f,
+        androidx.compose.animation.core.infiniteRepeatable(androidx.compose.animation.core.tween(1800), androidx.compose.animation.core.RepeatMode.Reverse), label = "fl")
+    Column(modifier.height(190.dp).glass(RoundedCornerShape(26.dp), tint = color)
+        .background(Brush.verticalGradient(listOf(color.copy(alpha = 0.45f), Color.Transparent))).bouncy(onClick).padding(16.dp)) {
+        Text(emoji, fontSize = 46.sp, modifier = Modifier.graphicsLayer { translationY = float })
+        Spacer(Modifier.weight(1f))
+        Text(title, style = MaterialTheme.typography.headlineSmall)
+        Text(sub, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    }
+}
+
+@Composable
+private fun QuickChip(emoji: String, label: String, onClick: () -> Unit) {
+    Row(Modifier.glass(CircleShape).bouncy(onClick).padding(horizontal = 14.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+        Text(emoji, fontSize = 16.sp); Spacer(Modifier.width(6.dp)); Text(label, style = MaterialTheme.typography.labelLarge)
+    }
+}
+
+@Composable
+private fun StatBubble(value: String, label: String) {
+    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        Text(value, style = MaterialTheme.typography.headlineSmall)
+        Text(label, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
 
@@ -179,7 +326,8 @@ private fun StudioTile(emoji: String, label: String, color: Color, modifier: Mod
 }
 
 @Composable
-fun UploadRow(u: Upload, owner: Profile?, modifier: Modifier = Modifier, onDelete: (() -> Unit)? = null, onClick: () -> Unit) {
+fun UploadRow(u: Upload, owner: Profile?, modifier: Modifier = Modifier, onDelete: (() -> Unit)? = null,
+              liked: Boolean? = null, onLike: (() -> Unit)? = null, onClick: () -> Unit) {
     val nav = LocalApp.current.nav
     val st by VibesGraph.studio.state.collectAsState()
     val playing = st?.item?.id == u.id
@@ -192,10 +340,15 @@ fun UploadRow(u: Upload, owner: Profile?, modifier: Modifier = Modifier, onDelet
         Column(Modifier.weight(1f)) {
             Text(u.title, style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis,
                 color = if (playing) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface)
-            Text(listOfNotNull(u.artist.ifBlank { owner?.name }, u.album, "${u.plays} ascolti").joinToString(" · "),
+            Text(listOfNotNull(if (u.explicit) "🅴" else null, u.artist.ifBlank { owner?.name }, u.album, "${u.plays} ascolti",
+                if (u.visibility != "public") "🔒 follower" else null).joinToString(" · "),
                 style = MaterialTheme.typography.bodySmall, maxLines = 1, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
         owner?.let { Avatar(it, 28.dp, Modifier.bouncy({ nav.open(Route.Profile(it.id)) })) }
+        if (onLike != null) {
+            val sc by androidx.compose.animation.core.animateFloatAsState(if (liked == true) 1.2f else 1f, androidx.compose.animation.core.spring(dampingRatio = 0.35f), label = "lk")
+            Text(if (liked == true) "❤️" else "🤍", fontSize = 20.sp, modifier = Modifier.padding(start = 8.dp).graphicsLayer { scaleX = sc; scaleY = sc }.clip(CircleShape).clickable { onLike() }.padding(4.dp))
+        }
         onDelete?.let { IconButton(onClick = it) { Icon(Icons.Rounded.Delete, "Elimina") } }
     }
 }
@@ -239,6 +392,10 @@ fun PublishScreen() {
     var artist by remember { mutableStateOf(me?.name ?: "") }
     var album by remember { mutableStateOf("") }
     var genre by remember { mutableStateOf("") }
+    var description by remember { mutableStateOf("") }
+    var tags by remember { mutableStateOf("") }
+    var followersOnly by remember { mutableStateOf(false) }
+    var explicit by remember { mutableStateOf(false) }
     var progress by remember { mutableStateOf<String?>(null) }
     val audioPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
         uris.forEach { u ->
@@ -288,6 +445,20 @@ fun PublishScreen() {
                 }
             }
             item {
+                Column(Modifier.padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("Dettagli", style = MaterialTheme.typography.titleLarge, modifier = Modifier.padding(top = 10.dp))
+                    VibesField(description, { description = it.take(500) }, "Descrizione (crediti, storia del pezzo…)", singleLine = false, maxLines = 4)
+                    VibesField(tags, { tags = it }, "Tag separati da virgola (es. estate, chill)")
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Pill("🌍 Pubblico", !followersOnly, { followersOnly = false })
+                        Pill("🔒 Solo follower", followersOnly, { followersOnly = true })
+                        Pill(if (explicit) "🅴 Esplicito ✓" else "🅴 Esplicito", explicit, { explicit = !explicit })
+                    }
+                    if (cover == null) Text("Niente copertina? Ne creo una io con il titolo e i colori della tua vibe.", style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
+            item {
                 Column(Modifier.padding(16.dp)) {
                     progress?.let {
                         Text(it, style = MaterialTheme.typography.bodyMedium)
@@ -297,11 +468,10 @@ fun PublishScreen() {
                         progress = "Preparo…"
                         scope.launch {
                             runCatching {
-                                val coverUrl = cover?.let { c ->
-                                    progress = "Carico la copertina…"
-                                    val jpeg = withContext(Dispatchers.IO) { squareJpeg(context, c, 1000) }
-                                    app.social.uploadPublicImage(jpeg, "release")
-                                }
+                                progress = "Carico la copertina…"
+                                val jpeg = cover?.let { c -> withContext(Dispatchers.IO) { squareJpeg(context, c, 1000) } }
+                                    ?: withContext(Dispatchers.IO) { generatedCover(album.ifBlank { tracks.firstOrNull()?.title ?: "Vibes" }, artist) }
+                                val coverUrl = app.social.uploadPublicImage(jpeg, "release")
                                 val albumId = if (tracks.size > 1 || album.isNotBlank()) java.util.UUID.randomUUID().toString() else null
                                 val ups = tracks.mapIndexed { i, t ->
                                     progress = "Carico ${i + 1}/${tracks.size}: ${t.title}"
@@ -312,7 +482,9 @@ fun PublishScreen() {
                                     val url = app.social.uploadAsset(f, ext, mime)
                                     f.delete()
                                     Upload(title = t.title.ifBlank { "Senza titolo" }, artist = artist, album = album.ifBlank { null }, albumId = albumId,
-                                        trackNo = i + 1, cover = coverUrl, url = url, durationMs = t.durationMs, genre = genre)
+                                        trackNo = i + 1, cover = coverUrl, url = url, durationMs = t.durationMs, genre = genre,
+                                        description = description.trim(), tags = tags.split(',').map { it.trim() }.filter { it.isNotBlank() }.take(10),
+                                        visibility = if (followersOnly) "followers" else "public", explicit = explicit)
                                 }
                                 progress = "Pubblico…"
                                 app.social.publishUploads(ups)
@@ -331,86 +503,184 @@ fun PublishScreen() {
 
 private val sampleGenres = listOf("Trap", "Drill", "Boom bap", "Lo-fi", "R&B", "Pop", "House", "Afro", "Reggaeton", "Rock", "Jazz", "Soul")
 
+private val sampleKeys = listOf("C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B")
+
+/** One row of the sample browser (community or web). */
+private data class SampleRow(
+    val id: String, val name: String, val sub: String, val url: String, val bpm: Int?, val key: String?,
+    val loop: Boolean, val community: Sample? = null,
+)
+
 @Composable
 fun SamplesScreen() {
     val app = LocalApp.current
     val nav = app.nav
     val context = LocalContext.current
-    val scope = rememberCoroutineScope()
+    val prefs = LocalSettings.current
+    var source by remember { mutableIntStateOf(0) } // 0 web, 1 community, 2 favourites
     var q by remember { mutableStateOf("") }
     var kind by remember { mutableStateOf<String?>(null) }
     var genre by remember { mutableStateOf<String?>(null) }
+    var key by remember { mutableStateOf<String?>(null) }
     var bpm by remember { mutableStateOf(60f..180f) }
-    var results by remember { mutableStateOf<List<Sample>?>(null) }
+    var sort by remember { mutableIntStateOf(0) } // 0 new, 1 popular, 2 random
+    var rows by remember { mutableStateOf<List<SampleRow>?>(null) }
     var adding by remember { mutableStateOf(false) }
     var refresh by remember { mutableIntStateOf(0) }
+    var filters by remember { mutableStateOf(false) }
     val st by VibesGraph.studio.state.collectAsState()
-    LaunchedEffect(q, kind, genre, bpm, refresh) {
+    val favCache = remember { mutableStateMapOf<String, SampleRow>() }
+
+    LaunchedEffect(q, kind, genre, key, bpm, sort, source, refresh) {
+        rows = null
         delay(300)
         val full = bpm.start <= 60f && bpm.endInclusive >= 180f
-        results = runCatching {
-            app.social.searchSamples(q, kind, genre, if (full) null else bpm.start.toInt(), if (full) null else bpm.endInclusive.toInt())
-        }.getOrDefault(emptyList())
+        val list: List<SampleRow> = when (source) {
+            0 -> runCatching {
+                VibesGraph.webSamples.search(listOfNotNull(q.ifBlank { null }, genre, kind?.let { if (it == "loop") "loop" else "one shot" }).joinToString(" ").ifBlank { "drum loops" })
+            }.getOrDefault(emptyList()).map { w ->
+                SampleRow(w.id, w.name, "${w.pack} · ${w.sizeKb} KB", w.url, w.bpm, w.key, loop = w.name.contains("loop", true))
+            }
+            1 -> runCatching {
+                app.social.searchSamples(q, kind, genre, if (full) null else bpm.start.toInt(), if (full) null else bpm.endInclusive.toInt())
+            }.getOrDefault(emptyList()).map { c ->
+                SampleRow(c.id, c.name, listOfNotNull(if (c.kind == "loop") "Loop" else "One-shot", c.genre.ifBlank { null }, "${c.downloads} download").joinToString(" · "),
+                    c.url, c.bpm, c.key, c.kind == "loop", c)
+            }
+            else -> prefs.favSamples.mapNotNull { favCache[it] }
+        }
+        val filtered = list.filter { r ->
+            (key == null || r.key?.startsWith(key!!, true) == true) &&
+                    (full || source == 1 || r.bpm == null || r.bpm in bpm.start.toInt()..bpm.endInclusive.toInt())
+        }
+        filtered.forEach { favCache[it.id] = it }
+        rows = when (sort) { 1 -> filtered.sortedByDescending { it.community?.downloads ?: 0 }; 2 -> filtered.shuffled(); else -> filtered }
     }
+    LaunchedEffect(prefs.tempoMatch, prefs.projectBpm, st?.item?.id) {
+        val playingRow = rows?.firstOrNull { it.id == st?.item?.id }
+        VibesGraph.studio.setSpeed(if (prefs.tempoMatch && playingRow?.bpm != null) prefs.projectBpm.toFloat() / playingRow.bpm else 1f)
+    }
+    fun play(r: SampleRow) {
+        val playing = st?.item?.id == r.id && st?.playing == true
+        if (playing) VibesGraph.studio.toggle()
+        else { app.engine.pause(); VibesGraph.studio.play(listOf(StudioPlayer.Item(r.id, r.name, r.sub, null, r.url, sample = true)), 0, loop = r.loop) }
+    }
+
     GradientBackground(tint = Color(0xFFB84DFF)) {
         LazyColumn(Modifier.imePadding(), contentPadding = ScreenPadding) {
             item {
                 Row(Modifier.statusBarsPadding().padding(4.dp), verticalAlignment = Alignment.CenterVertically) {
                     IconButton(onClick = { nav.back() }) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Indietro") }
-                    Text("Libreria sample", style = MaterialTheme.typography.headlineSmall, modifier = Modifier.weight(1f))
+                    Text("Sample", style = MaterialTheme.typography.headlineSmall, modifier = Modifier.weight(1f))
+                    Box(Modifier.size(42.dp).glass(CircleShape).bouncy({ rows?.randomOrNull()?.let { play(it); nav.toast("🎲 ${it.name}") } }), contentAlignment = Alignment.Center) { Text("🎲", fontSize = 20.sp) }
+                    Spacer(Modifier.width(8.dp))
                     Pill("+ Carica", true, { adding = true }, Modifier.padding(end = 12.dp))
                 }
                 Column(Modifier.padding(horizontal = 16.dp)) {
-                    VibesField(q, { q = it }, "Cerca: 808, piano, chitarra, Fm…")
-                    Row(Modifier.padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Pill("Tutti", kind == null, { kind = null })
-                        Pill("Loop", kind == "loop", { kind = "loop" })
-                        Pill("One-shot", kind == "oneshot", { kind = "oneshot" })
+                    SearchField(q, { q = it }, "808, piano, chitarra, vocal chop…")
+                    Row(Modifier.padding(top = 10.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Pill("🌐 Web", source == 0, { source = 0 })
+                        Pill("👥 Community", source == 1, { source = 1 })
+                        Pill("❤️ ${prefs.favSamples.size}", source == 2, { source = 2 })
+                        Spacer(Modifier.weight(1f))
+                        Pill(if (filters) "Filtri ▴" else "Filtri ▾", filters, { filters = !filters })
                     }
                 }
-                LazyRow(contentPadding = PaddingValues(16.dp, 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    items(sampleGenres) { g -> Pill(g, genre == g, { genre = if (genre == g) null else g }) }
-                }
-                Column(Modifier.padding(horizontal = 16.dp)) {
-                    Text("BPM: ${bpm.start.toInt()} – ${bpm.endInclusive.toInt()}${if (bpm.endInclusive >= 180f) "+" else ""}", style = MaterialTheme.typography.labelLarge)
-                    RangeSlider(bpm, { bpm = it }, valueRange = 60f..180f, steps = 23)
+                AnimatedVisibility(filters) {
+                    Column {
+                        Row(Modifier.padding(start = 16.dp, top = 10.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Pill("Tutti", kind == null, { kind = null }); Pill("Loop", kind == "loop", { kind = "loop" }); Pill("One-shot", kind == "oneshot", { kind = "oneshot" })
+                        }
+                        LazyRow(contentPadding = PaddingValues(16.dp, 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            items(sampleGenres) { g -> Pill(g, genre == g, { genre = if (genre == g) null else g }) }
+                        }
+                        LazyRow(contentPadding = PaddingValues(16.dp, 0.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            items(sampleKeys) { k -> Pill(k, key == k, { key = if (key == k) null else k }) }
+                        }
+                        Column(Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
+                            Text("BPM: ${bpm.start.toInt()} – ${bpm.endInclusive.toInt()}${if (bpm.endInclusive >= 180f) "+" else ""}", style = MaterialTheme.typography.labelLarge)
+                            RangeSlider(bpm, { bpm = it }, valueRange = 60f..180f, steps = 23)
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Pill("Nuovi", sort == 0, { sort = 0 }); Pill("Popolari", sort == 1, { sort = 1 }); Pill("Casuale", sort == 2, { sort = 2 })
+                            }
+                        }
+                        // tempo match (Splice-style): preview samples at your project's BPM
+                        Row(Modifier.padding(horizontal = 16.dp).fillMaxWidth().glass(RoundedCornerShape(16.dp)).padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Column(Modifier.weight(1f)) {
+                                Text("Adatta al mio BPM", style = MaterialTheme.typography.titleSmall)
+                                Text("Ascolta i sample già alla velocità del tuo beat", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                            Text("−", fontSize = 22.sp, modifier = Modifier.clip(CircleShape).clickable { VibesGraph.prefs.update { it.copy(projectBpm = (it.projectBpm - 1).coerceAtLeast(60)) } }.padding(8.dp))
+                            Text("${prefs.projectBpm}", style = MaterialTheme.typography.titleMedium)
+                            Text("+", fontSize = 22.sp, modifier = Modifier.clip(CircleShape).clickable { VibesGraph.prefs.update { it.copy(projectBpm = (it.projectBpm + 1).coerceAtMost(220)) } }.padding(8.dp))
+                            androidx.compose.material3.Switch(prefs.tempoMatch, { b -> VibesGraph.prefs.update { it.copy(tempoMatch = b) } })
+                        }
+                    }
                 }
             }
-            val list = results
+            val list = rows
             if (list == null) item { Box(Modifier.fillMaxWidth().padding(30.dp), contentAlignment = Alignment.Center) { androidx.compose.material3.CircularProgressIndicator() } }
-            else if (list.isEmpty()) item { EmptyState("🎛️", "Nessun sample trovato", "Carica i tuoi loop e one-shot: la libreria cresce con la community.") }
-            else items(list, key = { it.id }) { s ->
-                val playing = st?.item?.id == s.id && st?.playing == true
-                val bg by animateColorAsState(if (playing) MaterialTheme.colorScheme.primary.copy(alpha = 0.2f) else Color.Transparent, label = "sp")
-                Row(Modifier.fillMaxWidth().background(bg).clickable {
-                    if (playing) VibesGraph.studio.toggle() else { app.engine.pause(); VibesGraph.studio.play(listOf(s.item()), 0, loop = s.kind == "loop") }
-                }.padding(horizontal = 16.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Box(Modifier.size(44.dp).clip(CircleShape).background(LocalVibes.current.cardHigh), contentAlignment = Alignment.Center) {
-                        if (playing) EqualizerBars(Modifier.size(20.dp)) else Icon(Icons.Rounded.PlayArrow, null)
+            else if (list.isEmpty()) item {
+                EmptyState("🎛️", when (source) { 2 -> "Nessun preferito"; 1 -> "Nessun sample della community"; else -> "Nessun risultato" },
+                    when (source) { 2 -> "Tocca il cuore su un sample per salvarlo qui."; 1 -> "Carica i tuoi loop: la community cresce con te."; else -> "Prova con un'altra parola: 808, kick, piano, guitar, vocal." })
+            }
+            else items(list, key = { it.id }) { r ->
+                val playing = st?.item?.id == r.id && st?.playing == true
+                val fav = r.id in prefs.favSamples
+                val bg by animateColorAsState(if (playing) MaterialTheme.colorScheme.primary.copy(alpha = 0.18f) else Color.Transparent, label = "sp")
+                Column(Modifier.fillMaxWidth().background(bg).clickable { play(r) }.padding(horizontal = 16.dp, vertical = 8.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Box(Modifier.size(42.dp).glass(CircleShape), contentAlignment = Alignment.Center) {
+                            if (playing) EqualizerBars(Modifier.size(18.dp)) else Icon(Icons.Rounded.PlayArrow, null)
+                        }
+                        Spacer(Modifier.width(12.dp))
+                        Column(Modifier.weight(1f)) {
+                            Text(r.name, style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            Text(listOfNotNull(r.bpm?.let { "$it BPM" }, r.key, r.sub).joinToString(" · "), style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        }
+                        Text(if (fav) "❤️" else "🤍", fontSize = 18.sp, modifier = Modifier.clip(CircleShape).clickable {
+                            VibesGraph.prefs.update { it.copy(favSamples = if (fav) it.favSamples - r.id else it.favSamples + r.id) }
+                        }.padding(6.dp))
+                        IconButton(onClick = {
+                            downloadSample(context, r.name, r.url); r.community?.let { app.social.count("download", it.id) }
+                            nav.toast("Scarico \"${r.name}\" in Download/Vibes")
+                        }) { Icon(Icons.Rounded.Download, "Scarica") }
                     }
-                    Spacer(Modifier.width(12.dp))
-                    Column(Modifier.weight(1f)) {
-                        Text(s.name, style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        Text(listOfNotNull(if (s.kind == "loop") "Loop" else "One-shot", s.bpm?.let { "$it BPM" }, s.key, s.genre.ifBlank { null },
-                            "${s.downloads} download").joinToString(" · "), style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
-                    }
-                    IconButton(onClick = { downloadSample(context, s); app.social.count("download", s.id); nav.toast("Scarico \"${s.name}\" in Download/Vibes") }) {
-                        Icon(Icons.Rounded.Download, "Scarica")
-                    }
+                    Waveform(r.id, if (playing) VibesGraph.studio.position().toFloat() / VibesGraph.studio.duration().coerceAtLeast(1) else 0f, playing)
                 }
             }
         }
     }
-    if (adding) AddSampleDialog(onDismiss = { adding = false }) { adding = false; refresh++ }
+    if (adding) AddSampleDialog(onDismiss = { adding = false }) { adding = false; source = 1; refresh++ }
 }
 
-private fun downloadSample(context: Context, s: Sample) {
-    val ext = s.url.substringAfterLast('.', "wav").take(4)
-    val req = DownloadManager.Request(Uri.parse(s.url))
-        .setTitle(s.name)
+/** Splice-like waveform strip (shape derived from the sample id) with the playhead. */
+@Composable
+private fun Waveform(seed: String, progress: Float, playing: Boolean) {
+    var p by remember { mutableStateOf(progress) }
+    LaunchedEffect(playing) { while (playing) { p = VibesGraph.studio.position().toFloat() / VibesGraph.studio.duration().coerceAtLeast(1); delay(60) } }
+    val rnd = remember(seed) { java.util.Random(seed.hashCode().toLong()) }
+    val bars = remember(seed) { List(48) { 0.25f + rnd.nextFloat() * 0.75f } }
+    val on = MaterialTheme.colorScheme.primary
+    val off = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.35f)
+    androidx.compose.foundation.Canvas(Modifier.padding(start = 54.dp, top = 4.dp).fillMaxWidth().height(22.dp)) {
+        val w = size.width / bars.size
+        bars.forEachIndexed { i, h ->
+            val bh = size.height * h
+            drawRoundRect(if (playing && i.toFloat() / bars.size <= p) on else off,
+                topLeft = androidx.compose.ui.geometry.Offset(i * w + w * 0.2f, (size.height - bh) / 2),
+                size = androidx.compose.ui.geometry.Size(w * 0.6f, bh), cornerRadius = androidx.compose.ui.geometry.CornerRadius(w))
+        }
+    }
+}
+
+private fun downloadSample(context: Context, name: String, url: String) {
+    val ext = url.substringAfterLast('.', "wav").take(4)
+    val req = DownloadManager.Request(Uri.parse(url))
+        .setTitle(name)
         .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
-        .setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, "Vibes/${s.name.replace(Regex("[^A-Za-z0-9 _-]"), "_")}.$ext")
+        .setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, "Vibes/${name.replace(Regex("[^A-Za-z0-9 _-]"), "_")}.$ext")
     context.getSystemService(DownloadManager::class.java).enqueue(req)
 }
 
@@ -468,4 +738,31 @@ private fun AddSampleDialog(onDismiss: () -> Unit, onDone: () -> Unit) {
         },
         dismissButton = { androidx.compose.material3.TextButton(onClick = onDismiss) { Text("Annulla") } }
     )
+}
+
+
+/** Auto cover: vibe gradient + big title, 1000×1000 JPEG. */
+private fun generatedCover(title: String, artist: String): ByteArray {
+    val size = 1000
+    val bmp = android.graphics.Bitmap.createBitmap(size, size, android.graphics.Bitmap.Config.ARGB_8888)
+    val c = android.graphics.Canvas(bmp)
+    val palette = studioVibes.random().second.map { android.graphics.Color.argb(255, (it.red * 255).toInt(), (it.green * 255).toInt(), (it.blue * 255).toInt()) }
+    c.drawPaint(android.graphics.Paint().apply {
+        shader = android.graphics.LinearGradient(0f, 0f, size.toFloat(), size.toFloat(), palette.toIntArray(), null, android.graphics.Shader.TileMode.CLAMP)
+    })
+    c.drawColor(android.graphics.Color.argb(70, 0, 0, 0))
+    val p = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+        color = android.graphics.Color.WHITE; textSize = 110f; typeface = android.graphics.Typeface.create(android.graphics.Typeface.DEFAULT, android.graphics.Typeface.BOLD)
+    }
+    val words = title.uppercase().split(" ")
+    val lines = mutableListOf<String>(); var line = ""
+    words.forEach { w -> if (p.measureText("$line $w") > size - 140 && line.isNotBlank()) { lines += line.trim(); line = w } else line = "$line $w" }
+    if (line.isNotBlank()) lines += line.trim()
+    var y = size - 120f - (lines.size - 1) * 120f
+    lines.take(4).forEach { l -> c.drawText(l, 70f, y, p); y += 120f }
+    p.textSize = 48f; p.typeface = android.graphics.Typeface.DEFAULT; p.alpha = 220
+    c.drawText(artist, 72f, 110f, p)
+    val out = java.io.ByteArrayOutputStream()
+    bmp.compress(android.graphics.Bitmap.CompressFormat.JPEG, 90, out)
+    return out.toByteArray()
 }

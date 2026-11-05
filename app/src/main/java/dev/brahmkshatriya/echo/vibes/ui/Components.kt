@@ -201,13 +201,13 @@ fun EqualizerBars(modifier: Modifier = Modifier, color: Color = MaterialTheme.co
 
 @Composable
 fun Pill(text: String, selected: Boolean, onClick: () -> Unit, modifier: Modifier = Modifier) {
-    val bg = if (selected) MaterialTheme.colorScheme.primary else LocalVibes.current.cardHigh
+    val bg by androidx.compose.animation.animateColorAsState(if (selected) MaterialTheme.colorScheme.primary else Color.Transparent, label = "pill")
     val fg = if (selected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface
     Box(
         modifier
-            .clip(CircleShape)
+            .glass(CircleShape, fallback = LocalVibes.current.cardHigh)
             .background(bg)
-            .clickable(onClick = onClick)
+            .bouncy(onClick)
             .padding(horizontal = 14.dp, vertical = 8.dp)
     ) { Text(text, color = fg, style = MaterialTheme.typography.labelLarge) }
 }

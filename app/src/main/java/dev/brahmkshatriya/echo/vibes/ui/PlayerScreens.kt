@@ -110,9 +110,9 @@ fun MiniPlayer() {
     val (pos, dur) = rememberProgress()
     val v = LocalVibes.current
     Box(
-        Modifier.padding(horizontal = 8.dp).fillMaxWidth().height(62.dp).clip(RoundedCornerShape(10.dp))
-            .background(Brush.horizontalGradient(listOf(v.accent.copy(alpha = 0.55f), v.cardHigh)))
-            .background(MaterialTheme.colorScheme.background.copy(alpha = 0.55f))
+        Modifier.padding(horizontal = 10.dp).fillMaxWidth().height(62.dp)
+            .glass(RoundedCornerShape(18.dp), tint = v.accent, blur = true, fallback = v.cardHigh)
+            .background(Brush.horizontalGradient(listOf(v.accent.copy(alpha = 0.30f), Color.Transparent)))
             .clickable { app.nav.playerOpen = true }
             .pointerInput(Unit) { detectVerticalDragGestures { _, d -> if (d < -12) app.nav.playerOpen = true } }
     ) {

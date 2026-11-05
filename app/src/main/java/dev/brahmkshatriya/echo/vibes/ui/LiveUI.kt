@@ -149,7 +149,8 @@ fun AlongBanner() {
         val s = session ?: return@AnimatedVisibility
         Row(
             Modifier.padding(horizontal = 8.dp, vertical = 4.dp).fillMaxWidth().clip(RoundedCornerShape(10.dp))
-                .background(parseColor(s.friend.avatarColor)).clickable { app.nav.open(Route.Profile(s.friend.id)) }
+                .glass(RoundedCornerShape(14.dp), tint = parseColor(s.friend.avatarColor), blur = true)
+                .background(parseColor(s.friend.avatarColor).copy(alpha = 0.45f)).clickable { app.nav.open(Route.Profile(s.friend.id)) }
                 .padding(horizontal = 12.dp, vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {

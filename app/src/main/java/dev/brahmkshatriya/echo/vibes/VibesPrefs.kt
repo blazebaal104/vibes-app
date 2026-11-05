@@ -33,6 +33,13 @@ data class VibesSettings(
     val startTab: String = "home",
     /** New account: show the favourite-artists questionnaire once. */
     val needsOnboarding: Boolean = false,
+    val liquidGlass: Boolean = true,
+    val glassBlur: Float = 1f,          // 0.4 .. 2
+    val glassShine: Boolean = true,     // light reflection gliding on glass
+    val studioVibe: String = "neon",    // aurora colours of the Studio
+    val favSamples: Set<String> = emptySet(),
+    val projectBpm: Int = 140,
+    val tempoMatch: Boolean = false,
 )
 
 class VibesPrefs(context: Context) {
