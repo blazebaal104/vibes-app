@@ -285,44 +285,80 @@ private fun BottomBar() {
     val unread by app.social.unread.collectAsState()
     val requests by app.social.requests.collectAsState()
     val badge = unread.values.sum() + requests.size
-    // floating liquid-glass pill; Studio is the special orb in the middle
-    Box(Modifier.fillMaxWidth().navigationBarsPadding().padding(start = 10.dp, end = 10.dp, top = 6.dp, bottom = 8.dp)) {
+    // liquid-glass bar attached to the bottom edge; the glass is its own layer so the Studio orb
+    // can grow out of the bar without being clipped
+    Box(Modifier.fillMaxWidth()) {
+        Box(Modifier.matchParentSize().glass(RoundedCornerShape(topStart = 26.dp, topEnd = 26.dp), blur = true))
         Row(
-            Modifier.fillMaxWidth().padding(top = 14.dp).glass(RoundedCornerShape(30.dp), blur = true).padding(vertical = 8.dp),
-            verticalAlignment = Alignment.CenterVertically,
+            Modifier.fillMaxWidth().navigationBarsPadding().padding(top = 8.dp, bottom = 6.dp),
+            verticalAlignment = Alignment.Bottom,
         ) {
             Box(Modifier.weight(1f), contentAlignment = Alignment.Center) { NavItem("Home", Icons.Rounded.Home, Icons.Outlined.Home, nav.tab == Route.Home) { nav.selectTab(Route.Home) } }
             Box(Modifier.weight(1f), contentAlignment = Alignment.Center) { NavItem("Cerca", Icons.Rounded.Search, Icons.Outlined.Search, nav.tab == Route.Search) { nav.selectTab(Route.Search) } }
             Box(Modifier.weight(1f), contentAlignment = Alignment.Center) { NavItem("Libreria", Icons.Rounded.LibraryMusic, Icons.Outlined.LibraryMusic, nav.tab == Route.Library) { nav.selectTab(Route.Library) } }
-            Spacer(Modifier.width(70.dp))
-            Box(Modifier.weight(1.5f), contentAlignment = Alignment.Center) { NavItem("Amici", Icons.Rounded.Forum, Icons.Outlined.Forum, nav.tab == Route.Friends, badge) { nav.selectTab(Route.Friends) } }
-            Box(Modifier.weight(1.5f), contentAlignment = Alignment.Center) { NavItem("Giochi", Icons.Rounded.SportsEsports, Icons.Outlined.SportsEsports, nav.tab == Route.Games) { nav.selectTab(Route.Games) } }
+            Box(Modifier.weight(1f), contentAlignment = Alignment.Center) { StudioNavItem(nav.tab == Route.Studio) { nav.selectTab(Route.Studio) } }
+            Box(Modifier.weight(1f), contentAlignment = Alignment.Center) { NavItem("Amici", Icons.Rounded.Forum, Icons.Outlined.Forum, nav.tab == Route.Friends, badge) { nav.selectTab(Route.Friends) } }
+            Box(Modifier.weight(1f), contentAlignment = Alignment.Center) { NavItem("Giochi", Icons.Rounded.SportsEsports, Icons.Outlined.SportsEsports, nav.tab == Route.Games) { nav.selectTab(Route.Games) } }
         }
-        StudioOrb(nav.tab == Route.Studio, Modifier.align(Alignment.TopCenter).offset(x = 6.dp)) { nav.selectTab(Route.Studio) }
     }
 }
 
-/** The Studio button: a glowing glass orb with a slowly turning aurora inside. */
+/** Four little mixer knobs; [spin] turns each indicator (at different speeds). */
 @Composable
-private fun StudioOrb(selected: Boolean, modifier: Modifier, onClick: () -> Unit) {
-    val t = androidx.compose.animation.core.rememberInfiniteTransition(label = "orb")
-    val spin by t.animateFloat(0f, 360f, androidx.compose.animation.core.infiniteRepeatable(tween(6000, easing = androidx.compose.animation.core.LinearEasing)), label = "spin")
-    val pulse by t.animateFloat(1f, 1.07f, androidx.compose.animation.core.infiniteRepeatable(tween(1400), androidx.compose.animation.core.RepeatMode.Reverse), label = "pulse")
-    val scale by androidx.compose.animation.core.animateFloatAsState(if (selected) 1.1f else 1f, androidx.compose.animation.core.spring(dampingRatio = 0.45f), label = "orbs")
-    Column(modifier.bouncy(onClick), horizontalAlignment = Alignment.CenterHorizontally) {
+private fun KnobsIcon(color: Color, spin: Float, modifier: Modifier) {
+    androidx.compose.foundation.Canvas(modifier) {
+        val r = size.minDimension * 0.19f
+        val centers = listOf(0.28f to 0.28f, 0.72f to 0.28f, 0.28f to 0.72f, 0.72f to 0.72f)
+        val speeds = listOf(1f, -1.4f, 0.7f, -0.9f)
+        val base = listOf(-120f, -45f, -170f, 10f)
+        centers.forEachIndexed { i, (fx, fy) ->
+            val c = androidx.compose.ui.geometry.Offset(size.width * fx, size.height * fy)
+            drawCircle(color.copy(alpha = 0.22f), radius = r * 1.25f, center = c)
+            drawCircle(color, radius = r, center = c, style = androidx.compose.ui.graphics.drawscope.Stroke(width = r * 0.32f))
+            val ang = Math.toRadians((base[i] + spin * speeds[i]).toDouble())
+            drawLine(color, c, androidx.compose.ui.geometry.Offset(c.x + (kotlin.math.cos(ang) * r * 0.85f).toFloat(), c.y + (kotlin.math.sin(ang) * r * 0.85f).toFloat()),
+                strokeWidth = r * 0.34f, cap = androidx.compose.ui.graphics.StrokeCap.Round)
+        }
+    }
+}
+
+/**
+ * Studio tab: a normal small icon in the bar. When selected the knobs start turning, a rainbow
+ * ring fades in around it and the whole thing pops up big above the bar.
+ */
+@Composable
+private fun StudioNavItem(selected: Boolean, onClick: () -> Unit) {
+    val grow by androidx.compose.animation.core.animateFloatAsState(if (selected) 1f else 0f,
+        androidx.compose.animation.core.spring(dampingRatio = 0.5f, stiffness = 260f), label = "grow")
+    val t = androidx.compose.animation.core.rememberInfiniteTransition(label = "studio")
+    val ringSpin by t.animateFloat(0f, 360f, androidx.compose.animation.core.infiniteRepeatable(tween(3500, easing = androidx.compose.animation.core.LinearEasing)), label = "ring")
+    val knobSpin by t.animateFloat(0f, 360f, androidx.compose.animation.core.infiniteRepeatable(tween(2600, easing = androidx.compose.animation.core.LinearEasing)), label = "knob")
+    val pulse by t.animateFloat(1f, 1.06f, androidx.compose.animation.core.infiniteRepeatable(tween(900), androidx.compose.animation.core.RepeatMode.Reverse), label = "pulse")
+    // a quick knob twist every time you tap it
+    val twist = remember { androidx.compose.animation.core.Animatable(0f) }
+    LaunchedEffect(selected) { if (selected) { twist.snapTo(0f); twist.animateTo(180f, tween(600, easing = androidx.compose.animation.core.FastOutSlowInEasing)) } }
+    val onColor = MaterialTheme.colorScheme.onSurface
+    val offColor = MaterialTheme.colorScheme.onSurfaceVariant
+    Column(Modifier.bouncy(onClick).padding(horizontal = 4.dp), horizontalAlignment = Alignment.CenterHorizontally) {
         Box(
-            Modifier.size(62.dp).graphicsLayer { scaleX = scale * pulse; scaleY = scale * pulse }
-                .clip(androidx.compose.foundation.shape.CircleShape)
-                .background(Brush.sweepGradient(listOf(Color(0xFFFF8A2B), Color(0xFFFF2E97), Color(0xFFB84DFF), Color(0xFF35D0F5), Color(0xFFFF8A2B))))
-                .graphicsLayer { rotationZ = spin },
+            Modifier.size(28.dp).graphicsLayer {
+                val sc = 1f + grow * 1.05f
+                scaleX = sc * (if (selected) pulse else 1f); scaleY = scaleX
+                translationY = -grow * 20.dp.toPx()
+            },
             contentAlignment = Alignment.Center
         ) {
-            Box(Modifier.size(54.dp).graphicsLayer { rotationZ = -spin }.glass(androidx.compose.foundation.shape.CircleShape, blur = true), contentAlignment = Alignment.Center) {
-                Text("🎛️", fontSize = 24.sp)
-            }
+            // rainbow ring
+            Box(Modifier.size(28.dp).graphicsLayer { alpha = grow; rotationZ = ringSpin }
+                .clip(androidx.compose.foundation.shape.CircleShape)
+                .background(Brush.sweepGradient(listOf(Color(0xFFFF2E97), Color(0xFFFF8A2B), Color(0xFFFFD43B), Color(0xFF1ED760), Color(0xFF35D0F5), Color(0xFFB84DFF), Color(0xFFFF2E97)))))
+            // dark glass core
+            Box(Modifier.size(28.dp - 4.dp * grow).graphicsLayer { alpha = grow }.clip(androidx.compose.foundation.shape.CircleShape)
+                .background(MaterialTheme.colorScheme.background.copy(alpha = 0.85f)))
+            KnobsIcon(if (selected) onColor else offColor, if (selected) knobSpin + twist.value else 0f, Modifier.size(22.dp - 4.dp * grow))
         }
-        Text("Studio", style = MaterialTheme.typography.labelSmall, color = if (selected) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.padding(top = 2.dp))
+        Text("Studio", style = MaterialTheme.typography.labelSmall, maxLines = 1, softWrap = false,
+            color = if (selected) onColor else offColor, modifier = Modifier.padding(top = 3.dp))
     }
 }
 
@@ -355,7 +391,7 @@ private fun NavItem(label: String, on: ImageVector, off: ImageVector, selected: 
                     modifier = Modifier.size(26.dp).graphicsLayer { scaleX = pop.value; scaleY = pop.value })
             }
         }
-        Text(label, style = MaterialTheme.typography.labelSmall, color = color, modifier = Modifier.padding(top = 3.dp))
+        Text(label, style = MaterialTheme.typography.labelSmall, color = color, maxLines = 1, softWrap = false, modifier = Modifier.padding(top = 3.dp))
     }
 }
 
