@@ -1,0 +1,13 @@
+name: probe
+on:
+  workflow_dispatch:
+    inputs:
+      lists:
+        description: playlist ids
+        required: true
+jobs:
+  yt:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: python3 .github/probe/yt.py ${{ github.event.inputs.lists }}
