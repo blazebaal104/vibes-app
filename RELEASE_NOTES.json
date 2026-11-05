@@ -1,11 +1,9 @@
 {
-  "title": "Liquid glass e nuovo Studio",
+  "title": "Trasferisci da YouTube Music",
   "notes": [
-    "Liquid glass in tutta l'app: barra, mini player, schede e pulsanti di vetro (disattivabile in Impostazioni)",
-    "Studio diventa un tasto principale al centro della barra, con sfondo aurora e 6 vibe di colore",
-    "Sample: migliaia di sample gratis dal web, filtri per tonalità, BPM, genere, preferiti e sample a caso",
-    "Adatta al mio BPM: ascolti i sample già alla velocità del tuo beat",
-    "Pubblica: descrizione, tag, solo follower, esplicito, copertina automatica, ❤️ ai brani",
-    "Barre di ricerca nuove, senza testo che salta"
+    "Trasferisci playlist anche da YouTube Music (e YouTube)",
+    "Anteprima prima di salvare: controlli nome, copertina e ogni brano trovato",
+    "Escludi i brani sbagliati o cercali a mano, cambia nome e copertina",
+    "Liquid glass in tutta l'app e nuovo Studio al centro della barra"
   ]
 }

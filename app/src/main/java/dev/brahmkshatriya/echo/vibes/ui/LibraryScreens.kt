@@ -498,7 +498,7 @@ fun AddToPlaylistSheet(song: SongRef, onDismiss: () -> Unit) {
 private val transferServices = listOf(
     "Spotify" to Color(0xFF1ED760),
     "Deezer" to Color(0xFFA238FF),
-    "il tuo account Deezer" to Color(0xFFFF2E97),
+    "YouTube Music" to Color(0xFFFF0033),
 )
 
 /**
