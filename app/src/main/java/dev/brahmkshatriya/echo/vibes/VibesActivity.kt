@@ -63,6 +63,14 @@ class VibesActivity : ComponentActivity() {
         handleIntent(intent)
 
         // Every track that starts playing: play counts (games), recents, and "now playing" for friends.
+        // Gladix reports extension/player errors on throwFlow (normally a snackbar): log them too
+        lifecycleScope.launch {
+            app.throwFlow.collect { e ->
+                var root: Throwable = e
+                while (root.cause != null && root.cause !== root) root = root.cause!!
+                dev.brahmkshatriya.echo.vibes.diag.ErrorReporter.report("engine", "${root.javaClass.simpleName}: ${root.message?.take(400)}", e)
+            }
+        }
         lifecycleScope.launch {
             playerViewModel.playerState.current.filterNotNull()
                 .distinctUntilChangedBy { it.mediaItem.mediaId }

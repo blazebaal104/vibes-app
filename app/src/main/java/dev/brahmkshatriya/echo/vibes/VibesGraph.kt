@@ -14,6 +14,7 @@ object VibesGraph {
 
     fun init(context: Context) {
         if (ctx == null) ctx = context.applicationContext
+        dev.brahmkshatriya.echo.vibes.diag.ErrorReporter.install(context.applicationContext)
     }
 
     private val app get() = ctx ?: error("VibesGraph.init not called")

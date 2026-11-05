@@ -59,6 +59,17 @@ class ListenTracker(private val player: Player, context: Context) : Player.Liste
         flush(); begin(mediaItem)
     }
 
+    /** A song that can't play: report why (with the track) so it can be fixed. */
+    override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
+        val mi = player.currentMediaItem
+        val what = runCatching { mi?.track?.let { "${it.title} – ${it.artists.joinToString { a -> a.name }} [${mi.extensionId}:${it.id}]" } }.getOrNull() ?: "?"
+        var root: Throwable = error
+        while (root.cause != null && root.cause !== root) root = root.cause!!
+        dev.brahmkshatriya.echo.vibes.diag.ErrorReporter.report(
+            "playback", "${error.errorCodeName}: ${root.javaClass.simpleName}: ${root.message?.take(300)} · $what", error
+        )
+    }
+
     override fun onIsPlayingChanged(isPlaying: Boolean) {
         if (item == null) { if (isPlaying) begin(player.currentMediaItem); return }
         if (isPlaying) { if (playingSince == null) playingSince = now() }
