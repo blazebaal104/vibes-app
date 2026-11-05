@@ -89,7 +89,22 @@ class TrackPicker(private val deezer: DeezerPublic, private val library: VibesLi
         built = true
     }
 
+    private val billionCache = mutableMapOf<String, GameTrack?>()
+
+    /** EASY = a random song from the Billions Club (1B+ Spotify streams), resolved on Deezer. */
+    private suspend fun pickBillion(): GameTrack? = withContext(Dispatchers.IO) {
+        repeat(8) {
+            val (title, artist) = Billions.songs.random()
+            val key = "$title|$artist"
+            val t = if (billionCache.containsKey(key)) billionCache[key]
+            else runCatching { deezer.match(title, artist) }.getOrNull().also { billionCache[key] = it }
+            if (t != null && t.id !in used && t.preview.isNotBlank()) return@withContext t
+        }
+        null
+    }
+
     suspend fun pick(d: Difficulty): GameTrack? = mutex.withLock {
+        if (d == Difficulty.EASY) pickBillion()?.let { used += it.id; return@withLock it }
         withContext(Dispatchers.IO) { runCatching { build() } }
         fun from(map: Map<Difficulty, List<GameTrack>>, diff: Difficulty) =
             map[diff].orEmpty().filter { it.id !in used }.randomOrNull()
@@ -226,4 +241,90 @@ class ClipPlayer(context: Context) {
     fun stop() { stopJob?.cancel(); player.pause() }
 
     fun release() { stopJob?.cancel(); player.release() }
+}
+
+/**
+ * Game player that uses the FULL song through the Gladix engine, so clips start from the real
+ * beginning of the track (Deezer previews are cut from the middle). It stops on the actual playback
+ * position, not on a timer, so 1 s is 1 s even if buffering is slow. Falls back to the 30 s preview
+ * when the full song can't start (no Deezer login, network...).
+ */
+class EngineClip(private val engine: dev.brahmkshatriya.echo.vibes.music.MusicEngine, context: Context) {
+    private val fallback = ClipPlayer(context)
+    private val scope = MainScope()
+    private var job: Job? = null
+    private var useFallback = false
+    private var playing = false
+    var onStateChange: ((Boolean) -> Unit)? = null
+        set(v) { field = v; fallback.onStateChange = v }
+
+    private val browser get() = engine.player.browser.value
+
+    private fun setPlaying(p: Boolean) { if (p != playing) { playing = p; onStateChange?.invoke(p) } }
+
+    fun load(t: GameTrack) {
+        job?.cancel()
+        useFallback = false
+        fallback.load(t.preview)
+        runCatching {
+            val song = t.toSongRef()
+            engine.player.setQueue(song.ext, listOf(song.toTrack()), 0, null)
+            engine.player.setPlaying(false)
+        }.onFailure { useFallback = true }
+    }
+
+    /** Waits until the engine is really playing from the start; false if it doesn't within 8 s. */
+    private suspend fun startFromZero(): Boolean {
+        val b = browser ?: return false
+        b.seekTo(0)
+        b.play()
+        var waited = 0
+        while (!(b.isPlaying && b.currentPosition < 3000) && waited < 8000) { delay(15); waited += 15 }
+        return b.isPlaying
+    }
+
+    fun playClip(ms: Long) {
+        job?.cancel()
+        if (useFallback) { fallback.playClip(ms); return }
+        job = scope.launch {
+            if (!startFromZero()) {
+                engine.pause(); useFallback = true; fallback.playClip(ms); return@launch
+            }
+            setPlaying(true)
+            val b = browser!!
+            while (b.currentPosition < ms) delay(8)
+            b.pause()
+            b.seekTo(0)
+            setPlaying(false)
+        }
+    }
+
+    fun playFull(onEnd: () -> Unit = {}) {
+        job?.cancel()
+        if (useFallback) { fallback.playFull(onEnd); return }
+        job = scope.launch {
+            if (!startFromZero()) { useFallback = true; fallback.playFull(onEnd); return@launch }
+            setPlaying(true)
+            val b = browser!!
+            while (true) {
+                delay(300)
+                val d = b.duration
+                if (b.playbackState == androidx.media3.common.Player.STATE_ENDED || (d > 0 && b.currentPosition >= d - 400)) break
+            }
+            b.pause()
+            setPlaying(false)
+            onEnd()
+        }
+    }
+
+    fun position(): Long = if (useFallback) fallback.position() else browser?.currentPosition ?: 0L
+
+    fun stop() {
+        job?.cancel()
+        runCatching { browser?.pause() }
+        fallback.stop()
+        setPlaying(false)
+    }
+
+    fun release() { stop(); fallback.release() }
 }

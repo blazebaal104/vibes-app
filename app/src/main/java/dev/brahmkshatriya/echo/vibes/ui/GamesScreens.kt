@@ -426,7 +426,7 @@ fun GuessGameScreen(lobbyId: String?, source: GameSource? = null) {
     val multi = lobbyId != null
     val friends by app.social.friends.collectAsState()
 
-    val clip = remember { ClipPlayer(context) }
+    val clip = remember { dev.brahmkshatriya.echo.vibes.games.EngineClip(app.engine, context) }
     var clipPlaying by remember { mutableStateOf(false) }
     DisposableEffect(Unit) {
         app.engine.pause()
@@ -452,7 +452,7 @@ fun GuessGameScreen(lobbyId: String?, source: GameSource? = null) {
     fun startRound(t: GameTrack?) {
         track = t; step = 0; attempts.clear(); query = ""; suggestions = emptyList()
         if (t == null) { state = RoundState.DONE; return }
-        clip.load(t.preview)
+        clip.load(t)
         state = RoundState.PLAYING
     }
 
@@ -597,7 +597,7 @@ fun GuessGameScreen(lobbyId: String?, source: GameSource? = null) {
                         )
                         else -> GuessBoard(
                             difficulty = difficulty, color = color, step = step, attempts = attempts,
-                            playing = clipPlaying, roundLabel = "Brano ${round + 1} di 4" + if (src.kind != GameSource.RANDOM) " · ${src.label}" else "",
+                            playing = clipPlaying, position = { clip.position() }, roundLabel = "Brano ${round + 1} di 4" + if (src.kind != GameSource.RANDOM) " · ${src.label}" else "",
                             onPlay = { clip.playClip(clipSteps[step]) },
                             query = query, onQuery = { query = it }, suggestions = suggestions,
                             onPick = { onGuess(it) },
@@ -621,6 +621,7 @@ fun GuessGameScreen(lobbyId: String?, source: GameSource? = null) {
 @Composable
 private fun GuessBoard(
     difficulty: Difficulty, color: Color, step: Int, attempts: List<String>, playing: Boolean, roundLabel: String,
+    position: () -> Long = { 0L },
     onPlay: () -> Unit, query: String, onQuery: (String) -> Unit, suggestions: List<GameTrack>,
     onPick: (GameTrack) -> Unit, onSkip: () -> Unit, onGiveUp: (() -> Unit)?,
 ) {
@@ -664,7 +665,7 @@ private fun GuessBoard(
         } }
         Spacer(Modifier.weight(1f))
         // timeline 0..10 s with markers at each unlock
-        ClipTimeline(step, color, playing)
+        ClipTimeline(step, color, playing, position)
         Spacer(Modifier.height(14.dp))
         Row(verticalAlignment = Alignment.CenterVertically) {
             Box(Modifier.weight(1f), contentAlignment = Alignment.CenterStart) {
@@ -732,17 +733,22 @@ private fun fmtStep(ms: Long?): String = when {
 }
 
 @Composable
-private fun ClipTimeline(step: Int, color: Color, playing: Boolean) {
+private fun ClipTimeline(step: Int, color: Color, playing: Boolean, position: () -> Long = { 0L }) {
     val max = clipSteps.last().toFloat()
     // unlocked region grows with a springy animation when you skip
     val unlocked by animateFloatAsState(clipSteps[step] / max, spring(dampingRatio = 0.55f, stiffness = 220f), label = "unl")
-    val progress = remember { Animatable(0f) }
+    // follows the REAL playback position (so bar and sound always match)
+    var progressValue by remember { mutableStateOf(0f) }
     LaunchedEffect(playing, step) {
         if (playing) {
-            progress.snapTo(0f)
-            progress.animateTo(clipSteps[step] / max, tween(clipSteps[step].toInt(), easing = LinearEasing))
+            progressValue = 0f
+            while (true) {
+                androidx.compose.runtime.withFrameMillis { }
+                progressValue = (position() / max).coerceIn(0f, clipSteps[step] / max)
+            }
         }
     }
+    val progress = object { val value get() = progressValue }
     // dark, desaturated version of the difficulty colour for the "not played yet" part
     val dim = androidx.compose.ui.graphics.lerp(color, Color(0xFF0E0E12), 0.62f)
     val locked = LocalVibes.current.card

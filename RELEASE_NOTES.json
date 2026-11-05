@@ -1,9 +1,9 @@
 {
-  "title": "Chat sistemata",
+  "title": "Indovina il brano sistemato",
   "notes": [
-    "La barra per scrivere non finisce più sotto ai menu: chat a schermo intero come WhatsApp",
-    "Con la tastiera aperta vedi sempre l'ultimo messaggio",
-    "Stesso fix per modifica profilo, aggiungi amico, importa playlist e login Deezer",
-    "Menu e mini player si nascondono ovunque quando scrivi"
+    "Il brano parte dall'inizio vero della canzone, non da metà",
+    "Si ferma esattamente a 0,1 / 1 / 2 / 5 / 10 secondi",
+    "La barra segue la canzone in tempo reale",
+    "Facile: solo brani con oltre 1 miliardo di stream"
   ]
 }
