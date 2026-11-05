@@ -15,16 +15,21 @@ object DeezerAuth {
     /** Last known login state from the user DB (null = not known yet). */
     @Volatile var loggedIn: Boolean? = null
     @Volatile private var dismissedAt = 0L
-    /** Deezer refused the last song and nothing was relinked since. */
-    @Volatile var failing = false
-        private set
+    /** Deezer refused the last song and nothing was relinked since (makes the link sheet mandatory). */
+    val failingState = MutableStateFlow(false)
+    val failing: Boolean get() = failingState.value
+
+    /** Which deezer.com page the login screen opens straight away: true sign up, false log in. */
+    @Volatile var startWeb: Boolean? = null
+    fun takeStartWeb(): Boolean? = startWeb.also { startWeb = null }
 
     fun isLoginError(t: Throwable?): Boolean {
         var e = t
         var depth = 0
         while (e != null && depth < 12) {
             if (e is AppException.LoginRequired || e is ClientException.LoginRequired) return true
-            if (e.message?.contains("LoginRequired") == true) return true
+            val m = e.message.orEmpty()
+            if ("LoginRequired" in m || "re-login" in m || "Invalid CSRF" in m) return true
             e = e.cause.takeIf { it !== e }
             depth++
         }
@@ -34,7 +39,7 @@ object DeezerAuth {
     /** A song failed: ask to (re)link Deezer, at most once a minute after "Più tardi". */
     fun onPlaybackError(t: Throwable?) {
         if (!isLoginError(t)) return
-        failing = true
+        failingState.value = true
         if (System.currentTimeMillis() - dismissedAt < 60_000) return
         needed.value = true
     }
@@ -51,8 +56,11 @@ object DeezerAuth {
         return false
     }
 
+    /** The start-up check found the stored session dead: the panel becomes mandatory. */
+    fun sessionDead() { failingState.value = true }
+
     /** A song actually started: Deezer works again. */
-    fun ok() { failing = false }
+    fun ok() { failingState.value = false }
 
     fun dismiss() {
         dismissedAt = System.currentTimeMillis()
@@ -60,7 +68,7 @@ object DeezerAuth {
     }
 
     fun linked() {
-        failing = false
+        failingState.value = false
         dismissedAt = 0L
         needed.value = false
     }

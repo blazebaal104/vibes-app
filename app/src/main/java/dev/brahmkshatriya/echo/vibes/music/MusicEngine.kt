@@ -95,6 +95,23 @@ class MusicEngine(
         saveUsers(ext, users)
     }
 
+    /**
+     * Asks Deezer who is logged in. Result: true = session works, false = Deezer refused it
+     * (expired / must sign in again), null = could not tell (offline, timeout...).
+     */
+    suspend fun probeDeezer(): Boolean? = withContext(Dispatchers.IO) {
+        val r = runCatching {
+            kotlinx.coroutines.withTimeout(15_000) {
+                extension().getAs<LoginClient, User?> { getCurrentUser() }.getOrThrow()
+            }
+        }
+        when {
+            r.isSuccess -> r.getOrNull() != null
+            DeezerAuth.isLoginError(r.exceptionOrNull()) -> false
+            else -> null
+        }
+    }
+
     suspend fun logoutDeezer() = withContext(Dispatchers.IO) {
         userDao.setCurrentUser(CurrentUser(ExtensionType.MUSIC, DEEZER, null))
     }

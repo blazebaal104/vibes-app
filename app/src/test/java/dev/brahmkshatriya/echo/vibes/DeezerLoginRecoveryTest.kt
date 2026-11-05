@@ -48,6 +48,8 @@ class DeezerLoginRecoveryTest {
         val wrapped = IOException(RuntimeException(ClientException.LoginRequired()))
         assertTrue(DeezerAuth.isLoginError(wrapped))
         assertFalse(DeezerAuth.isLoginError(IOException("timeout")))
+        // expired ARL from the gateway (no email/password stored)
+        assertTrue(DeezerAuth.isLoginError(Exception("Please re-login (Best use User + Pass method)")))
     }
 
     @Test
@@ -72,5 +74,17 @@ class DeezerLoginRecoveryTest {
         DeezerAuth.dismiss()
         DeezerAuth.ok()
         assertFalse(DeezerAuth.explainIfFailing())
+    }
+
+    @Test
+    fun `dead session found at start-up makes the panel mandatory until relinked`() {
+        DeezerAuth.loggedIn = true
+        DeezerAuth.linked()
+        DeezerAuth.sessionDead()
+        assertTrue(DeezerAuth.failingState.value)
+        DeezerAuth.dismiss()
+        assertTrue(DeezerAuth.failingState.value) // "dismiss" cannot get rid of it
+        DeezerAuth.linked()
+        assertFalse(DeezerAuth.failingState.value)
     }
 }

@@ -30,47 +30,75 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import dev.brahmkshatriya.echo.vibes.music.DeezerAuth
+import dev.chrisbanes.haze.hazeEffect
 
-/** Shown when Deezer refuses to stream (session expired / never linked): explains and links to login. */
+/**
+ * Floating "collega Deezer" panel. MANDATORY (no close, no "più tardi", back does nothing, app
+ * blurred behind) when the account has no Deezer linked or Deezer keeps refusing the songs: Vibes
+ * cannot play anything without it. Optional only for a single refused song on a linked account.
+ */
 @Composable
 fun DeezerAuthHost() {
     val app = LocalApp.current
     val needed by DeezerAuth.needed.collectAsState()
+    val failing by DeezerAuth.failingState.collectAsState()
     val logged by app.engine.deezerLoggedIn.collectAsState(initial = null)
-    LaunchedEffect(logged) { DeezerAuth.loggedIn = logged }
-    val show = needed && app.nav.current !is Route.DeezerLogin
+    LaunchedEffect(logged) {
+        DeezerAuth.loggedIn = logged
+        // linked on paper: check with Deezer that the session still works (twice, so a slow
+        // credential load at start-up never shows the panel to someone whose account is fine)
+        if (logged == true) {
+            kotlinx.coroutines.delay(3000)
+            if (app.engine.probeDeezer() == false) {
+                kotlinx.coroutines.delay(5000)
+                if (app.engine.probeDeezer() == false) DeezerAuth.sessionDead()
+            }
+        }
+    }
+    val mandatory = logged == false || failing
+    val show = logged != null && (needed || mandatory) && app.nav.current !is Route.DeezerLogin
+    androidx.activity.compose.BackHandler(enabled = show && mandatory) { }
+    fun go(signup: Boolean) {
+        DeezerAuth.dismiss()
+        DeezerAuth.startWeb = signup
+        app.nav.open(Route.DeezerLogin)
+    }
     AnimatedVisibility(show, enter = fadeIn(), exit = fadeOut()) {
-        Box(
-            Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.6f))
-                .clickable(remember { MutableInteractionSource() }, null) { DeezerAuth.dismiss() },
-            contentAlignment = Alignment.BottomCenter
-        ) {
+        val haze = LocalHaze.current
+        Box(Modifier.fillMaxSize()) {
+            Box(
+                Modifier.fillMaxSize()
+                    .then(if (haze != null) Modifier.hazeEffect(haze) { blurRadius = 28.dp; noiseFactor = 0.05f } else Modifier)
+                    .background(Color.Black.copy(alpha = 0.5f))
+                    .clickable(remember { MutableInteractionSource() }, null) { if (!mandatory) DeezerAuth.dismiss() }
+            )
             Column(
-                Modifier.fillMaxWidth().clip(RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp))
+                Modifier.align(Alignment.Center).padding(horizontal = 22.dp).fillMaxWidth()
+                    .clip(RoundedCornerShape(28.dp))
                     .background(MaterialTheme.colorScheme.background)
                     .clickable(remember { MutableInteractionSource() }, null) { }
-                    .navigationBarsPadding().padding(22.dp),
+                    .padding(22.dp),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                Text("🔑", fontSize = 46.sp)
+                Text("🎧", fontSize = 50.sp)
                 Text(
-                    if (logged == false) "Collega Deezer per ascoltare" else "Deezer si è scollegato",
+                    if (logged == false) "Ultimo passo: collega Deezer" else "Ricollega Deezer",
                     style = MaterialTheme.typography.headlineSmall, textAlign = TextAlign.Center,
                     modifier = Modifier.padding(top = 8.dp)
                 )
                 Text(
-                    "Vibes riproduce i brani completi tramite un account Deezer (va bene anche gratuito). " +
-                            (if (logged == false) "Collegane uno e la musica parte subito."
-                            else "La sessione è scaduta: ricollegalo. Con email e password si rinnova da sola."),
+                    "La musica di Vibes arriva da Deezer. Crea un account gratis o accedi con il tuo: " +
+                            "ci vuole un minuto e lo fai qui dentro, poi Vibes si collega da solo." +
+                            (if (logged != false) "\nLa tua sessione Deezer è scaduta." else ""),
                     style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
                     textAlign = TextAlign.Center, modifier = Modifier.padding(top = 8.dp)
                 )
                 Spacer(Modifier.height(20.dp))
-                BigButton("Collega Deezer", {
-                    DeezerAuth.dismiss()
-                    app.nav.open(Route.DeezerLogin)
-                }, Modifier.fillMaxWidth())
-                Text(
+                BigButton("Crea account Deezer gratis", { go(true) }, Modifier.fillMaxWidth())
+                Spacer(Modifier.height(10.dp))
+                BigButton("Ho già Deezer: accedi", { go(false) }, Modifier.fillMaxWidth(),
+                    container = MaterialTheme.colorScheme.surfaceVariant, content = MaterialTheme.colorScheme.onSurface)
+                if (!mandatory) Text(
                     "Più tardi", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.labelLarge,
                     modifier = Modifier.padding(top = 10.dp).bouncy({ DeezerAuth.dismiss() }).padding(8.dp)
                 )

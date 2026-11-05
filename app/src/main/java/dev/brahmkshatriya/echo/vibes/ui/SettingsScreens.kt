@@ -282,7 +282,7 @@ fun DeezerLoginScreen() {
     var arl by remember { mutableStateOf("") }
     var loading by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
-    var web by remember { mutableStateOf<Boolean?>(null) } // true = sign up, false = log in on deezer.com
+    var web by remember { mutableStateOf(dev.brahmkshatriya.echo.vibes.music.DeezerAuth.takeStartWeb()) } // true = sign up, false = log in on deezer.com
 
     web?.let { signup ->
         GradientBackground {
