@@ -25,6 +25,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -398,7 +399,7 @@ fun NewStoryScreen(initial: SongRef?) {
                 }
             } else Modifier.pointerInput(current, tool) {
                 // tap on an empty spot = write text there
-                androidx.compose.foundation.gestures.detectTapGestures { o ->
+                detectTapGestures { o ->
                     if (tool == Tool.NONE && s != null) { draft = StoryText("", x = o.x / size.width, y = o.y / size.height); editingText = -1; tool = Tool.TEXT }
                     else if (tool != Tool.TEXT) tool = Tool.NONE
                 }
@@ -553,7 +554,7 @@ fun NewStoryScreen(initial: SongRef?) {
                     itemsIndexed(slides) { i, e ->
                         Box(Modifier.size(width = 46.dp, height = 66.dp).clip(RoundedCornerShape(8.dp))
                             .border(if (i == current) 2.dp else 0.dp, Color.White, RoundedCornerShape(8.dp))
-                            .pointerInput(i) { androidx.compose.foundation.gestures.detectTapGestures(onTap = { current = i }, onLongPress = { removing = i }) }) {
+                            .pointerInput(i) { detectTapGestures(onTap = { current = i }, onLongPress = { removing = i }) }) {
                             AsyncImage(e.uri.toString(), null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
                             Text("${e.durationMs / 1000}s", color = Color.White, fontSize = 10.sp, modifier = Modifier.align(Alignment.BottomEnd)
                                 .background(Color.Black.copy(alpha = 0.5f)).padding(horizontal = 3.dp))
