@@ -179,7 +179,7 @@ fun FriendsScreen() {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             if (m != null && m.senderId == me) { Ticks(m); Spacer(Modifier.width(4.dp)) }
                             Text(
-                                m?.let { preview(it, me) } ?: f.nowPlaying?.let { "🎧 ${it.title} – ${it.artist}" } ?: "Tocca per scrivere",
+                                m?.let { preview(it, me) } ?: f.liveNow?.let { "🎧 ${it.song.title} – ${it.song.artist}" + if (!it.playing) " (in pausa)" else "" } ?: "Tocca per scrivere",
                                 style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis,
                                 color = if (n > 0) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant,
                                 fontWeight = if (n > 0) FontWeight.SemiBold else FontWeight.Normal
@@ -358,23 +358,7 @@ fun ProfileScreen(userId: String?) {
                     }
                 }
             }
-            p.nowPlaying?.let { np ->
-                item {
-                    Row(
-                        Modifier.padding(16.dp).fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(LocalVibes.current.card)
-                            .bouncy({ app.engine.play(np) }).padding(12.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Cover(np.cover, Modifier.size(48.dp))
-                        Spacer(Modifier.width(12.dp))
-                        Column(Modifier.weight(1f)) {
-                            Text(if (isMe) "Stai ascoltando" else "Sta ascoltando", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
-                            Text("${np.title} – ${np.artist}", style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        }
-                        EqualizerBars(Modifier.size(18.dp))
-                    }
-                }
-            }
+            item(key = "live") { LiveCard(p, isMe) }
             if (isMe) item {
                 Row(Modifier.padding(horizontal = 16.dp, vertical = 6.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     ProfileButton("📊", "Statistiche", Modifier.weight(1f)) { nav.open(Route.Stats) }

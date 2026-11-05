@@ -139,6 +139,7 @@ fun GamesScreen() {
                     onSolo = { nav.open(Route.BlindTest(null)) }, onChallenge = { challengeGame = "blindtest" }, index = 1
                 )
             }
+            item { GameLeaderboards() }
         }
     }
     challengeGame?.let { g -> ChallengeDialog(g, if (g == "guess") challengeSource else GameSource.Random) { challengeGame = null } }
@@ -440,6 +441,7 @@ fun GuessGameScreen(lobbyId: String?, source: GameSource? = null) {
     val attempts = remember { mutableStateListOf<String>() } // "⏭ Saltato" / "❌ <guess>"
     var state by remember { mutableStateOf(RoundState.LOADING) }
     var wins by remember { mutableIntStateOf(0) }
+    var points by remember { mutableIntStateOf(0) }
     var revealNote by remember { mutableStateOf("") }
     var query by remember { mutableStateOf("") }
     var suggestions by remember { mutableStateOf<List<GameTrack>>(emptyList()) }
@@ -467,7 +469,7 @@ fun GuessGameScreen(lobbyId: String?, source: GameSource? = null) {
     fun finishRound(won: Boolean, note: String) {
         if (state != RoundState.PLAYING) return
         state = if (won) RoundState.WON else RoundState.LOST
-        if (won) wins++
+        if (won) { wins++; points += (clipSteps.size - step) * 100 * (round + 1) }
         revealNote = note
         // the song keeps playing "in your head"; when it ends we move on by ourselves
         clip.playFull { if (!multi && (state == RoundState.WON || state == RoundState.LOST)) nextRoundLocal() }
@@ -497,7 +499,7 @@ fun GuessGameScreen(lobbyId: String?, source: GameSource? = null) {
                     else -> "Hai finito i tentativi"
                 }
                 state = if (iWon) RoundState.WON else RoundState.LOST
-                if (iWon) wins++
+                if (iWon) { wins++; points += (clipSteps.size - step) * 100 * (round + 1) }
                 revealNote = note
                 clip.playFull()
             }
@@ -593,7 +595,8 @@ fun GuessGameScreen(lobbyId: String?, source: GameSource? = null) {
                                 else -> "Pareggio!"
                             } else "$wins su 4 indovinati",
                             subtitle = "Facile, medio, difficile, impossibile: ogni livello conta.",
-                            onAgain = if (!multi) ({ wins = 0; round = 0; state = RoundState.LOADING; scope.launch { startRound(VibesGraph.picker.pick(Difficulty.EASY, src)) } }) else null,
+                            submit = "guess" to points,
+                            onAgain = if (!multi) ({ wins = 0; points = 0; round = 0; state = RoundState.LOADING; scope.launch { startRound(VibesGraph.picker.pick(Difficulty.EASY, src)) } }) else null,
                         )
                         else -> GuessBoard(
                             difficulty = difficulty, color = color, step = step, attempts = attempts,
@@ -820,8 +823,16 @@ private fun Reveal(t: GameTrack, won: Boolean, note: String, color: Color, onNex
 }
 
 @Composable
-private fun GameOver(emoji: String, title: String, subtitle: String, onAgain: (() -> Unit)?) {
-    val nav = LocalApp.current.nav
+private fun GameOver(emoji: String, title: String, subtitle: String, onAgain: (() -> Unit)?, submit: Pair<String, Int>? = null) {
+    val app = LocalApp.current
+    val nav = app.nav
+    val context = LocalContext.current
+    var board by remember { mutableStateOf<List<Pair<Profile, Int>>?>(null) }
+    LaunchedEffect(submit) {
+        val (game, sc) = submit ?: return@LaunchedEffect
+        runCatching { app.social.submitScore(game, sc) }
+        board = runCatching { app.social.leaderboard(game) }.getOrNull()
+    }
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(32.dp),
         horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
         Text(emoji, fontSize = 80.sp)
@@ -829,6 +840,14 @@ private fun GameOver(emoji: String, title: String, subtitle: String, onAgain: ((
         Text(subtitle, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
             textAlign = TextAlign.Center, modifier = Modifier.padding(top = 6.dp))
         Spacer(Modifier.height(28.dp))
+        submit?.let { (game, sc) ->
+            Text("$sc punti", style = MaterialTheme.typography.headlineSmall, color = MaterialTheme.colorScheme.primary)
+            board?.takeIf { it.isNotEmpty() }?.let { Leaderboard(it, app.social.uid, Modifier.padding(vertical = 14.dp)) }
+            Pill("Condividi punteggio", false, {
+                shareToApps(context, "🎧 Ho fatto $sc punti a ${if (game == "guess") "Indovina il brano" else "Chi canta?"} su Vibes. Riesci a battermi?")
+            })
+            Spacer(Modifier.height(14.dp))
+        }
         if (onAgain != null) BigButton("Gioca ancora", onAgain, Modifier.width(220.dp))
         Spacer(Modifier.height(10.dp))
         BigButton("Torna ai giochi", { nav.back() }, Modifier.width(220.dp), container = LocalVibes.current.cardHigh, content = MaterialTheme.colorScheme.onSurface)
@@ -928,7 +947,8 @@ fun BlindTestScreen(lobbyId: String?) {
                     }
                     GameOver(if (!multi || score >= otherScore) "🏆" else "🎧", title,
                         if (multi) "Tu $score · $otherName $otherScore" else "Quanti artisti hai riconosciuto in 8 brani.",
-                        if (!multi) ({ score = 0; index = 0; finished = false; tracks = emptyList() }) else null)
+                        if (!multi) ({ score = 0; index = 0; finished = false; tracks = emptyList() }) else null,
+                        submit = if (!multi || otherDone) "blind" to score * 100 else null)
                     if (score > 0 && (!multi || (otherDone && score > otherScore)) && LocalSettings.current.confetti) Confetti()
                 }
                 t == null -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -979,5 +999,48 @@ fun BlindTestScreen(lobbyId: String?) {
                 }
             }
         }
+    }
+}
+
+
+/** Friends' best scores, gold/silver/bronze. */
+@Composable
+fun Leaderboard(rows: List<Pair<Profile, Int>>, me: String?, modifier: Modifier = Modifier) {
+    Column(modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(LocalVibes.current.card).padding(12.dp)) {
+        Text("🏆 Classifica amici", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(bottom = 6.dp))
+        rows.take(10).forEachIndexed { i, (p, sc) ->
+            Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp))
+                .background(if (p.id == me) MaterialTheme.colorScheme.primary.copy(alpha = 0.18f) else Color.Transparent)
+                .padding(horizontal = 8.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text(when (i) { 0 -> "🥇"; 1 -> "🥈"; 2 -> "🥉"; else -> "${i + 1}" }, fontSize = 18.sp, modifier = Modifier.width(32.dp))
+                Avatar(p, 30.dp)
+                Spacer(Modifier.width(10.dp))
+                Text(if (p.id == me) "Tu" else p.name, style = MaterialTheme.typography.titleSmall, modifier = Modifier.weight(1f))
+                Text("$sc", style = MaterialTheme.typography.titleMedium)
+            }
+        }
+    }
+}
+
+@Composable
+fun GameLeaderboards() {
+    val app = LocalApp.current
+    var guess by remember { mutableStateOf<List<Pair<Profile, Int>>>(emptyList()) }
+    var blind by remember { mutableStateOf<List<Pair<Profile, Int>>>(emptyList()) }
+    var tab by remember { mutableIntStateOf(0) }
+    LaunchedEffect(Unit) {
+        guess = runCatching { app.social.leaderboard("guess") }.getOrDefault(emptyList())
+        blind = runCatching { app.social.leaderboard("blind") }.getOrDefault(emptyList())
+    }
+    if (guess.isEmpty() && blind.isEmpty()) return
+    Column(Modifier.padding(16.dp)) {
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(bottom = 8.dp)) {
+            Pill("Indovina il brano", tab == 0, { tab = 0 })
+            Pill("Chi canta?", tab == 1, { tab = 1 })
+        }
+        val rows = if (tab == 0) guess else blind
+        if (rows.isEmpty()) Text("Nessun punteggio ancora: gioca per entrare in classifica!", style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant)
+        else Leaderboard(rows, app.social.uid)
     }
 }

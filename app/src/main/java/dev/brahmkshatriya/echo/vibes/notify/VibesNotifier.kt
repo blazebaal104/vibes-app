@@ -41,6 +41,41 @@ object VibesNotifier {
         scope.launch {
             VibesGraph.social.incoming.collect { m -> runCatching { show(context, m) } }
         }
+        scope.launch { runCatching { checkReleases(context) } }
+    }
+
+    private const val CHANNEL_RELEASES = "vibes_releases"
+
+    /** New albums/singles from followed artists (checked at most every 6 hours). */
+    suspend fun checkReleases(context: Context, force: Boolean = false) {
+        val sp = context.getSharedPreferences("vibes_releases", Context.MODE_PRIVATE)
+        if (!force && System.currentTimeMillis() - sp.getLong("last", 0) < 6 * 3600_000L) return
+        sp.edit().putLong("last", System.currentTimeMillis()).apply()
+        val lib = VibesGraph.library
+        val found = mutableListOf<dev.brahmkshatriya.echo.vibes.music.DeezerPublic.AlbumBrief>()
+        lib.artists.value.forEach { a ->
+            val albums = runCatching { VibesGraph.deezer.artistAlbums(a.id, a.name) }.getOrDefault(emptyList())
+            val newest = albums.firstOrNull() ?: return@forEach
+            if (a.lastSeen.isNotBlank()) found += albums.filter { it.date > a.lastSeen }
+            lib.setArtistSeen(a.id, newest.date)
+        }
+        if (Build.VERSION.SDK_INT >= 26) context.getSystemService(NotificationManager::class.java).createNotificationChannel(
+            NotificationChannel(CHANNEL_RELEASES, "Nuove uscite", NotificationManager.IMPORTANCE_DEFAULT).apply {
+                description = "Nuovi album e singoli degli artisti che segui"
+            })
+        found.take(5).forEach { al ->
+            val pi = PendingIntent.getActivity(context, al.id.toInt(),
+                Intent(context, VibesActivity::class.java).apply {
+                    action = Intent.ACTION_VIEW; data = android.net.Uri.parse("vibes://album/${al.id}")
+                    flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
+                }, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+            val n = NotificationCompat.Builder(context, CHANNEL_RELEASES)
+                .setSmallIcon(R.drawable.ic_launcher_foreground)
+                .setContentTitle("Nuovo ${if (al.type == "single") "singolo" else if (al.type == "ep") "EP" else "album"} di ${al.artist}")
+                .setContentText(al.title)
+                .setAutoCancel(true).setContentIntent(pi).build()
+            runCatching { NotificationManagerCompat.from(context).notify(("rel" + al.id).hashCode(), n) }
+        }
     }
 
     private fun createChannels(context: Context) {

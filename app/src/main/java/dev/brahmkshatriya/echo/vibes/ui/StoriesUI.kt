@@ -219,11 +219,12 @@ fun StoryViewerScreen(startUserId: String) {
     LaunchedEffect(story.id) {
         if (!mine) scope.launch { app.social.markStorySeen(story.id) }
         progress.snapTo(0f)
-        story.style.preview?.let { clip.load(it); clip.playFull() }
+        val url = runCatching { VibesGraph.deezer.freshPreview(story.style.dz, story.song) }.getOrNull() ?: story.style.preview
+        url?.let { clip.load(it); clip.playFull() }
     }
     LaunchedEffect(story.id, paused) {
         if (paused) { clip.stop(); progress.stop(); return@LaunchedEffect }
-        if (progress.value > 0f) story.style.preview?.let { clip.playFull() }
+        if (progress.value > 0f) clip.playFull()
         progress.animateTo(1f, tween(((1f - progress.value) * STORY_MS).toInt(), easing = LinearEasing))
         next()
     }
@@ -365,11 +366,13 @@ fun NewStoryScreen(initial: SongRef?) {
     var posting by remember { mutableStateOf(false) }
     val clip = remember { ClipPlayer(context) }
     var preview by remember { mutableStateOf<String?>(null) }
+    var dzId by remember { mutableStateOf<Long?>(null) }
     DisposableEffect(Unit) { onDispose { clip.release() } }
     LaunchedEffect(song?.key) {
         preview = null
         song?.let { s ->
-            preview = runCatching { VibesGraph.deezer.previewFor(s) }.getOrNull()
+            dzId = runCatching { VibesGraph.deezer.deezerId(s) }.getOrNull()
+            preview = runCatching { VibesGraph.deezer.freshPreview(dzId, s) }.getOrNull()
             preview?.let { clip.load(it); clip.playFull() }
         }
     }
@@ -417,7 +420,7 @@ fun NewStoryScreen(initial: SongRef?) {
                 val sng = song ?: return@BigButton
                 posting = true
                 scope.launch {
-                    runCatching { app.social.postStory(sng, caption.trim(), StoryStyle(top, bottom, preview)) }
+                    runCatching { app.social.postStory(sng, caption.trim(), StoryStyle(top, bottom, preview, dzId)) }
                         .onSuccess { nav.toast("Storia pubblicata ✨"); nav.back() }
                         .onFailure { nav.toast(it.message ?: "Non sono riuscito a pubblicarla") }
                     posting = false
@@ -426,7 +429,7 @@ fun NewStoryScreen(initial: SongRef?) {
                 container = Color.White, content = Color.Black)
         }
     }
-    if (picking) SongPickerDialog(onDismiss = { picking = false; if (song == null) nav.back() }) { picked -> song = picked; picking = false }
+    if (picking) GlobalSongPicker(onDismiss = { picking = false; if (song == null) nav.back() }) { picked -> song = picked; picking = false }
 }
 
 // =====================================================================================  monthly recap
@@ -468,7 +471,9 @@ fun StoryRecapScreen(month: String) {
         .maxByOrNull { it.value.size }
     LaunchedEffect(Unit) {
         byArtist.firstOrNull()?.let { (a, _) -> artistImage = runCatching { VibesGraph.deezer.searchArtists(a, 1).firstOrNull()?.picture }.getOrNull() }
-        list.firstOrNull { it.song.key == bySong.first().first.key }?.style?.preview?.let { clip.load(it); clip.playFull() }
+        list.firstOrNull { it.song.key == bySong.first().first.key }?.let { st ->
+            (runCatching { VibesGraph.deezer.freshPreview(st.style.dz, st.song) }.getOrNull() ?: st.style.preview)?.let { clip.load(it); clip.playFull() }
+        }
     }
 
     val slides = 5
@@ -642,4 +647,88 @@ fun FollowButton(userId: String, compact: Boolean = false) {
         confirmButton = { TextButton(onClick = { confirm = false; scope.launch { runCatching { app.social.unfollow(userId) } } }) { Text("Smetti di seguire") } },
         dismissButton = { TextButton(onClick = { confirm = false }) { Text("Annulla") } }
     )
+}
+
+// =====================================================================================  global song picker
+
+/**
+ * Pick ANY song in the world: type part of the title/artist and it autocompletes like the guessing
+ * game. With an empty box: today's releases and your recently played songs.
+ */
+@Composable
+fun GlobalSongPicker(onDismiss: () -> Unit, onPick: (SongRef) -> Unit) {
+    val app = LocalApp.current
+    var q by remember { mutableStateOf("") }
+    var results by remember { mutableStateOf<List<SongRef>>(emptyList()) }
+    var searching by remember { mutableStateOf(false) }
+    var releases by remember { mutableStateOf<List<dev.brahmkshatriya.echo.vibes.music.DeezerPublic.AlbumBrief>>(emptyList()) }
+    var openAlbum by remember { mutableStateOf<Long?>(null) }
+    var albumSongs by remember { mutableStateOf<List<SongRef>>(emptyList()) }
+    val recent by app.library.recent.collectAsState()
+    LaunchedEffect(Unit) {
+        val all = runCatching { VibesGraph.deezer.newReleases() }.getOrDefault(emptyList())
+        val today = LocalDate.now().toString()
+        releases = all.filter { it.date == today }.ifEmpty { all.take(20) }
+    }
+    LaunchedEffect(q) {
+        if (q.isBlank()) { results = emptyList(); return@LaunchedEffect }
+        delay(220)
+        searching = true
+        results = runCatching { VibesGraph.deezer.search(q, 25).map { it.toSongRef() }.distinctBy { it.title.lowercase() + it.artist.lowercase() } }
+            .getOrDefault(emptyList())
+        searching = false
+    }
+    LaunchedEffect(openAlbum) {
+        albumSongs = openAlbum?.let { id -> runCatching { VibesGraph.deezer.album(id)?.tracks?.map { it.toSongRef() } }.getOrNull() }.orEmpty()
+    }
+    androidx.compose.ui.window.Dialog(onDismissRequest = onDismiss,
+        properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false)) {
+        Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background).statusBarsPadding().navigationBarsPadding().imePadding()) {
+            Row(Modifier.fillMaxWidth().padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                IconButton(onClick = onDismiss) { Icon(Icons.Rounded.Close, "Chiudi") }
+                VibesField(q, { q = it }, "Cerca qualsiasi brano o artista…", Modifier.weight(1f))
+            }
+            LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 24.dp)) {
+                if (q.isNotBlank()) {
+                    if (searching && results.isEmpty()) item { Text("Cerco…", modifier = Modifier.padding(16.dp), color = MaterialTheme.colorScheme.onSurfaceVariant) }
+                    items(results, key = { "r" + it.key }) { s -> PickRow(s) { onPick(s) } }
+                } else {
+                    if (releases.isNotEmpty()) {
+                        item { SectionTitle(if (releases.firstOrNull()?.date == LocalDate.now().toString()) "🆕 Uscite di oggi" else "🆕 Nuove uscite") }
+                        item {
+                            LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                                items(releases, key = { it.id }) { al ->
+                                    Column(Modifier.width(120.dp).bouncy({ openAlbum = if (openAlbum == al.id) null else al.id })) {
+                                        Box {
+                                            Cover(al.cover, Modifier.size(120.dp))
+                                            if (openAlbum == al.id) Box(Modifier.size(120.dp).clip(RoundedCornerShape(6.dp)).background(Color.Black.copy(alpha = 0.4f)))
+                                        }
+                                        Text(al.title, style = MaterialTheme.typography.labelLarge, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 4.dp))
+                                        Text(al.artist, style = MaterialTheme.typography.labelSmall, maxLines = 1, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    }
+                                }
+                            }
+                        }
+                        items(albumSongs, key = { "a" + it.key }) { s -> PickRow(s) { onPick(s) } }
+                    }
+                    if (recent.isNotEmpty()) {
+                        item { SectionTitle("Ascoltati di recente") }
+                        items(recent.take(20), key = { "h" + it.key }) { s -> PickRow(s) { onPick(s) } }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun PickRow(s: SongRef, onClick: () -> Unit) {
+    Row(Modifier.fillMaxWidth().clickable(onClick = onClick).padding(horizontal = 16.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+        Cover(s.cover, Modifier.size(50.dp))
+        Spacer(Modifier.width(12.dp))
+        Column(Modifier.weight(1f)) {
+            Text(s.title, style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(s.artist, style = MaterialTheme.typography.bodySmall, maxLines = 1, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+    }
 }

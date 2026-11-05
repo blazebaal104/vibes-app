@@ -130,6 +130,14 @@ class Social(context: Context, val supa: Supa) {
         _me.update { it?.copy(avatarUrl = url) }
     }
 
+    /** Uploads a public image (playlist covers…) and returns its URL. */
+    suspend fun uploadPublicImage(jpeg: ByteArray, name: String): String {
+        val id = uid ?: error("Non sei connesso")
+        val path = "$id/${name}_${System.currentTimeMillis()}.jpg"
+        supa.upload("vibes-avatars", path, jpeg, "image/jpeg")
+        return "${Supa.URL}/storage/v1/object/public/vibes-avatars/$path"
+    }
+
     suspend fun removeAvatar() {
         val id = uid ?: return
         supa.update("vibes_profiles", "id=eq.$id", buildJsonObject { put("avatar_url", kotlinx.serialization.json.JsonNull) })
@@ -202,6 +210,32 @@ class Social(context: Context, val supa: Supa) {
             }
         }
     }
+
+    private var lastLive: String? = null
+
+    /** Real-time playback state for friends (called by the player service). */
+    fun publishLive(l: LiveListen?) {
+        val id = uid ?: return
+        val me = _me.value
+        val allowed = me?.privacy?.nowPlaying != false && !dev.brahmkshatriya.echo.vibes.VibesGraph.prefs.privateSession
+        val value = if (allowed) l else null
+        val encoded = value?.let { json.encodeToString(LiveListen.serializer(), it) }
+        if (encoded == null && lastLive == null) return
+        lastLive = encoded
+        scope.launch {
+            runCatching {
+                supa.update("vibes_profiles", "id=eq.$id", buildJsonObject {
+                    put("live", value?.let { json.encodeToJsonElement(LiveListen.serializer(), it) } ?: kotlinx.serialization.json.JsonNull)
+                })
+            }
+        }
+    }
+
+    /** Just the live state of someone (polled by their profile screen / listen-along). */
+    suspend fun live(userId: String): LiveListen? =
+        supa.select("vibes_profiles", "id=eq.$userId&select=live").firstOrNull()
+            ?.let { (it as JsonObject)["live"] }?.takeIf { it !is kotlinx.serialization.json.JsonNull }
+            ?.let { json.decodeFromJsonElement(LiveListen.serializer(), it) }
 
     /** Best effort "now playing" on my profile, so friends see what I'm listening to. */
     fun setNowPlaying(song: SongRef?) {
@@ -330,6 +364,28 @@ class Social(context: Context, val supa: Supa) {
         val map = if (all.isEmpty()) emptyMap() else supa.select("vibes_profiles", "id=in.(${all.joinToString(",")})&select=*")
             .map { json.decodeFromJsonElement<Profile>(it) }.associateBy { it.id }
         return ers.mapNotNull { map[it] } to ing.mapNotNull { map[it] }
+    }
+
+    // ------------------------------------------------------------------ game scores
+
+    suspend fun submitScore(game: String, score: Int, difficulty: String = "") {
+        val id = uid ?: return
+        supa.insert("vibes_game_scores", buildJsonObject {
+            put("user_id", id); put("game", game); put("score", score); put("difficulty", difficulty)
+        }, false)
+    }
+
+    /** Best score of me and each friend for a game, highest first. */
+    suspend fun leaderboard(game: String): List<Pair<Profile, Int>> {
+        val id = uid ?: return emptyList()
+        val people = _friends.value + listOfNotNull(_me.value)
+        val ids = (people.map { it.id } + id).distinct()
+        val rows = supa.select("vibes_game_scores", "game=eq.$game&user_id=in.(${ids.joinToString(",")})&select=user_id,score&order=score.desc&limit=500")
+        val best = mutableMapOf<String, Int>()
+        rows.forEach { r -> val o = r as JsonObject; val u = o.str("user_id") ?: return@forEach; val sc = o.int("score") ?: 0
+            if ((best[u] ?: -1) < sc) best[u] = sc }
+        val byId = people.associateBy { it.id }
+        return best.entries.mapNotNull { (u, sc) -> byId[u]?.let { it to sc } }.sortedByDescending { it.second }
     }
 
     // ------------------------------------------------------------------ stories

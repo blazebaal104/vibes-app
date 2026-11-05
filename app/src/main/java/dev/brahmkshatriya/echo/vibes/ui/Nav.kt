@@ -31,6 +31,8 @@ sealed interface Route {
     data class Genre(val name: String) : Route
     data object Import : Route
     data object Stats : Route
+    data class DzArtist(val id: Long, val name: String = "") : Route
+    data class DzAlbum(val id: Long) : Route
     data class Stories(val userId: String) : Route
     data class NewStory(val song: SongRef? = null) : Route
     data class StoryRecap(val month: String) : Route

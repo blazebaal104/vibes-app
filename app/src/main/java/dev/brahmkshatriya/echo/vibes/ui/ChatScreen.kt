@@ -242,7 +242,7 @@ fun ChatScreen(friendId: String) {
             Spacer(Modifier.width(10.dp))
             Column(Modifier.weight(1f)) {
                 Text(friend?.name ?: "…", style = MaterialTheme.typography.titleMedium, maxLines = 1)
-                friend?.nowPlaying?.let {
+                friend?.liveNow?.takeIf { it.playing }?.song?.let {
                     Text("🎧 ${it.title}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary,
                         maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }

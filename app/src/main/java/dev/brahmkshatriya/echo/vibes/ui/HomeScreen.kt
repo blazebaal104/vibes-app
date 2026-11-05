@@ -113,6 +113,7 @@ fun HomeScreen() {
                 }
             }
             item(key = "stories") { StoriesRow() }
+            item(key = "releases") { FollowedReleasesShelf() }
             if (!loggedIn) item {
                 DeezerCard(Modifier.padding(16.dp).enter(0)) { nav.open(Route.DeezerLogin) }
             }
@@ -131,13 +132,13 @@ fun HomeScreen() {
                 }
                 item(key = "rec_c$si") { SongCarousel(sec.songs) }
             }
-            val listening = if (prefs.homeFriends) friends.filter { it.nowPlaying != null } else emptyList()
+            val listening = if (prefs.homeFriends) friends.filter { it.liveNow?.playing == true } else emptyList()
             if (listening.isNotEmpty()) {
                 item { SectionTitle("I tuoi amici ascoltano") }
                 item {
                     LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
                         items(listening, key = { it.id }) { f ->
-                            val song = f.nowPlaying!!
+                            val song = f.liveNow!!.song
                             Column(Modifier.width(132.dp).bouncy({ app.engine.play(song) }, { nav.open(Route.Profile(f.id)) })) {
                                 Box {
                                     Cover(song.cover, Modifier.size(132.dp), RoundedCornerShape(10.dp))

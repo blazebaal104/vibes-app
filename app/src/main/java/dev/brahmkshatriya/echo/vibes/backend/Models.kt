@@ -73,8 +73,33 @@ data class Profile(
     @SerialName("stats_week") val statsWeek: WeekSummary? = null,
     val records: Records? = null,
     val privacy: Privacy = Privacy(),
+    val live: LiveListen? = null,
 ) {
     val name get() = displayName.ifBlank { username }
+
+    /** What they're listening to right now, if it's fresh (paused for over 2 minutes = gone). */
+    val liveNow: LiveListen? get() = live?.takeIf { it.isFresh }
+}
+
+/** Real-time playback state published by the player service. */
+@Serializable
+data class LiveListen(
+    val song: SongRef,
+    val playing: Boolean,
+    val position: Long,
+    val duration: Long = 0,
+    /** Epoch ms when [position] was measured. */
+    val at: Long,
+    val ctx: String? = null,
+    val ctxId: String? = null,
+    val queue: List<SongRef> = emptyList(),
+) {
+    val isFresh: Boolean get() {
+        val age = System.currentTimeMillis() - at
+        return if (playing) age < 75_000 else age < 120_000
+    }
+    /** Where the song is NOW (extrapolated while playing). */
+    fun positionNow(): Long = if (playing) (position + (System.currentTimeMillis() - at)).coerceAtMost(duration.takeIf { it > 0 } ?: Long.MAX_VALUE) else position
 }
 
 @Serializable
@@ -173,6 +198,8 @@ data class StoryStyle(
     val top: String = "#B84DFF",
     val bottom: String = "#120A1F",
     val preview: String? = null,
+    /** Deezer track id: previews expire, so viewers fetch a fresh one from this. */
+    val dz: Long? = null,
 )
 
 @Serializable

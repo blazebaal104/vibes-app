@@ -75,6 +75,7 @@ class AppState(
     val library get() = VibesGraph.library
     val supa get() = VibesGraph.supa
     val deezer get() = VibesGraph.deezer
+    val along = dev.brahmkshatriya.echo.vibes.music.ListenAlong(engine)
 }
 
 val LocalApp = androidx.compose.runtime.staticCompositionLocalOf<AppState> { error("no app state") }
@@ -97,6 +98,8 @@ fun VibesApp(engine: MusicEngine, pendingLink: MutableStateFlow<Uri?>) {
                 while (runCatching { state.social.bootstrap() }.isFailure) delay(3000)
                 // friends see this week's stats + records
                 dev.brahmkshatriya.echo.vibes.VibesGraph.onListened(force = true)
+                // keep friends' live "now playing" fresh in lists
+                while (true) { delay(30_000); runCatching { state.social.refreshFriends() } }
             }
             // Surface sets LocalContentColor, so every Text without an explicit colour is readable
             // on the theme background (white on dark themes, dark on light ones).
@@ -185,6 +188,7 @@ fun MainScaffold(pendingLink: MutableStateFlow<Uri?>) {
             exit = slideOutVertically(tween(240)) { it } + fadeOut(tween(160)),
         ) {
             Column(Modifier.fillMaxWidth()) {
+                AlongBanner()
                 MiniPlayer()
                 BottomBar()
             }
@@ -210,6 +214,7 @@ suspend fun handleLink(app: AppState, uri: Uri) {
     val parts = uri.pathSegments
     when (uri.host) {
         "chat" -> parts.firstOrNull()?.let { nav.openOn(Route.Friends, Route.Chat(it)) }
+        "album" -> parts.firstOrNull()?.toLongOrNull()?.let { nav.openOn(Route.Home, Route.DzAlbum(it)) }
         "invite" -> parts.firstOrNull()?.let { code ->
             runCatching { app.social.followByCode(code) }
                 .onSuccess { nav.toast("Ora segui ${it.name} ✨"); nav.openOn(Route.Friends, Route.Profile(it.id)) }
@@ -234,7 +239,9 @@ fun Screen(route: Route) {
         Route.Games -> GamesScreen()
         is Route.Playlist -> PlaylistScreen(route.id)
         Route.Liked -> LikedScreen()
-        is Route.Media -> MediaScreen(route.item)
+        is Route.Media -> (route.item as? dev.brahmkshatriya.echo.common.models.Artist)?.let { ArtistFromEngine(it) } ?: MediaScreen(route.item)
+        is Route.DzArtist -> ArtistScreen(route.id, route.name)
+        is Route.DzAlbum -> DzAlbumScreen(route.id)
         is Route.Chat -> ChatScreen(route.friendId)
         is Route.Profile -> ProfileScreen(route.userId)
         Route.EditProfile -> EditProfileScreen()

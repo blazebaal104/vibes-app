@@ -102,6 +102,14 @@ class DeezerPublic(private val http: OkHttpClient) {
             }.orEmpty()
     }
 
+    /** Fresh preview for a story (stored preview links expire after a while). */
+    suspend fun freshPreview(dz: Long?, s: SongRef): String? =
+        dz?.let { runCatching { track(it.toString()) }.getOrNull()?.preview?.ifBlank { null } } ?: previewFor(s)
+
+    /** Deezer id of a song (for fresh previews later). */
+    suspend fun deezerId(s: SongRef): Long? =
+        if (s.ext == MusicEngine.DEEZER && s.id.all(Char::isDigit)) s.id.toLong() else match(s.title, s.artist)?.id
+
     /** 30 s preview of any song (for stories). */
     suspend fun previewFor(s: SongRef): String? {
         val byId = if (s.ext == MusicEngine.DEEZER && s.id.all(Char::isDigit)) runCatching { track(s.id) }.getOrNull() else null
@@ -166,6 +174,36 @@ class DeezerPublic(private val http: OkHttpClient) {
     }
 
     data class AlbumInfo(val title: String, val cover: String?, val tracks: List<GameTrack>)
+
+    data class AlbumBrief(val id: Long, val title: String, val cover: String?, val date: String, val type: String, val artist: String = "")
+
+    private fun JsonObject.toAlbumBrief(artist: String = ""): AlbumBrief? = AlbumBrief(
+        this["id"]?.jsonPrimitive?.longOrNull ?: return null,
+        this["title"]?.jsonPrimitive?.contentOrNull ?: return null,
+        this["cover_xl"]?.jsonPrimitive?.contentOrNull ?: this["cover_big"]?.jsonPrimitive?.contentOrNull,
+        this["release_date"]?.jsonPrimitive?.contentOrNull ?: "",
+        this["record_type"]?.jsonPrimitive?.contentOrNull ?: "album",
+        this["artist"]?.jsonObject?.get("name")?.jsonPrimitive?.contentOrNull ?: artist,
+    )
+
+    suspend fun artistInfo(id: Long): ArtistInfo? {
+        val o = get("https://api.deezer.com/artist/$id") ?: return null
+        if (o["error"] != null) return null
+        return ArtistInfo(id, o["name"]?.jsonPrimitive?.contentOrNull ?: return null,
+            o["picture_xl"]?.jsonPrimitive?.contentOrNull, o["nb_fan"]?.jsonPrimitive?.intOrNull ?: 0)
+    }
+
+    /** Albums, EPs and singles, newest first. */
+    suspend fun artistAlbums(id: Long, name: String = ""): List<AlbumBrief> =
+        get("https://api.deezer.com/artist/$id/albums?limit=100")?.get("data")?.jsonArray
+            ?.mapNotNull { (it as? JsonObject)?.toAlbumBrief(name) }.orEmpty()
+            .sortedByDescending { it.date }
+
+    /** Deezer editorial new releases (newest first). */
+    suspend fun newReleases(): List<AlbumBrief> =
+        get("https://api.deezer.com/editorial/0/releases?limit=100")?.get("data")?.jsonArray
+            ?.mapNotNull { (it as? JsonObject)?.toAlbumBrief() }.orEmpty()
+            .sortedByDescending { it.date }
 
     suspend fun album(id: Long): AlbumInfo? {
         val o = get("https://api.deezer.com/album/$id") ?: return null

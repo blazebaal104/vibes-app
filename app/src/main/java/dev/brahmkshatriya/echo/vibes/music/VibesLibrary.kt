@@ -35,7 +35,12 @@ private data class LibraryFile(
     val plays: Map<String, Int> = emptyMap(),
     val recent: List<SongRef> = emptyList(),
     val searches: List<String> = emptyList(),
+    val artists: List<FollowedArtist> = emptyList(),
 )
+
+/** An artist the user follows: Vibes tells them when something new comes out. */
+@Serializable
+data class FollowedArtist(val id: Long, val name: String, val picture: String? = null, val lastSeen: String = "")
 
 /**
  * The user's own Vibes library, kept in a JSON file: playlists, liked songs, play counts and
@@ -57,6 +62,13 @@ class VibesLibrary(context: Context) {
     private val _searches = MutableStateFlow(state.value.searches)
     val searches = _searches.asStateFlow()
     val plays get() = state.value.plays
+    private val _artists = MutableStateFlow(state.value.artists)
+    val artists = _artists.asStateFlow()
+
+    fun isFollowingArtist(id: Long) = _artists.value.any { it.id == id }
+    fun followArtist(a: FollowedArtist) = change { s -> s.copy(artists = s.artists.filter { it.id != a.id } + a) }
+    fun unfollowArtist(id: Long) = change { s -> s.copy(artists = s.artists.filter { it.id != id }) }
+    fun setArtistSeen(id: Long, date: String) = change { s -> s.copy(artists = s.artists.map { if (it.id == id) it.copy(lastSeen = date) else it }) }
 
     private fun load(): LibraryFile = runCatching {
         json.decodeFromString(LibraryFile.serializer(), file.readText())
@@ -66,7 +78,7 @@ class VibesLibrary(context: Context) {
         state.update(block)
         val s = state.value
         _playlists.value = s.playlists; _liked.value = s.liked
-        _recent.value = s.recent; _searches.value = s.searches
+        _recent.value = s.recent; _searches.value = s.searches; _artists.value = s.artists
         scope.launch {
             runCatching {
                 val tmp = File(file.parentFile, file.name + ".tmp")

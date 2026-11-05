@@ -28,6 +28,7 @@ import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.Download
 import androidx.compose.material.icons.rounded.Edit
+import androidx.compose.material.icons.rounded.Image
 import androidx.compose.material.icons.rounded.Favorite
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.Remove
@@ -269,6 +270,23 @@ fun PlaylistScreen(id: String) {
     val p = playlists.firstOrNull { it.id == id }
     val playing = nowPlayingKey()
     var editing by remember { mutableStateOf(false) }
+    val coverContext = androidx.compose.ui.platform.LocalContext.current
+    val coverScope = rememberCoroutineScope()
+    val coverPicker = androidx.activity.compose.rememberLauncherForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia()
+    ) { uri ->
+        if (uri != null) coverScope.launch {
+            runCatching {
+                val jpeg = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { squareJpeg(coverContext, uri, 800) }
+                // public URL so friends see it too when you share the playlist; local copy as fallback
+                val url = runCatching { app.social.uploadPublicImage(jpeg, "cover_$id") }.getOrElse {
+                    val f = java.io.File(coverContext.filesDir, "covers").apply { mkdirs() }.resolve("$id.jpg")
+                    f.writeBytes(jpeg); android.net.Uri.fromFile(f).toString() + "?t=" + System.currentTimeMillis()
+                }
+                app.library.setPlaylistCover(id, url)
+            }.onSuccess { nav.toast("Copertina aggiornata 🖼️") }.onFailure { nav.toast("Immagine non valida") }
+        }
+    }
     var deleting by remember { mutableStateOf(false) }
     if (p == null) { EmptyState("🫥", "Playlist eliminata", ""); return }
 
@@ -282,6 +300,9 @@ fun PlaylistScreen(id: String) {
                     actions = {
                         IconButton(onClick = { nav.share = ShareItem.Playlist(p) }) { Icon(Icons.Rounded.Share, "Condividi") }
                         IconButton(onClick = { editing = true }) { Icon(Icons.Rounded.Edit, "Modifica") }
+                        IconButton(onClick = {
+                            coverPicker.launch(androidx.activity.result.PickVisualMediaRequest(androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia.ImageOnly))
+                        }) { Icon(Icons.Rounded.Image, "Cambia copertina") }
                         IconButton(onClick = { deleting = true }) { Icon(Icons.Rounded.Delete, "Elimina") }
                     }
                 )
