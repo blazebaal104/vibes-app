@@ -170,6 +170,21 @@ class Supa(context: Context) {
     }
 
     /** Returns true when signed in immediately, false when the email must be confirmed first. */
+    /**
+     * Creates the account already confirmed (server function, no e-mail) and signs in right away.
+     * Falls back to the classic sign-up if the function isn't reachable.
+     */
+    suspend fun signUpAndSignIn(email: String, password: String) {
+        val body = buildJsonObject { put("email", email.trim()); put("password", password) }
+        val ok = runCatching {
+            execJson(base("/functions/v1/vibes-signup").header("Authorization", "Bearer $KEY")
+                .post(body.toString().toRequestBody(JSON_TYPE)).build())
+            true
+        }.getOrElse { e -> if (e is SupaException && e.code in 400..499) throw e else false }
+        if (ok) { signIn(email, password); return }
+        if (!signUp(email, password)) signIn(email, password)
+    }
+
     suspend fun signUp(email: String, password: String): Boolean {
         val body = buildJsonObject { put("email", email.trim()); put("password", password) }
         val res = execJson(base("/auth/v1/signup").post(body.toString().toRequestBody(JSON_TYPE)).build())!!.jsonObject

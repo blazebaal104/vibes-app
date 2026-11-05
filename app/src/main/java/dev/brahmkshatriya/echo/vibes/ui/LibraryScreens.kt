@@ -1,5 +1,8 @@
 package dev.brahmkshatriya.echo.vibes.ui
 
+import androidx.compose.animation.togetherWith
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -115,10 +118,10 @@ fun LibraryScreen() {
                     Spacer(Modifier.width(12.dp))
                     Text("La tua libreria", style = MaterialTheme.typography.headlineMedium, modifier = Modifier.weight(1f))
                     IconButton(onClick = { nav.open(Route.Studio) }) { Text("🎛️", fontSize = 22.sp) }
-                    IconButton(onClick = { nav.open(Route.Import) }) { Icon(Icons.Rounded.Download, "Importa playlist") }
                     IconButton(onClick = { creating = true }) { Icon(Icons.Rounded.Add, "Crea playlist", modifier = Modifier.size(28.dp)) }
                 }
             }
+            item { TransferBanner(Modifier.padding(start = 16.dp, end = 16.dp, top = 14.dp)) { nav.open(Route.Import) } }
             item {
                 LazyRow(contentPadding = PaddingValues(16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     item { Pill("Tutto", filter == 0, { filter = 0 }) }
@@ -490,3 +493,57 @@ fun AddToPlaylistSheet(song: SongRef, onDismiss: () -> Unit) {
     }
 }
 
+
+
+/** Services the importer understands, with their brand colours. */
+private val transferServices = listOf(
+    "Spotify" to Color(0xFF1ED760),
+    "Deezer" to Color(0xFFA238FF),
+    "il tuo account Deezer" to Color(0xFFFF2E97),
+)
+
+/**
+ * "Trasferisci playlist da …": the service name changes every 2 seconds (rolling in from below)
+ * while a bright light sweeps across the card.
+ */
+@Composable
+fun TransferBanner(modifier: Modifier = Modifier, onClick: () -> Unit) {
+    var i by remember { mutableStateOf(0) }
+    LaunchedEffect(Unit) { while (true) { kotlinx.coroutines.delay(2000); i = (i + 1) % transferServices.size } }
+    val (name, color) = transferServices[i]
+    val accent by androidx.compose.animation.animateColorAsState(color, androidx.compose.animation.core.tween(600), label = "tb")
+    val sweep by androidx.compose.animation.core.rememberInfiniteTransition(label = "sweep").animateFloat(
+        -0.4f, 1.4f, androidx.compose.animation.core.infiniteRepeatable(
+            androidx.compose.animation.core.tween(2000, easing = androidx.compose.animation.core.LinearEasing)), label = "sw")
+    Box(
+        modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp))
+            .background(androidx.compose.ui.graphics.Brush.linearGradient(listOf(accent.copy(alpha = 0.55f), LocalVibes.current.card)))
+            .bouncy(onClick)
+    ) {
+        // the light bar crossing the card
+        Box(Modifier.matchParentSize().drawWithContent {
+            drawContent()
+            val x = size.width * sweep
+            drawRect(
+                androidx.compose.ui.graphics.Brush.linearGradient(
+                    listOf(Color.Transparent, Color.White.copy(alpha = 0.35f), Color.Transparent),
+                    start = androidx.compose.ui.geometry.Offset(x - 140f, 0f), end = androidx.compose.ui.geometry.Offset(x + 140f, size.height)
+                )
+            )
+        })
+        Row(Modifier.padding(horizontal = 18.dp, vertical = 16.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text("⇄", fontSize = 28.sp, color = Color.White)
+            Spacer(Modifier.width(14.dp))
+            Column(Modifier.weight(1f)) {
+                Text("Trasferisci playlist da", style = MaterialTheme.typography.labelLarge, color = Color.White.copy(alpha = 0.85f))
+                androidx.compose.animation.AnimatedContent(name, transitionSpec = {
+                    (androidx.compose.animation.slideInVertically { it } + androidx.compose.animation.fadeIn())
+                        .togetherWith(androidx.compose.animation.slideOutVertically { -it } + androidx.compose.animation.fadeOut())
+                }, label = "svc") { n ->
+                    Text(n, style = MaterialTheme.typography.headlineSmall, color = Color.White)
+                }
+            }
+            Text("›", fontSize = 34.sp, color = Color.White)
+        }
+    }
+}

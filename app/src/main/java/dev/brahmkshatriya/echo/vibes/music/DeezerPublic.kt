@@ -190,6 +190,14 @@ class DeezerPublic(private val http: OkHttpClient) {
         this["artist"]?.jsonObject?.get("name")?.jsonPrimitive?.contentOrNull ?: artist,
     )
 
+    /** Most popular artists right now (onboarding questionnaire). */
+    suspend fun chartArtists(limit: Int = 40): List<ArtistInfo> =
+        get("https://api.deezer.com/chart/0/artists?limit=$limit")?.get("data")?.jsonArray?.mapNotNull { e ->
+            val o = e as? JsonObject ?: return@mapNotNull null
+            ArtistInfo(o["id"]?.jsonPrimitive?.longOrNull ?: return@mapNotNull null, o["name"]?.jsonPrimitive?.contentOrNull ?: return@mapNotNull null,
+                o["picture_xl"]?.jsonPrimitive?.contentOrNull ?: o["picture_big"]?.jsonPrimitive?.contentOrNull, o["nb_fan"]?.jsonPrimitive?.intOrNull ?: 0)
+        }.orEmpty()
+
     suspend fun artistInfo(id: Long): ArtistInfo? {
         val o = get("https://api.deezer.com/artist/$id") ?: return null
         if (o["error"] != null) return null

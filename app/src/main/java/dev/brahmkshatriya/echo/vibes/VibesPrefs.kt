@@ -31,6 +31,8 @@ data class VibesSettings(
     val homeFriends: Boolean = true,
     val explicitFilter: Boolean = false,
     val startTab: String = "home",
+    /** New account: show the favourite-artists questionnaire once. */
+    val needsOnboarding: Boolean = false,
 )
 
 class VibesPrefs(context: Context) {

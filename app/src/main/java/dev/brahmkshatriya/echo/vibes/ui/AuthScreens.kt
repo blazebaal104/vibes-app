@@ -1,5 +1,7 @@
 package dev.brahmkshatriya.echo.vibes.ui
 
+import androidx.compose.material.icons.rounded.VisibilityOff
+import androidx.compose.material.icons.rounded.Visibility
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.foundation.background
@@ -51,10 +53,19 @@ fun VibesField(
     password: Boolean = false, keyboard: KeyboardType = KeyboardType.Text, singleLine: Boolean = true,
     maxLines: Int = 1,
 ) {
+    var visible by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(false) }
     OutlinedTextField(
         value = value, onValueChange = onChange, label = { Text(label) },
         modifier = modifier.fillMaxWidth(), singleLine = singleLine, maxLines = maxLines,
-        visualTransformation = if (password) PasswordVisualTransformation() else androidx.compose.ui.text.input.VisualTransformation.None,
+        visualTransformation = if (password && !visible) PasswordVisualTransformation() else androidx.compose.ui.text.input.VisualTransformation.None,
+        trailingIcon = if (password) ({
+            androidx.compose.material3.IconButton(onClick = { visible = !visible }) {
+                androidx.compose.material3.Icon(
+                    if (visible) androidx.compose.material.icons.Icons.Rounded.VisibilityOff else androidx.compose.material.icons.Icons.Rounded.Visibility,
+                    if (visible) "Nascondi password" else "Mostra password"
+                )
+            }
+        }) else null,
         keyboardOptions = KeyboardOptions(keyboardType = if (password) KeyboardType.Password else keyboard),
         shape = RoundedCornerShape(14.dp),
         colors = OutlinedTextFieldDefaults.colors(
@@ -139,11 +150,7 @@ fun AuthScreen() {
                     scope.launch {
                         runCatching {
                             if (signup) {
-                                val signedIn = app.supa.signUp(email, pass)
-                                if (!signedIn) {
-                                    info = "Ti abbiamo mandato una email: conferma l'indirizzo e poi accedi."
-                                    signup = false
-                                }
+                                app.supa.signUpAndSignIn(email, pass)
                             } else app.supa.signIn(email, pass)
                         }.onFailure { error = it.message ?: "Qualcosa è andato storto" }
                         loading = false
@@ -240,7 +247,10 @@ fun ProfileSetupScreen() {
                 onClick = {
                     loading = true; error = null
                     scope.launch {
-                        runCatching { app.social.createProfile(username, name, emoji, color) }
+                        runCatching {
+                            app.social.createProfile(username, name, emoji, color)
+                            dev.brahmkshatriya.echo.vibes.VibesGraph.prefs.update { it.copy(needsOnboarding = true) }
+                        }
                             .onFailure { error = it.message }
                         loading = false
                     }

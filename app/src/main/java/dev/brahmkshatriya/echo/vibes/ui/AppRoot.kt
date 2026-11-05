@@ -112,6 +112,7 @@ fun VibesApp(engine: MusicEngine, pendingLink: MutableStateFlow<Uri?>) {
                     session == null -> AuthScreen()
                     hasProfile == null -> LoadingScreen()
                     hasProfile == false -> ProfileSetupScreen()
+                    LocalSettings.current.needsOnboarding -> OnboardingScreen()
                     else -> MainScaffold(pendingLink)
                 }
             }

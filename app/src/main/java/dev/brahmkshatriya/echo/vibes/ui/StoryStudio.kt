@@ -112,7 +112,8 @@ import kotlin.math.PI
 import kotlin.math.roundToInt
 import kotlin.math.sin
 
-const val MAX_VIDEO_MS = 20_000L
+const val MAX_VIDEO_MS = 60_000L
+const val PHOTO_DEFAULT_MS = 10_000L
 
 val textAnims = listOf("none" to "Nessuna", "pop" to "Pop", "typewriter" to "Macchina", "fade" to "Dissolvenza",
     "bounce" to "Rimbalzo", "wave" to "Onda", "glow" to "Brillio")
@@ -298,7 +299,7 @@ private fun slideOf(context: Context, uri: Uri): EditSlide {
     return if (video) {
         val len = videoLength(context, uri).coerceAtLeast(1000)
         EditSlide(uri, "video", len, minOf(len, MAX_VIDEO_MS))
-    } else EditSlide(uri, "image", 0, 5000)
+    } else EditSlide(uri, "image", 0, PHOTO_DEFAULT_MS)
 }
 
 private enum class Tool { NONE, MUSIC, TEXT, TIME, VOLUME, CROP }
@@ -339,7 +340,7 @@ fun NewStoryScreen(initial: SongRef?) {
         if (uris.isNotEmpty()) { started = true; current = slides.lastIndex.coerceAtLeast(0) }
     }
     val photo = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { ok ->
-        pendingCapture?.let { if (ok) { slides += EditSlide(it, "image", 0, 5000); started = true; current = slides.lastIndex } }
+        pendingCapture?.let { if (ok) { slides += EditSlide(it, "image", 0, PHOTO_DEFAULT_MS); started = true; current = slides.lastIndex } }
     }
     val video = rememberLauncherForActivityResult(ActivityResultContracts.CaptureVideo()) { ok ->
         pendingCapture?.let { if (ok) { slides += slideOf(context, it).copy(type = "video"); started = true; current = slides.lastIndex } }
@@ -370,7 +371,7 @@ fun NewStoryScreen(initial: SongRef?) {
             Text("Una foto o un video, con la canzone che vuoi in sottofondo.", color = Color.White.copy(alpha = 0.75f),
                 modifier = Modifier.padding(top = 6.dp, bottom = 24.dp))
             StudioChoice("📸", "Scatta una foto") { takePhoto() }
-            StudioChoice("🎥", "Registra un video (max 20 s)") { takeVideo() }
+            StudioChoice("🎥", "Registra un video") { takeVideo() }
             StudioChoice("🖼️", "Dalla galleria (anche più foto/video)") { pickGallery() }
             StudioChoice("🎵", "Solo musica") { started = true; if (song == null) picking = true }
             Spacer(Modifier.weight(1.4f))
@@ -382,16 +383,26 @@ fun NewStoryScreen(initial: SongRef?) {
     val s = slides.getOrNull(current)
     val (top, bottom) = storyGradients[gradient]
     fun update(block: (EditSlide) -> EditSlide) { if (current in slides.indices) slides[current] = block(slides[current]) }
+    var tip by remember { mutableStateOf(true) }
+    LaunchedEffect(Unit) { delay(6000); tip = false }
+    var removing by remember { mutableStateOf<Int?>(null) }
+    fun newText() { if (s == null) nav.toast("Aggiungi prima una foto o un video") else { draft = StoryText(""); editingText = -1; tool = Tool.TEXT } }
 
     Box(Modifier.fillMaxSize().background(Color.Black)) {
-        // ---- canvas
-        Box(Modifier.fillMaxSize().clip(RoundedCornerShape(0.dp))
+        // ---------------------------------------------------------------- canvas (rounded like a phone story)
+        Box(Modifier.fillMaxSize().statusBarsPadding().padding(bottom = 92.dp).navigationBarsPadding().clip(RoundedCornerShape(18.dp))
             .then(if (tool == Tool.CROP && s != null) Modifier.pointerInput(current) {
                 detectTransformGestures { _, pan, zoomBy, _ ->
                     update { e -> e.copy(zoom = (e.zoom * zoomBy).coerceIn(1f, 4f),
                         offX = (e.offX + pan.x / size.width).coerceIn(-1f, 1f), offY = (e.offY + pan.y / size.height).coerceIn(-1f, 1f)) }
                 }
-            } else Modifier)
+            } else Modifier.pointerInput(current, tool) {
+                // tap on an empty spot = write text there
+                androidx.compose.foundation.gestures.detectTapGestures { o ->
+                    if (tool == Tool.NONE && s != null) { draft = StoryText("", x = o.x / size.width, y = o.y / size.height); editingText = -1; tool = Tool.TEXT }
+                    else if (tool != Tool.TEXT) tool = Tool.NONE
+                }
+            })
         ) {
             if (s == null) Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(parseColor(top), parseColor(bottom)))))
             else AnimatedContent(current, transitionSpec = { fadeIn(tween(250)) togetherWith fadeOut(tween(200)) }, label = "slide") { idx ->
@@ -405,44 +416,79 @@ fun NewStoryScreen(initial: SongRef?) {
                     onTap = { i -> draft = e.texts[i]; editingText = i; tool = Tool.TEXT })
             }
             song?.let { SongSticker(it, bpm, "edit${it.key}", false) }
-        }
-
-        // ---- top bar
-        Row(Modifier.fillMaxWidth().statusBarsPadding().padding(6.dp), verticalAlignment = Alignment.CenterVertically) {
-            IconButton(onClick = { nav.back() }) { Icon(Icons.Rounded.Close, "Annulla", tint = Color.White) }
-            Spacer(Modifier.weight(1f))
-            StudioTool("🎵", "Musica", tool == Tool.MUSIC) { tool = if (tool == Tool.MUSIC) Tool.NONE else Tool.MUSIC }
-            StudioTool("Aa", "Testo", tool == Tool.TEXT) {
-                if (s == null) nav.toast("Aggiungi prima una foto o un video") else { draft = StoryText(""); editingText = -1; tool = Tool.TEXT }
+            // first-time hint
+            androidx.compose.animation.AnimatedVisibility(tip && s != null, Modifier.align(Alignment.TopCenter).padding(top = 64.dp),
+                enter = fadeIn(), exit = fadeOut()) {
+                Text("Tocca lo schermo per scrivere · trascina il testo per spostarlo", color = Color.White,
+                    style = MaterialTheme.typography.labelMedium, textAlign = TextAlign.Center,
+                    modifier = Modifier.clip(CircleShape).background(Color.Black.copy(alpha = 0.55f)).padding(horizontal = 14.dp, vertical = 8.dp))
             }
-            StudioTool("⏱️", if (s?.type == "video") "Taglia" else "Durata", tool == Tool.TIME) { if (s != null) tool = if (tool == Tool.TIME) Tool.NONE else Tool.TIME }
-            StudioTool("🔊", "Volume", tool == Tool.VOLUME) { tool = if (tool == Tool.VOLUME) Tool.NONE else Tool.VOLUME }
-            StudioTool("🔍", "Ritaglia", tool == Tool.CROP) { if (s != null) tool = if (tool == Tool.CROP) Tool.NONE else Tool.CROP }
+            // close
+            IconButton(onClick = { nav.back() }, modifier = Modifier.padding(6.dp).clip(CircleShape).background(Color.Black.copy(alpha = 0.35f))) {
+                Icon(Icons.Rounded.Close, "Annulla", tint = Color.White)
+            }
+            // ---- tool rail on the right, Instagram style
+            Column(Modifier.align(Alignment.TopEnd).padding(top = 10.dp, end = 8.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                StudioTool("Aa", "Testo", tool == Tool.TEXT) { newText() }
+                StudioTool("🎵", "Musica", tool == Tool.MUSIC) { tool = if (tool == Tool.MUSIC) Tool.NONE else Tool.MUSIC }
+                if (s != null) {
+                    StudioTool("⏱️", if (s.type == "video") "Taglia" else "Durata", tool == Tool.TIME) { tool = if (tool == Tool.TIME) Tool.NONE else Tool.TIME }
+                    StudioTool("✂️", "Ritaglia", tool == Tool.CROP) { tool = if (tool == Tool.CROP) Tool.NONE else Tool.CROP }
+                }
+                StudioTool("🔊", "Volume", tool == Tool.VOLUME) { tool = if (tool == Tool.VOLUME) Tool.NONE else Tool.VOLUME }
+                StudioTool("➕", "Aggiungi", false) { pickGallery() }
+            }
         }
 
-        // ---- bottom: panels + slides + publish
+        // ---------------------------------------------------------------- bottom: panel + slides + share
         Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth().navigationBarsPadding().imePadding()) {
             AnimatedContent(tool, transitionSpec = { (slideInVertically { it / 2 } + fadeIn()) togetherWith (slideOutVertically { it / 2 } + fadeOut()) }, label = "panel") { t ->
-                Column(Modifier.fillMaxWidth().background(if (t == Tool.NONE) Color.Transparent else Color.Black.copy(alpha = 0.72f)).padding(horizontal = 14.dp, vertical = if (t == Tool.NONE) 0.dp else 10.dp)) {
+                if (t != Tool.NONE) Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(topStart = 22.dp, topEnd = 22.dp))
+                    .background(Color(0xF0121016)).padding(horizontal = 16.dp, vertical = 12.dp)) {
+                    // panel header: what this tool does + done
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(when (t) {
+                            Tool.MUSIC -> "🎵 Musica della storia"; Tool.TEXT -> "Aa Testo"; Tool.TIME -> if (s?.type == "video") "⏱️ Taglia il video" else "⏱️ Quanto dura la foto"
+                            Tool.VOLUME -> "🔊 Volumi"; Tool.CROP -> "✂️ Ritaglia"; Tool.NONE -> ""
+                        }, color = Color.White, style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
+                        if (t == Tool.TEXT && editingText != null && editingText!! >= 0) Pill("Elimina", false, {
+                            val i = editingText!!; update { it.copy(texts = it.texts.filterIndexed { j, _ -> j != i }) }; editingText = null; tool = Tool.NONE
+                        })
+                        Spacer(Modifier.width(8.dp))
+                        Pill("Fatto ✓", true, {
+                            if (t == Tool.TEXT) {
+                                val i = editingText
+                                if (draft.text.isNotBlank()) update { e ->
+                                    if (i == null || i < 0) e.copy(texts = e.texts + draft)
+                                    else e.copy(texts = e.texts.toMutableList().also { it[i] = draft })
+                                }
+                                editingText = null
+                            }
+                            tool = Tool.NONE
+                        })
+                    }
+                    Spacer(Modifier.height(8.dp))
                     when (t) {
                         Tool.MUSIC -> {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Cover(song?.cover, Modifier.size(44.dp))
+                            Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(Color.White.copy(alpha = 0.08f)).clickable { picking = true }.padding(10.dp),
+                                verticalAlignment = Alignment.CenterVertically) {
+                                Cover(song?.cover, Modifier.size(46.dp))
                                 Spacer(Modifier.width(10.dp))
                                 Column(Modifier.weight(1f)) {
-                                    Text(song?.title ?: "Nessun brano", color = Color.White, style = MaterialTheme.typography.titleSmall, maxLines = 1)
-                                    Text(song?.artist ?: "", color = Color.White.copy(alpha = 0.7f), style = MaterialTheme.typography.bodySmall, maxLines = 1)
+                                    Text(song?.title ?: "Scegli un brano", color = Color.White, style = MaterialTheme.typography.titleSmall, maxLines = 1)
+                                    Text(song?.artist ?: "Tocca per cercare tra tutte le canzoni", color = Color.White.copy(alpha = 0.7f), style = MaterialTheme.typography.bodySmall, maxLines = 1)
                                 }
-                                Pill("Cambia", false, { picking = true })
+                                Text("Cambia", color = Color.White, style = MaterialTheme.typography.labelLarge)
                             }
-                            StudioSlider("Parte del brano", "da ${fmtTime(songStart.toLong())}", songStart, 0f, 25_000f,
+                            StudioSlider("Da che punto parte", fmtTime(songStart.toLong()), songStart, 0f, 25_000f,
                                 onChange = { songStart = it }, onDone = { clip.playFrom(songStart.toLong(), songVolume) })
-                            StudioSlider("Volume canzone", if (songVolume == 0f) "muta" else "${(songVolume * 100).toInt()}%", songVolume, 0f, 1f,
-                                onChange = { songVolume = it })
-                            if (s == null) LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp), contentPadding = PaddingValues(vertical = 6.dp)) {
-                                itemsIndexed(storyGradients) { i, (a, b) ->
-                                    Box(Modifier.size(34.dp).clip(CircleShape).background(Brush.verticalGradient(listOf(parseColor(a), parseColor(b))))
-                                        .border(if (i == gradient) 3.dp else 1.dp, Color.White, CircleShape).clickable { gradient = i })
+                            if (s == null) {
+                                Text("Sfondo", color = Color.White, style = MaterialTheme.typography.labelLarge, modifier = Modifier.padding(top = 6.dp))
+                                LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp), contentPadding = PaddingValues(vertical = 6.dp)) {
+                                    itemsIndexed(storyGradients) { i, (a, b) ->
+                                        Box(Modifier.size(34.dp).clip(CircleShape).background(Brush.verticalGradient(listOf(parseColor(a), parseColor(b))))
+                                            .border(if (i == gradient) 3.dp else 1.dp, Color.White, CircleShape).clickable { gradient = i })
+                                    }
                                 }
                             }
                         }
@@ -453,81 +499,75 @@ fun NewStoryScreen(initial: SongRef?) {
                                     modifier = Modifier.fillMaxWidth(),
                                     decorationBox = { inner -> if (draft.text.isEmpty()) Text("Scrivi qualcosa…", color = Color.White.copy(alpha = 0.6f)); inner() })
                             }
-                            LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp), contentPadding = PaddingValues(vertical = 8.dp)) {
+                            Text("Colore", color = Color.White.copy(alpha = 0.8f), style = MaterialTheme.typography.labelMedium, modifier = Modifier.padding(top = 8.dp))
+                            LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp), contentPadding = PaddingValues(vertical = 6.dp)) {
                                 itemsIndexed(textColors) { _, c ->
                                     Box(Modifier.size(30.dp).clip(CircleShape).background(parseColor(c))
                                         .border(if (draft.color == c) 3.dp else 1.dp, Color.White, CircleShape).clickable { draft = draft.copy(color = c) })
                                 }
-                                item { Pill(if (draft.bg) "Sfondo ✓" else "Sfondo", draft.bg, { draft = draft.copy(bg = !draft.bg) }) }
+                                item { Pill(if (draft.bg) "Riquadro ✓" else "Riquadro", draft.bg, { draft = draft.copy(bg = !draft.bg) }) }
                             }
-                            LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Text("Animazione", color = Color.White.copy(alpha = 0.8f), style = MaterialTheme.typography.labelMedium)
+                            LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp), contentPadding = PaddingValues(vertical = 6.dp)) {
                                 itemsIndexed(textAnims) { _, (k, l) -> Pill(l, draft.anim == k, { draft = draft.copy(anim = k) }) }
                             }
-                            StudioSlider("Dimensione", "${draft.size.toInt()}", draft.size, 16f, 64f, onChange = { draft = draft.copy(size = it) })
-                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                if (editingText != null && editingText!! >= 0) Pill("Elimina", false, {
-                                    val i = editingText!!; update { it.copy(texts = it.texts.filterIndexed { j, _ -> j != i }) }; editingText = null; tool = Tool.NONE
-                                })
-                                Spacer(Modifier.weight(1f))
-                                Pill("Fatto", true, {
-                                    val i = editingText
-                                    if (draft.text.isNotBlank()) update { e ->
-                                        if (i == null || i < 0) e.copy(texts = e.texts + draft)
-                                        else e.copy(texts = e.texts.toMutableList().also { it[i] = draft })
-                                    }
-                                    editingText = null; tool = Tool.NONE
-                                })
-                            }
+                            StudioSlider("Grandezza", "${draft.size.toInt()}", draft.size, 16f, 64f, onChange = { draft = draft.copy(size = it) })
                         }
                         Tool.TIME -> s?.let { e ->
-                            if (e.type == "image") StudioSlider("Durata della foto", "${e.durationMs / 1000} s", e.durationMs.toFloat(), 1000f, 15_000f,
+                            if (e.type == "image") StudioSlider("La foto resta per", "${e.durationMs / 1000} secondi", e.durationMs.toFloat(), 3000f, 30_000f,
                                 onChange = { v -> update { it.copy(durationMs = (v / 1000).roundToInt() * 1000L) } })
                             else {
-                                StudioSlider("Inizio", fmtTime(e.trimStartMs), e.trimStartMs.toFloat(), 0f, (e.lengthMs - 1000).coerceAtLeast(1).toFloat(),
-                                    onChange = { v -> update { it.copy(trimStartMs = v.toLong(), durationMs = minOf(it.durationMs, it.lengthMs - v.toLong()).coerceAtLeast(1000)) } })
-                                StudioSlider("Lunghezza (max 20 s)", "${e.durationMs / 1000} s", e.durationMs.toFloat(), 1000f,
-                                    minOf(MAX_VIDEO_MS, e.lengthMs - e.trimStartMs).coerceAtLeast(1001).toFloat(),
-                                    onChange = { v -> update { it.copy(durationMs = v.toLong()) } })
+                                val maxEnd = e.lengthMs.toFloat()
+                                val range = e.trimStartMs.toFloat()..(e.trimStartMs + e.durationMs).toFloat().coerceAtMost(maxEnd)
+                                Row {
+                                    Text("Da ${fmtTime(e.trimStartMs)} a ${fmtTime(e.trimStartMs + e.durationMs)}", color = Color.White, style = MaterialTheme.typography.labelLarge, modifier = Modifier.weight(1f))
+                                    Text("${e.durationMs / 1000} s", color = Color.White.copy(alpha = 0.8f), style = MaterialTheme.typography.labelLarge)
+                                }
+                                androidx.compose.material3.RangeSlider(range, { r ->
+                                    var start = r.start.toLong(); var end = r.endInclusive.toLong()
+                                    if (end - start < 1000) end = (start + 1000).coerceAtMost(e.lengthMs)
+                                    if (end - start > MAX_VIDEO_MS) { if (start != e.trimStartMs) end = start + MAX_VIDEO_MS else start = end - MAX_VIDEO_MS }
+                                    update { it.copy(trimStartMs = start, durationMs = end - start) }
+                                }, valueRange = 0f..maxEnd,
+                                    colors = SliderDefaults.colors(thumbColor = Color.White, activeTrackColor = Color.White, inactiveTrackColor = Color.White.copy(alpha = 0.3f)))
+                                Text("Il video dura ${fmtTime(e.lengthMs)}: sposta i due cerchi per scegliere il pezzo${if (e.lengthMs > MAX_VIDEO_MS) " (max 60 s)" else ""}.",
+                                    color = Color.White.copy(alpha = 0.6f), style = MaterialTheme.typography.bodySmall)
                             }
                         }
                         Tool.VOLUME -> {
-                            StudioSlider("Volume canzone", if (songVolume == 0f) "muta" else "${(songVolume * 100).toInt()}%", songVolume, 0f, 1f, onChange = { songVolume = it })
-                            if (s?.type == "video") StudioSlider("Volume del video", if (s.volume == 0f) "muto" else "${(s.volume * 100).toInt()}%", s.volume, 0f, 1f,
+                            StudioSlider("Canzone", if (songVolume == 0f) "muta" else "${(songVolume * 100).toInt()}%", songVolume, 0f, 1f, onChange = { songVolume = it })
+                            if (s?.type == "video") StudioSlider("Audio del video", if (s.volume == 0f) "muto" else "${(s.volume * 100).toInt()}%", s.volume, 0f, 1f,
                                 onChange = { v -> update { it.copy(volume = v) } })
                         }
                         Tool.CROP -> Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text("Pizzica per zoomare e trascina per spostare", color = Color.White, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
+                            Text("Allarga con due dita per zoomare, trascina per spostare", color = Color.White, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
                             Pill("Reimposta", false, { update { it.copy(zoom = 1f, offX = 0f, offY = 0f) } })
-                            Spacer(Modifier.width(6.dp))
-                            Pill("Fatto", true, { tool = Tool.NONE })
                         }
                         Tool.NONE -> {}
                     }
                 }
             }
-            // slides strip
-            Row(Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+            // slides + share
+            Row(Modifier.fillMaxWidth().background(Color.Black).padding(horizontal = 10.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
                 LazyRow(Modifier.weight(1f), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     itemsIndexed(slides) { i, e ->
-                        Box(Modifier.size(width = 44.dp, height = 64.dp).clip(RoundedCornerShape(8.dp))
-                            .border(if (i == current) 2.dp else 0.dp, Color.White, RoundedCornerShape(8.dp)).clickable { current = i }) {
+                        Box(Modifier.size(width = 46.dp, height = 66.dp).clip(RoundedCornerShape(8.dp))
+                            .border(if (i == current) 2.dp else 0.dp, Color.White, RoundedCornerShape(8.dp))
+                            .pointerInput(i) { androidx.compose.foundation.gestures.detectTapGestures(onTap = { current = i }, onLongPress = { removing = i }) }) {
                             AsyncImage(e.uri.toString(), null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
-                            if (e.type == "video") Text("▶", color = Color.White, modifier = Modifier.align(Alignment.Center))
+                            Text("${e.durationMs / 1000}s", color = Color.White, fontSize = 10.sp, modifier = Modifier.align(Alignment.BottomEnd)
+                                .background(Color.Black.copy(alpha = 0.5f)).padding(horizontal = 3.dp))
+                            if (e.type == "video") Text("▶", color = Color.White, fontSize = 12.sp, modifier = Modifier.align(Alignment.TopStart).padding(3.dp))
                         }
                     }
                     item {
-                        Box(Modifier.size(width = 44.dp, height = 64.dp).clip(RoundedCornerShape(8.dp)).background(Color.White.copy(alpha = 0.15f))
+                        Box(Modifier.size(width = 46.dp, height = 66.dp).clip(RoundedCornerShape(8.dp)).background(Color.White.copy(alpha = 0.15f))
                             .clickable { pickGallery() }, contentAlignment = Alignment.Center) { Icon(Icons.Rounded.Add, "Aggiungi", tint = Color.White) }
-                    }
-                    if (slides.isNotEmpty()) item {
-                        Box(Modifier.size(width = 44.dp, height = 64.dp).clip(RoundedCornerShape(8.dp)).background(Color.White.copy(alpha = 0.15f))
-                            .clickable { slides.removeAt(current); current = current.coerceAtMost(slides.lastIndex).coerceAtLeast(0) },
-                            contentAlignment = Alignment.Center) { Icon(Icons.Rounded.Delete, "Togli", tint = Color.White) }
                     }
                 }
                 Spacer(Modifier.width(10.dp))
-                BigButton(posting ?: "Pubblica", {
-                    val sng = song ?: run { picking = true; return@BigButton }
+                BigButton(posting ?: "Condividi ›", {
+                    val sng = song ?: run { tool = Tool.MUSIC; picking = true; return@BigButton }
                     scope.launch {
                         runCatching {
                             val media = slides.mapIndexed { i, e ->
@@ -543,9 +583,19 @@ fun NewStoryScreen(initial: SongRef?) {
                             .onFailure { nav.toast(it.message ?: "Non sono riuscito a pubblicarla") }
                         posting = null
                     }
-                }, Modifier.width(140.dp), loading = posting != null, container = Color.White, content = Color.Black)
+                }, Modifier.width(150.dp), loading = posting != null, container = Color.White, content = Color.Black)
             }
         }
+    }
+    removing?.let { i ->
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { removing = null },
+            title = { Text("Togliere questa ${if (slides.getOrNull(i)?.type == "video") "clip" else "foto"}?") },
+            confirmButton = { androidx.compose.material3.TextButton(onClick = {
+                if (i in slides.indices) slides.removeAt(i); current = current.coerceAtMost(slides.lastIndex).coerceAtLeast(0); removing = null
+            }) { Text("Togli") } },
+            dismissButton = { androidx.compose.material3.TextButton(onClick = { removing = null }) { Text("Annulla") } }
+        )
     }
     if (picking) GlobalSongPicker(onDismiss = { picking = false }) { song = it; picking = false }
 }
@@ -587,14 +637,12 @@ private fun StudioChoice(emoji: String, label: String, onClick: () -> Unit) {
 
 @Composable
 private fun StudioTool(icon: String, label: String, selected: Boolean, onClick: () -> Unit) {
-    Column(
-        Modifier.padding(horizontal = 3.dp).clip(RoundedCornerShape(12.dp))
-            .background(if (selected) Color.White.copy(alpha = 0.25f) else Color.Black.copy(alpha = 0.3f)).bouncy(onClick)
-            .padding(horizontal = 8.dp, vertical = 6.dp),
-        horizontalAlignment = Alignment.CenterHorizontally
-    ) {
-        Text(icon, fontSize = 18.sp, color = Color.White, fontWeight = FontWeight.Bold)
-        Text(label, fontSize = 10.sp, color = Color.White)
+    Column(Modifier.bouncy(onClick), horizontalAlignment = Alignment.CenterHorizontally) {
+        Box(Modifier.size(46.dp).clip(CircleShape).background(if (selected) Color.White else Color.Black.copy(alpha = 0.45f)),
+            contentAlignment = Alignment.Center) {
+            Text(icon, fontSize = 20.sp, color = if (selected) Color.Black else Color.White, fontWeight = FontWeight.Bold)
+        }
+        Text(label, fontSize = 11.sp, color = Color.White, modifier = Modifier.padding(top = 2.dp))
     }
 }
 
