@@ -177,7 +177,8 @@ fun MainScaffold(pendingLink: MutableStateFlow<Uri?>) {
         // the mini player and the tab bar never cover their input bar
         val cur = nav.current
         val inGame = imeOpen || nav.playerOpen || cur is Route.Guess || cur is Route.BlindTest || cur is Route.Chat ||
-                cur is Route.EditProfile || cur is Route.AddFriend || cur is Route.DeezerLogin || cur is Route.Import
+                cur is Route.EditProfile || cur is Route.AddFriend || cur is Route.DeezerLogin || cur is Route.Import ||
+                cur is Route.Stories || cur is Route.NewStory || cur is Route.StoryRecap
         AnimatedVisibility(
             !inGame, Modifier.align(Alignment.BottomCenter),
             enter = slideInVertically(tween(280)) { it } + fadeIn(tween(200)),
@@ -210,8 +211,8 @@ suspend fun handleLink(app: AppState, uri: Uri) {
     when (uri.host) {
         "chat" -> parts.firstOrNull()?.let { nav.openOn(Route.Friends, Route.Chat(it)) }
         "invite" -> parts.firstOrNull()?.let { code ->
-            runCatching { app.social.addByCode(code) }
-                .onSuccess { nav.toast("Ora tu e ${it.name} siete amici 🎉"); nav.openOn(Route.Friends, Route.Chat(it.id)) }
+            runCatching { app.social.followByCode(code) }
+                .onSuccess { nav.toast("Ora segui ${it.name} ✨"); nav.openOn(Route.Friends, Route.Profile(it.id)) }
                 .onFailure { nav.toast(it.message ?: "Invito non valido") }
         }
         "playlist" -> parts.firstOrNull()?.let { nav.openOn(Route.Library, Route.SharedPlaylist(it)) }
@@ -243,6 +244,10 @@ fun Screen(route: Route) {
         is Route.SharedPlaylist -> SharedPlaylistScreen(route.id)
         is Route.Guess -> GuessGameScreen(route.lobbyId, route.source)
         Route.Stats -> StatsScreen()
+        is Route.Stories -> StoryViewerScreen(route.userId)
+        is Route.NewStory -> NewStoryScreen(route.song)
+        is Route.StoryRecap -> StoryRecapScreen(route.month)
+        is Route.Follows -> FollowsScreen(route.userId, route.followers)
         Route.History -> HistoryScreen()
         is Route.BlindTest -> BlindTestScreen(route.lobbyId)
         is Route.Genre -> GenreScreen(route.name)

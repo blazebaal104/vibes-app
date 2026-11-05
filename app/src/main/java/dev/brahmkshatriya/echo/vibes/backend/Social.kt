@@ -39,6 +39,17 @@ class Social(context: Context, val supa: Supa) {
     private val _requests = MutableStateFlow<List<Pair<FriendRequest, Profile>>>(emptyList())
     val requests = _requests.asStateFlow()
 
+    /** Ids of people I follow / who follow me. Friends (chat, challenges) = mutual follows. */
+    private val _following = MutableStateFlow<Set<String>>(emptySet())
+    val following = _following.asStateFlow()
+    private val _followers = MutableStateFlow<Set<String>>(emptySet())
+    val followers = _followers.asStateFlow()
+    /** Profiles of everyone in following ∪ followers. */
+    private val _people = MutableStateFlow<Map<String, Profile>>(emptyMap())
+    val people = _people.asStateFlow()
+    private val _stories = MutableStateFlow<List<StoryGroup>>(emptyList())
+    val stories = _stories.asStateFlow()
+
     /** Latest message per friend id, for the chat list. */
     private val _lastMessages = MutableStateFlow<Map<String, Message>>(emptyMap())
     val lastMessages = _lastMessages.asStateFlow()
@@ -85,12 +96,15 @@ class Social(context: Context, val supa: Supa) {
         if (p != null) {
             supa.realtime.start()
             refreshFriends(); refreshRequests(); refreshChats()
+            runCatching { refreshFollows() }
+            runCatching { refreshStories() }
         }
     }
 
     fun clear() {
         _me.value = null; hasProfile.value = null
         _friends.value = emptyList(); _requests.value = emptyList()
+        _following.value = emptySet(); _followers.value = emptySet(); _people.value = emptyMap(); _stories.value = emptyList()
         _lastMessages.value = emptyMap(); _unread.value = emptyMap()
     }
 
@@ -267,6 +281,116 @@ class Social(context: Context, val supa: Supa) {
         refreshFriends()
     }
 
+    // ------------------------------------------------------------------ follow
+
+    suspend fun refreshFollows() {
+        val id = uid ?: return
+        val ing = supa.select("vibes_follows", "follower_id=eq.$id&select=followee_id").mapNotNull { (it as JsonObject).str("followee_id") }.toSet()
+        val ers = supa.select("vibes_follows", "followee_id=eq.$id&select=follower_id").mapNotNull { (it as JsonObject).str("follower_id") }.toSet()
+        val ids = ing + ers
+        _people.value = if (ids.isEmpty()) emptyMap() else
+            supa.select("vibes_profiles", "id=in.(${ids.joinToString(",")})&select=*")
+                .map { json.decodeFromJsonElement<Profile>(it) }.associateBy { it.id }
+        _following.value = ing
+        _followers.value = ers
+    }
+
+    suspend fun follow(other: String) {
+        val id = uid ?: return
+        _following.update { it + other }
+        supa.insertIgnore("vibes_follows", buildJsonObject { put("follower_id", id); put("followee_id", other) })
+        refreshFollows(); refreshFriends()
+    }
+
+    suspend fun unfollow(other: String) {
+        val id = uid ?: return
+        _following.update { it - other }
+        supa.delete("vibes_follows", "follower_id=eq.$id&followee_id=eq.$other")
+        refreshFollows(); refreshFriends()
+    }
+
+    /** Removes someone from MY followers. */
+    suspend fun removeFollower(other: String) {
+        val id = uid ?: return
+        supa.delete("vibes_follows", "follower_id=eq.$other&followee_id=eq.$id")
+        refreshFollows(); refreshFriends()
+    }
+
+    suspend fun followByCode(code: String): Profile {
+        val res = supa.rpc("vibes_follow_by_code", buildJsonObject { put("code", code) })
+        refreshFollows(); refreshFriends()
+        return json.decodeFromJsonElement(res!!)
+    }
+
+    /** (followers, following) of anybody. */
+    suspend fun followLists(userId: String): Pair<List<Profile>, List<Profile>> {
+        val ers = supa.select("vibes_follows", "followee_id=eq.$userId&select=follower_id").mapNotNull { (it as JsonObject).str("follower_id") }
+        val ing = supa.select("vibes_follows", "follower_id=eq.$userId&select=followee_id").mapNotNull { (it as JsonObject).str("followee_id") }
+        val all = (ers + ing).toSet()
+        val map = if (all.isEmpty()) emptyMap() else supa.select("vibes_profiles", "id=in.(${all.joinToString(",")})&select=*")
+            .map { json.decodeFromJsonElement<Profile>(it) }.associateBy { it.id }
+        return ers.mapNotNull { map[it] } to ing.mapNotNull { map[it] }
+    }
+
+    // ------------------------------------------------------------------ stories
+
+    /** Active stories of me + people I follow, grouped per person (mine first, then unseen first). */
+    suspend fun refreshStories() {
+        val id = uid ?: return
+        val now = java.time.Instant.now().toString()
+        val authors = _following.value + id
+        val rows = supa.select("vibes_stories",
+            "user_id=in.(${authors.joinToString(",")})&expires_at=gt.${enc(now)}&select=*&order=created_at.asc")
+            .map { json.decodeFromJsonElement<Story>(it) }
+        if (rows.isEmpty()) { _stories.value = emptyList(); return }
+        val seen = supa.select("vibes_story_views", "viewer_id=eq.$id&story_id=in.(${rows.joinToString(",") { it.id }})&select=story_id")
+            .mapNotNull { (it as JsonObject).str("story_id") }.toSet()
+        val profiles = (_people.value + listOfNotNull(_me.value).associateBy { it.id })
+        _stories.value = rows.groupBy { it.userId }.mapNotNull { (u, list) -> profiles[u]?.let { StoryGroup(it, list, seen) } }
+            .sortedWith(compareBy<StoryGroup>({ it.user.id != id }, { it.allSeen }, { -(it.stories.lastOrNull()?.createdAt?.hashCode() ?: 0) }))
+    }
+
+    suspend fun postStory(song: SongRef, caption: String, style: StoryStyle): Story {
+        val id = uid ?: error("Non sei connesso")
+        val row = supa.insert("vibes_stories", buildJsonObject {
+            put("user_id", id)
+            put("song", json.encodeToJsonElement(SongRef.serializer(), song))
+            put("caption", caption)
+            put("style", json.encodeToJsonElement(StoryStyle.serializer(), style))
+        })
+        refreshStories()
+        return json.decodeFromJsonElement(row.first())
+    }
+
+    suspend fun deleteStory(storyId: String) {
+        supa.delete("vibes_stories", "id=eq.$storyId")
+        refreshStories()
+    }
+
+    suspend fun markStorySeen(storyId: String) {
+        val id = uid ?: return
+        runCatching { supa.insertIgnore("vibes_story_views", buildJsonObject { put("story_id", storyId); put("viewer_id", id) }) }
+        _stories.update { groups -> groups.map { g -> if (g.stories.any { it.id == storyId }) g.copy(seen = g.seen + storyId) else g } }
+    }
+
+    /** Who saw one of my stories. */
+    suspend fun storyViewers(storyId: String): List<Profile> {
+        val ids = supa.select("vibes_story_views", "story_id=eq.$storyId&select=viewer_id&order=viewed_at.desc")
+            .mapNotNull { (it as JsonObject).str("viewer_id") }
+        if (ids.isEmpty()) return emptyList()
+        val map = supa.select("vibes_profiles", "id=in.(${ids.joinToString(",")})&select=*")
+            .map { json.decodeFromJsonElement<Profile>(it) }.associateBy { it.id }
+        return ids.mapNotNull { map[it] }
+    }
+
+    /** All my stories (also expired ones) between two instants: for the monthly recap. */
+    suspend fun myStories(fromIso: String, toIso: String): List<Story> {
+        val id = uid ?: return emptyList()
+        return supa.select("vibes_stories",
+            "user_id=eq.$id&created_at=gte.${enc(fromIso)}&created_at=lt.${enc(toIso)}&select=*&order=created_at.asc")
+            .map { json.decodeFromJsonElement<Story>(it) }
+    }
+
     // ------------------------------------------------------------------ chat
 
     suspend fun refreshChats() {
@@ -418,6 +542,7 @@ class Social(context: Context, val supa: Supa) {
             }
             "vibes_friend_requests" -> refreshRequests()
             "vibes_friendships" -> refreshFriends()
+            "vibes_follows" -> { refreshFollows(); refreshFriends() }
         }
     }
 

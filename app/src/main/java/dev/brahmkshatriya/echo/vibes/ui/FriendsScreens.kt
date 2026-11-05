@@ -105,7 +105,11 @@ fun FriendsScreen() {
     val unread by app.social.unread.collectAsState()
     val me = app.social.uid
     val scope = rememberCoroutineScope()
-    LaunchedEffect(Unit) { runCatching { app.social.refreshFriends(); app.social.refreshChats() } }
+    val following by app.social.following.collectAsState()
+    val followers by app.social.followers.collectAsState()
+    val people by app.social.people.collectAsState()
+    LaunchedEffect(Unit) { runCatching { app.social.refreshFriends(); app.social.refreshChats(); app.social.refreshFollows() } }
+    val newFollowers = followers.filter { it !in following }.mapNotNull { people[it] }
 
     val sorted = friends.sortedByDescending { last[it.id]?.createdAt ?: "" }
     GradientBackground {
@@ -114,7 +118,29 @@ fun FriendsScreen() {
                 Row(Modifier.statusBarsPadding().fillMaxWidth().padding(start = 16.dp, end = 8.dp, top = 12.dp, bottom = 8.dp),
                     verticalAlignment = Alignment.CenterVertically) {
                     Text("Amici", style = MaterialTheme.typography.headlineLarge, modifier = Modifier.weight(1f))
-                    IconButton(onClick = { nav.open(Route.AddFriend) }) { Icon(Icons.Rounded.PersonAdd, "Aggiungi amico", modifier = Modifier.size(28.dp)) }
+                    IconButton(onClick = { nav.open(Route.AddFriend) }) { Icon(Icons.Rounded.PersonAdd, "Trova persone", modifier = Modifier.size(28.dp)) }
+                }
+                Row(Modifier.padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    me?.let { id ->
+                        Pill("${followers.size} follower", false, { nav.open(Route.Follows(id, true)) })
+                        Pill("${following.size} seguiti", false, { nav.open(Route.Follows(id, false)) })
+                    }
+                }
+                Text("Chi vi seguite a vicenda siete amici: potete chattare e sfidarvi.", style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp))
+            }
+            if (newFollowers.isNotEmpty()) {
+                item { SectionTitle("Ti seguono") }
+                items(newFollowers, key = { "nf" + it.id }) { p ->
+                    Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Avatar(p, 48.dp, Modifier.bouncy({ nav.open(Route.Profile(p.id)) }))
+                        Spacer(Modifier.width(12.dp))
+                        Column(Modifier.weight(1f)) {
+                            Text(p.name, style = MaterialTheme.typography.titleMedium)
+                            Text("@${p.username} ha iniziato a seguirti", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                        FollowButton(p.id, compact = true)
+                    }
                 }
             }
             if (requests.isNotEmpty()) {
@@ -134,8 +160,8 @@ fun FriendsScreen() {
                 }
             }
             if (friends.isEmpty()) item {
-                EmptyState("👋", "Ancora nessun amico", "Condividi il tuo codice invito o cerca un username per iniziare a chattare e scambiarvi musica.") {
-                    BigButton("Aggiungi amici", { nav.open(Route.AddFriend) }, Modifier.width(220.dp))
+                EmptyState("👋", "Ancora nessun amico", "Segui qualcuno: quando ti segue anche lui diventate amici e potete chattare.") {
+                    BigButton("Trova persone", { nav.open(Route.AddFriend) }, Modifier.width(220.dp))
                 }
             }
             itemsIndexed(sorted, key = { _, f -> f.id }) { i, f ->
@@ -201,7 +227,7 @@ fun AddFriendScreen() {
             item {
                 Row(Modifier.statusBarsPadding().padding(4.dp), verticalAlignment = Alignment.CenterVertically) {
                     IconButton(onClick = { nav.back() }) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Indietro") }
-                    Text("Aggiungi amici", style = MaterialTheme.typography.headlineSmall)
+                    Text("Trova persone", style = MaterialTheme.typography.headlineSmall)
                 }
             }
             item {
@@ -227,11 +253,11 @@ fun AddFriendScreen() {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         VibesField(code, { code = it.uppercase().filter { c -> c.isLetterOrDigit() }.take(8) }, "Codice", Modifier.weight(1f))
                         Spacer(Modifier.width(10.dp))
-                        BigButton("Aggiungi", {
+                        BigButton("Segui", {
                             busy = true
                             scope.launch {
-                                runCatching { app.social.addByCode(code) }
-                                    .onSuccess { nav.toast("Ora tu e ${it.name} siete amici 🎉"); code = ""; nav.open(Route.Chat(it.id)) }
+                                runCatching { app.social.followByCode(code) }
+                                    .onSuccess { nav.toast("Ora segui ${it.name} ✨"); code = ""; nav.open(Route.Profile(it.id)) }
                                     .onFailure { nav.toast(it.message ?: "Codice non valido") }
                                 busy = false
                             }
@@ -248,6 +274,14 @@ fun AddFriendScreen() {
             }
             items(results, key = { it.id }) { p ->
                 val isFriend = friends.any { it.id == p.id }
+    val storyGroups by app.social.stories.collectAsState()
+    val myFollowing by app.social.following.collectAsState()
+    val myFollowers by app.social.followers.collectAsState()
+    var counts by remember(p.id) { mutableStateOf<Pair<Int, Int>?>(null) }
+    LaunchedEffect(p.id, myFollowing.size, myFollowers.size) {
+        counts = runCatching { app.social.followLists(p.id) }.getOrNull()?.let { it.first.size to it.second.size }
+    }
+    val group = storyGroups.firstOrNull { it.user.id == p.id }
                 Row(Modifier.fillMaxWidth().clickable { nav.open(Route.Profile(p.id)) }.padding(horizontal = 16.dp, vertical = 8.dp),
                     verticalAlignment = Alignment.CenterVertically) {
                     Avatar(p, 46.dp)
@@ -256,17 +290,7 @@ fun AddFriendScreen() {
                         Text(p.name, style = MaterialTheme.typography.titleMedium)
                         Text("@${p.username}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
-                    when {
-                        isFriend -> Text("Amici ✓", color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.labelLarge)
-                        p.id in sent -> Text("Richiesta inviata", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.labelLarge)
-                        else -> Pill("Aggiungi", true, {
-                            scope.launch {
-                                runCatching { app.social.sendRequest(p.id) }
-                                    .onSuccess { sent = sent + p.id; nav.toast("Richiesta inviata a ${p.name}") }
-                                    .onFailure { nav.toast(it.message ?: "Errore") }
-                            }
-                        })
-                    }
+                    FollowButton(p.id, compact = true)
                 }
             }
         }
@@ -304,20 +328,33 @@ fun ProfileScreen(userId: String?) {
             }
             item {
                 Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
-                    Avatar(p, 128.dp)
+                    StoryAvatar(p, 128.dp, group?.let { !it.allSeen }, Modifier.bouncy({ if (group != null) nav.open(Route.Stories(p.id)) }))
                     Text(p.name, style = MaterialTheme.typography.headlineLarge, modifier = Modifier.padding(top = 14.dp))
                     Text("@${p.username}", style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     if (p.bio.isNotBlank()) Text(p.bio, style = MaterialTheme.typography.bodyMedium,
                         textAlign = androidx.compose.ui.text.style.TextAlign.Center, modifier = Modifier.padding(horizontal = 32.dp, vertical = 10.dp))
-                    if (isMe) Text("${friends.size} amici", style = MaterialTheme.typography.labelLarge, modifier = Modifier.padding(top = 6.dp))
-                    if (!isMe) Row(Modifier.padding(top = 16.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Row(Modifier.padding(top = 10.dp), horizontalArrangement = Arrangement.spacedBy(22.dp)) {
+                        Column(Modifier.bouncy({ nav.open(Route.Follows(p.id, true)) }), horizontalAlignment = Alignment.CenterHorizontally) {
+                            Text("${counts?.first ?: "–"}", style = MaterialTheme.typography.titleLarge)
+                            Text("follower", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                        Column(Modifier.bouncy({ nav.open(Route.Follows(p.id, false)) }), horizontalAlignment = Alignment.CenterHorizontally) {
+                            Text("${counts?.second ?: "–"}", style = MaterialTheme.typography.titleLarge)
+                            Text("seguiti", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                        if (isMe) Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Text("${friends.size}", style = MaterialTheme.typography.titleLarge)
+                            Text("amici", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    }
+                    if (!isMe && p.id in myFollowers && p.id !in myFollowing) Text("Ti segue", style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(top = 6.dp))
+                    if (!isMe) Row(Modifier.padding(top = 14.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        FollowButton(p.id)
                         if (isFriend) {
                             Pill("Messaggio", true, { nav.open(Route.Chat(p.id)) })
                             Pill("Sfida 🎮", false, { nav.open(Route.Games) })
-                            Pill("Rimuovi", false, { removing = true })
-                        } else Pill("Aggiungi amico", true, {
-                            scope.launch { runCatching { app.social.sendRequest(p.id) }.onSuccess { nav.toast("Richiesta inviata") } }
-                        })
+                        }
                     }
                 }
             }
@@ -342,6 +379,10 @@ fun ProfileScreen(userId: String?) {
                 Row(Modifier.padding(horizontal = 16.dp, vertical = 6.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     ProfileButton("📊", "Statistiche", Modifier.weight(1f)) { nav.open(Route.Stats) }
                     ProfileButton("🕘", "Cronologia", Modifier.weight(1f)) { nav.open(Route.History) }
+                }
+                Row(Modifier.padding(horizontal = 16.dp, vertical = 6.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    ProfileButton("➕", "Nuova storia", Modifier.weight(1f)) { nav.open(Route.NewStory()) }
+                    ProfileButton("✨", "Recap storie", Modifier.weight(1f)) { nav.open(Route.StoryRecap(java.time.YearMonth.now().toString())) }
                 }
             }
             if (!isMe && p.privacy.weekStats) item { FriendWeekCard(p, Modifier.padding(16.dp)) }

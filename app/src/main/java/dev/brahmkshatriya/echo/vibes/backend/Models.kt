@@ -167,3 +167,26 @@ data class Lobby(
     val status: String,
     val state: JsonObject = JsonObject(emptyMap()),
 )
+
+@Serializable
+data class StoryStyle(
+    val top: String = "#B84DFF",
+    val bottom: String = "#120A1F",
+    val preview: String? = null,
+)
+
+@Serializable
+data class Story(
+    val id: String = "",
+    @SerialName("user_id") val userId: String = "",
+    val song: SongRef,
+    val caption: String = "",
+    val style: StoryStyle = StoryStyle(),
+    @SerialName("created_at") val createdAt: String? = null,
+    @SerialName("expires_at") val expiresAt: String? = null,
+)
+
+/** All active stories of one person, in order, plus whether I've seen them all. */
+data class StoryGroup(val user: Profile, val stories: List<Story>, val seen: Set<String>) {
+    val allSeen get() = stories.all { it.id in seen }
+}

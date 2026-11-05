@@ -219,6 +219,14 @@ class Supa(context: Context) {
         execJson(req)
     }
 
+    /** INSERT … ON CONFLICT DO NOTHING (needs only the insert policy). */
+    suspend fun insertIgnore(table: String, row: JsonElement) {
+        val req = authed("/rest/v1/$table")
+            .header("Prefer", "resolution=ignore-duplicates,return=minimal")
+            .post(row.toString().toRequestBody(JSON_TYPE)).build()
+        execJson(req)
+    }
+
     suspend fun update(table: String, query: String, patch: JsonElement) {
         val req = authed("/rest/v1/$table?$query")
             .header("Prefer", "return=minimal")
@@ -282,6 +290,8 @@ class Supa(context: Context) {
             "vibes_game_lobbies" to "host_id=eq.$uid",
             "vibes_friend_requests" to "to_id=eq.$uid",
             "vibes_friendships" to "user_id=eq.$uid",
+            "vibes_follows" to "followee_id=eq.$uid",
+            "vibes_follows" to "follower_id=eq.$uid",
         )
 
         fun start() {

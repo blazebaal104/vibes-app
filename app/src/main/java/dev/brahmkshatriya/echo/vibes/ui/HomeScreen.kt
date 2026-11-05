@@ -112,6 +112,7 @@ fun HomeScreen() {
                     IconButton(onClick = { nav.open(Route.Settings) }) { Icon(Icons.Rounded.Settings, "Impostazioni") }
                 }
             }
+            item(key = "stories") { StoriesRow() }
             if (!loggedIn) item {
                 DeezerCard(Modifier.padding(16.dp).enter(0)) { nav.open(Route.DeezerLogin) }
             }

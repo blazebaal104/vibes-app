@@ -27,6 +27,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.ContentCopy
 import androidx.compose.material.icons.rounded.PlaylistAdd
+import androidx.compose.material.icons.rounded.AddCircle
 import androidx.compose.material.icons.rounded.Share
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -151,6 +152,7 @@ fun ShareSheet(item: ShareItem, onDismiss: () -> Unit) {
             Text("Altre opzioni", style = MaterialTheme.typography.titleLarge, modifier = Modifier.padding(start = 16.dp, top = 18.dp, bottom = 4.dp))
             when (item) {
                 is ShareItem.Song -> {
+                    ShareOption(Icons.Rounded.AddCircle, "Aggiungi alla tua storia") { onDismiss(); app.nav.open(Route.NewStory(item.song)) }
                     ShareOption(Icons.Rounded.PlaylistAdd, "Aggiungi a playlist") { onDismiss(); app.nav.addToPlaylist = item.song }
                     ShareOption(Icons.Rounded.Share, "Condividi su altre app") { shareToApps(context, externalText(item.song)) }
                     ShareOption(Icons.Rounded.ContentCopy, "Copia link") {

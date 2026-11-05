@@ -102,6 +102,12 @@ class DeezerPublic(private val http: OkHttpClient) {
             }.orEmpty()
     }
 
+    /** 30 s preview of any song (for stories). */
+    suspend fun previewFor(s: SongRef): String? {
+        val byId = if (s.ext == MusicEngine.DEEZER && s.id.all(Char::isDigit)) runCatching { track(s.id) }.getOrNull() else null
+        return (byId ?: match(s.title, s.artist))?.preview?.ifBlank { null }
+    }
+
     /** Main genre of a track, from its album ("Rap/Hip Hop", "Pop", …). */
     suspend fun trackGenre(trackId: Long): String? {
         val albumId = get("https://api.deezer.com/track/$trackId")?.get("album")?.jsonObject?.get("id")?.jsonPrimitive?.longOrNull ?: return null
