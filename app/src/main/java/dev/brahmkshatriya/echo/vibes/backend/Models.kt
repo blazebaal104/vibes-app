@@ -250,3 +250,38 @@ data class Story(
 data class StoryGroup(val user: Profile, val stories: List<Story>, val seen: Set<String>) {
     val allSeen get() = stories.all { it.id in seen }
 }
+
+/** A song published by a Vibes user (their own music). */
+@Serializable
+data class Upload(
+    val id: String = "",
+    @SerialName("user_id") val userId: String = "",
+    val title: String,
+    val artist: String = "",
+    val album: String? = null,
+    @SerialName("album_id") val albumId: String? = null,
+    @SerialName("track_no") val trackNo: Int = 1,
+    val cover: String? = null,
+    val url: String,
+    @SerialName("duration_ms") val durationMs: Long = 0,
+    val genre: String = "",
+    val plays: Int = 0,
+    @SerialName("created_at") val createdAt: String? = null,
+)
+
+/** A loop / one-shot shared in the sample library. */
+@Serializable
+data class Sample(
+    val id: String = "",
+    @SerialName("user_id") val userId: String = "",
+    val name: String,
+    val kind: String = "loop",
+    val genre: String = "",
+    val bpm: Int? = null,
+    @SerialName("musical_key") val key: String? = null,
+    val tags: List<String> = emptyList(),
+    val url: String,
+    @SerialName("duration_ms") val durationMs: Long = 0,
+    val downloads: Int = 0,
+    @SerialName("created_at") val createdAt: String? = null,
+)

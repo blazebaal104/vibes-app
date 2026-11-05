@@ -139,6 +139,13 @@ fun GamesScreen() {
                     onSolo = { nav.open(Route.BlindTest(null)) }, onChallenge = { challengeGame = "blindtest" }, index = 1
                 )
             }
+            item {
+                GameCard(
+                    "Strati", "Prima senti solo bassi e cassa, poi a ogni tentativo entrano altri strumenti. Indovina prima che arrivi la canzone intera.",
+                    "🎚️", listOf(Color(0xFF00C2A8), Color(0xFF1E6BFF), Color(0xFF7B2FF7)),
+                    onSolo = { nav.open(Route.Layers) }, onChallenge = null, index = 2
+                )
+            }
             item { GameLeaderboards() }
         }
     }
@@ -275,7 +282,7 @@ private fun GameSetupSheet(onDismiss: () -> Unit, action: String, onStart: (Game
 }
 
 @Composable
-private fun GameCard(title: String, text: String, emoji: String, colors: List<Color>, onSolo: () -> Unit, onChallenge: () -> Unit, index: Int) {
+private fun GameCard(title: String, text: String, emoji: String, colors: List<Color>, onSolo: () -> Unit, onChallenge: (() -> Unit)?, index: Int) {
     Column(
         Modifier.padding(16.dp).fillMaxWidth().enter(index).clip(RoundedCornerShape(24.dp))
             .background(Brush.linearGradient(colors.map { it.copy(alpha = 0.85f) }))
@@ -287,7 +294,7 @@ private fun GameCard(title: String, text: String, emoji: String, colors: List<Co
         Spacer(Modifier.height(16.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             BigButton("Gioca da solo", onSolo, Modifier.weight(1f), container = Color.White, content = Color(0xFF111111))
-            BigButton("Sfida un amico", onChallenge, Modifier.weight(1f), container = Color.Black.copy(alpha = 0.35f), content = Color.White)
+            if (onChallenge != null) BigButton("Sfida un amico", onChallenge, Modifier.weight(1f), container = Color.Black.copy(alpha = 0.35f), content = Color.White)
         }
     }
 }
@@ -1027,18 +1034,21 @@ fun GameLeaderboards() {
     val app = LocalApp.current
     var guess by remember { mutableStateOf<List<Pair<Profile, Int>>>(emptyList()) }
     var blind by remember { mutableStateOf<List<Pair<Profile, Int>>>(emptyList()) }
+    var layersBoard by remember { mutableStateOf<List<Pair<Profile, Int>>>(emptyList()) }
     var tab by remember { mutableIntStateOf(0) }
     LaunchedEffect(Unit) {
         guess = runCatching { app.social.leaderboard("guess") }.getOrDefault(emptyList())
         blind = runCatching { app.social.leaderboard("blind") }.getOrDefault(emptyList())
+        layersBoard = runCatching { app.social.leaderboard("layers") }.getOrDefault(emptyList())
     }
-    if (guess.isEmpty() && blind.isEmpty()) return
+    if (guess.isEmpty() && blind.isEmpty() && layersBoard.isEmpty()) return
     Column(Modifier.padding(16.dp)) {
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(bottom = 8.dp)) {
             Pill("Indovina il brano", tab == 0, { tab = 0 })
             Pill("Chi canta?", tab == 1, { tab = 1 })
+            Pill("Strati", tab == 2, { tab = 2 })
         }
-        val rows = if (tab == 0) guess else blind
+        val rows = when (tab) { 0 -> guess; 1 -> blind; else -> layersBoard }
         if (rows.isEmpty()) Text("Nessun punteggio ancora: gioca per entrare in classifica!", style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant)
         else Leaderboard(rows, app.social.uid)

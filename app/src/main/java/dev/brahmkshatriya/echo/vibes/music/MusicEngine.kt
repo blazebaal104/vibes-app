@@ -208,6 +208,7 @@ class MusicEngine(
 
     fun play(extId: String, tracks: List<Track>, index: Int = 0, context: EchoMediaItem? = null) {
         if (tracks.isEmpty()) return
+        runCatching { if (dev.brahmkshatriya.echo.vibes.VibesGraph.studio.isActive) dev.brahmkshatriya.echo.vibes.VibesGraph.studio.stop() }
         val start = tracks[index.coerceIn(0, tracks.size - 1)]
         player.setQueue(extId, tracks, index, context ?: if (tracks.size == 1) trackRadioPlaceholder(start) else null)
         player.setPlaying(true)
@@ -217,6 +218,7 @@ class MusicEngine(
 
     fun playAll(songs: List<SongRef>, index: Int = 0, shuffle: Boolean = false, ctx: VibesPlaylist? = null) {
         if (songs.isEmpty()) return
+        runCatching { if (dev.brahmkshatriya.echo.vibes.VibesGraph.studio.isActive) dev.brahmkshatriya.echo.vibes.VibesGraph.studio.stop() }
         dev.brahmkshatriya.echo.vibes.VibesGraph.playContext = ctx?.let {
             PlayContext(it.id, it.name, it.cover ?: it.songs.firstOrNull()?.cover, it.songs.map { s -> s.key }.toSet())
         }

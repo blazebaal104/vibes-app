@@ -366,6 +366,64 @@ class Social(context: Context, val supa: Supa) {
         return ers.mapNotNull { map[it] } to ing.mapNotNull { map[it] }
     }
 
+    // ------------------------------------------------------------------ own music & samples
+
+    suspend fun uploadAsset(file: java.io.File, ext: String, mime: String): String {
+        val id = uid ?: error("Non sei connesso")
+        val path = "$id/${java.util.UUID.randomUUID()}.$ext"
+        supa.uploadFile("vibes-uploads", path, file, mime)
+        return "${Supa.URL}/storage/v1/object/public/vibes-uploads/$path"
+    }
+
+    suspend fun publishUploads(list: List<Upload>) {
+        val id = uid ?: error("Non sei connesso")
+        supa.insert("vibes_uploads", kotlinx.serialization.json.JsonArray(list.map { u ->
+            buildJsonObject {
+                put("user_id", id); put("title", u.title); put("artist", u.artist)
+                u.album?.let { put("album", it) }; u.albumId?.let { put("album_id", it) }
+                put("track_no", u.trackNo); u.cover?.let { put("cover", it) }; put("url", u.url)
+                put("duration_ms", u.durationMs); put("genre", u.genre)
+            }
+        }), false)
+    }
+
+    suspend fun uploadsOf(userId: String): List<Upload> =
+        supa.select("vibes_uploads", "user_id=eq.$userId&select=*&order=created_at.desc,track_no.asc")
+            .map { json.decodeFromJsonElement<Upload>(it) }
+
+    suspend fun latestUploads(limit: Int = 30): List<Upload> =
+        supa.select("vibes_uploads", "select=*&order=created_at.desc&limit=$limit").map { json.decodeFromJsonElement<Upload>(it) }
+
+    suspend fun deleteUpload(id: String) = supa.delete("vibes_uploads", "id=eq.$id")
+
+    suspend fun publishSample(s: Sample) {
+        val id = uid ?: error("Non sei connesso")
+        supa.insert("vibes_samples", buildJsonObject {
+            put("user_id", id); put("name", s.name); put("kind", s.kind); put("genre", s.genre)
+            s.bpm?.let { put("bpm", it) }; s.key?.let { put("musical_key", it) }
+            put("tags", kotlinx.serialization.json.JsonArray(s.tags.map { kotlinx.serialization.json.JsonPrimitive(it) }))
+            put("url", s.url); put("duration_ms", s.durationMs)
+        }, false)
+    }
+
+    /** Sample search: name/tags/genre text, kind, BPM range. */
+    suspend fun searchSamples(q: String, kind: String?, genre: String?, bpmMin: Int?, bpmMax: Int?): List<Sample> {
+        val f = mutableListOf("select=*", "order=created_at.desc", "limit=100")
+        if (q.isNotBlank()) {
+            val t = enc("*${q.trim().replace("*", "").replace(",", " ")}*")
+            f += "or=(name.ilike.$t,genre.ilike.$t,musical_key.ilike.$t)"
+        }
+        kind?.let { f += "kind=eq.$it" }
+        genre?.let { f += "genre=ilike.${enc(it)}" }
+        bpmMin?.let { f += "bpm=gte.$it" }
+        bpmMax?.let { f += "bpm=lte.$it" }
+        return supa.select("vibes_samples", f.joinToString("&")).map { json.decodeFromJsonElement<Sample>(it) }
+    }
+
+    fun count(kind: String, item: String) {
+        scope.launch { runCatching { supa.rpc("vibes_count", buildJsonObject { put("kind", kind); put("item", item) }) } }
+    }
+
     // ------------------------------------------------------------------ game scores
 
     suspend fun submitScore(game: String, score: Int, difficulty: String = "") {

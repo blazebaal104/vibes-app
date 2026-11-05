@@ -181,7 +181,7 @@ fun MainScaffold(pendingLink: MutableStateFlow<Uri?>) {
         val cur = nav.current
         val inGame = imeOpen || nav.playerOpen || cur is Route.Guess || cur is Route.BlindTest || cur is Route.Chat ||
                 cur is Route.EditProfile || cur is Route.AddFriend || cur is Route.DeezerLogin || cur is Route.Import ||
-                cur is Route.Stories || cur is Route.NewStory || cur is Route.StoryRecap
+                cur is Route.Stories || cur is Route.NewStory || cur is Route.StoryRecap || cur is Route.Layers || cur is Route.Publish
         AnimatedVisibility(
             !inGame, Modifier.align(Alignment.BottomCenter),
             enter = slideInVertically(tween(280)) { it } + fadeIn(tween(200)),
@@ -189,6 +189,7 @@ fun MainScaffold(pendingLink: MutableStateFlow<Uri?>) {
         ) {
             Column(Modifier.fillMaxWidth()) {
                 AlongBanner()
+                StudioBar()
                 MiniPlayer()
                 BottomBar()
             }
@@ -251,6 +252,10 @@ fun Screen(route: Route) {
         is Route.SharedPlaylist -> SharedPlaylistScreen(route.id)
         is Route.Guess -> GuessGameScreen(route.lobbyId, route.source)
         Route.Stats -> StatsScreen()
+        Route.Studio -> StudioScreen()
+        Route.Publish -> PublishScreen()
+        Route.Samples -> SamplesScreen()
+        Route.Layers -> LayersGameScreen()
         is Route.Stories -> StoryViewerScreen(route.userId)
         is Route.NewStory -> NewStoryScreen(route.song)
         is Route.StoryRecap -> StoryRecapScreen(route.month)

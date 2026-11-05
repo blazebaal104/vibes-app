@@ -371,6 +371,7 @@ fun ProfileScreen(userId: String?) {
             }
             if (!isMe && p.privacy.weekStats) item { FriendWeekCard(p, Modifier.padding(16.dp)) }
             if (isMe || p.privacy.favorites) item { FavoritesSection(p, isMe) }
+            item(key = "uploads") { ProfileUploads(p, isMe) }
             item {
                 SectionTitle("Top 4")
                 Row(Modifier.padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {

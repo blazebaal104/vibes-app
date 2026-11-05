@@ -263,9 +263,13 @@ class ClipPlayer(context: Context) {
  * the Deezer extension (already decrypted) into a small temp file; if that fails it falls back to
  * the 30 s Deezer preview. Clips stop on the real playback position, not on a timer.
  */
-class EngineClip(private val engine: dev.brahmkshatriya.echo.vibes.music.MusicEngine, context: Context) {
+class EngineClip(private val engine: dev.brahmkshatriya.echo.vibes.music.MusicEngine, context: Context, layered: Boolean = false) {
     private val app = context.applicationContext
-    private val player = ExoPlayer.Builder(app).build()
+    private val filter = LayerFilter()
+    private val player = if (layered) layeredPlayer(app, filter) else ExoPlayer.Builder(app).build()
+
+    /** "Strati" game: low-pass cutoff in Hz (0 = full song). */
+    fun setCutoff(hz: Float) { filter.cutoffHz = hz }
     private val scope = MainScope()
     private var job: Job? = null
     private var prefetch: kotlinx.coroutines.Deferred<androidx.media3.common.MediaItem?>? = null
