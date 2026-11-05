@@ -200,6 +200,38 @@ data class StoryStyle(
     val preview: String? = null,
     /** Deezer track id: previews expire, so viewers fetch a fresh one from this. */
     val dz: Long? = null,
+    /** Which part of the 30 s preview plays (ms) and how loud. */
+    val songStartMs: Long = 0,
+    val songVolume: Float = 1f,
+    val bpm: Float = 0f,
+)
+
+/** Text placed on a story slide. x/y are 0..1 of the screen; size in sp. */
+@Serializable
+data class StoryText(
+    val text: String,
+    val x: Float = 0.5f,
+    val y: Float = 0.4f,
+    val size: Float = 30f,
+    val color: String = "#FFFFFF",
+    val bg: Boolean = false,
+    /** none | pop | typewriter | fade | bounce | wave | glow */
+    val anim: String = "pop",
+)
+
+/** One photo or video of a story, with the editor settings. */
+@Serializable
+data class StoryMedia(
+    val type: String,                 // image | video
+    val url: String,
+    /** How long the slide stays (photos) / trimmed length (videos), ms. */
+    val durationMs: Long = 5000,
+    val trimStartMs: Long = 0,
+    val volume: Float = 1f,          // video's own sound
+    val zoom: Float = 1f,
+    val offsetX: Float = 0f,
+    val offsetY: Float = 0f,
+    val texts: List<StoryText> = emptyList(),
 )
 
 @Serializable
@@ -209,6 +241,7 @@ data class Story(
     val song: SongRef,
     val caption: String = "",
     val style: StoryStyle = StoryStyle(),
+    val media: List<StoryMedia> = emptyList(),
     @SerialName("created_at") val createdAt: String? = null,
     @SerialName("expires_at") val expiresAt: String? = null,
 )

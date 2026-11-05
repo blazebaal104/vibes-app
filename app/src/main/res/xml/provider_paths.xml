@@ -2,4 +2,5 @@
 <paths>
     <cache-path name="cache" path="./apks/" />
     <cache-path name="vibes_media" path="vibes_media/" />
+    <cache-path name="story_capture" path="story_capture/" />
 </paths>

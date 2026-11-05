@@ -34,6 +34,7 @@ import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
+import okhttp3.RequestBody.Companion.asRequestBody
 import okhttp3.Response
 import okhttp3.WebSocket
 import okhttp3.WebSocketListener
@@ -247,6 +248,14 @@ class Supa(context: Context) {
         val req = authed("/storage/v1/object/$bucket/$path")
             .header("x-upsert", "true")
             .post(bytes.toRequestBody(contentType.toMediaType())).build()
+        execJson(req)
+    }
+
+    /** Streams a file (videos) instead of loading it in memory. */
+    suspend fun uploadFile(bucket: String, path: String, file: java.io.File, contentType: String) {
+        val req = authed("/storage/v1/object/$bucket/$path")
+            .header("x-upsert", "true")
+            .post(file.asRequestBody(contentType.toMediaType())).build()
         execJson(req)
     }
 

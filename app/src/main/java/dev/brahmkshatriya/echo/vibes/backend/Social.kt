@@ -406,13 +406,22 @@ class Social(context: Context, val supa: Supa) {
             .sortedWith(compareBy<StoryGroup>({ it.user.id != id }, { it.allSeen }, { -(it.stories.lastOrNull()?.createdAt?.hashCode() ?: 0) }))
     }
 
-    suspend fun postStory(song: SongRef, caption: String, style: StoryStyle): Story {
+    /** Uploads a story photo/video and returns its public URL. */
+    suspend fun uploadStoryFile(file: java.io.File, video: Boolean): String {
+        val id = uid ?: error("Non sei connesso")
+        val path = "$id/${java.util.UUID.randomUUID()}.${if (video) "mp4" else "jpg"}"
+        supa.uploadFile("vibes-stories", path, file, if (video) "video/mp4" else "image/jpeg")
+        return "${Supa.URL}/storage/v1/object/public/vibes-stories/$path"
+    }
+
+    suspend fun postStory(song: SongRef, caption: String, style: StoryStyle, media: List<StoryMedia> = emptyList()): Story {
         val id = uid ?: error("Non sei connesso")
         val row = supa.insert("vibes_stories", buildJsonObject {
             put("user_id", id)
             put("song", json.encodeToJsonElement(SongRef.serializer(), song))
             put("caption", caption)
             put("style", json.encodeToJsonElement(StoryStyle.serializer(), style))
+            put("media", json.encodeToJsonElement(kotlinx.serialization.builtins.ListSerializer(StoryMedia.serializer()), media))
         })
         refreshStories()
         return json.decodeFromJsonElement(row.first())

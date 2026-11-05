@@ -239,6 +239,19 @@ class ClipPlayer(context: Context) {
 
     fun position() = player.currentPosition
 
+    /** Loops the preview from [startMs] (stories: the part of the song the author chose). */
+    fun playFrom(startMs: Long, volume: Float = 1f) {
+        stopJob?.cancel()
+        player.volume = volume
+        player.repeatMode = Player.REPEAT_MODE_ONE
+        player.seekTo(startMs)
+        player.play()
+    }
+
+    fun resume() { player.play() }
+
+    fun setVolume(v: Float) { player.volume = v }
+
     fun stop() { stopJob?.cancel(); player.pause() }
 
     fun release() { stopJob?.cancel(); player.release() }

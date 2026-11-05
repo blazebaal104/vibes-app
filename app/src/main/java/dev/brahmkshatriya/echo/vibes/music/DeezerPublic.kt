@@ -102,6 +102,10 @@ class DeezerPublic(private val http: OkHttpClient) {
             }.orEmpty()
     }
 
+    /** Beats per minute of a track (for the "breathing" cover), 0 if unknown. */
+    suspend fun bpm(id: Long): Float =
+        get("https://api.deezer.com/track/$id")?.get("bpm")?.jsonPrimitive?.contentOrNull?.toFloatOrNull() ?: 0f
+
     /** Fresh preview for a story (stored preview links expire after a while). */
     suspend fun freshPreview(dz: Long?, s: SongRef): String? =
         dz?.let { runCatching { track(it.toString()) }.getOrNull()?.preview?.ifBlank { null } } ?: previewFor(s)

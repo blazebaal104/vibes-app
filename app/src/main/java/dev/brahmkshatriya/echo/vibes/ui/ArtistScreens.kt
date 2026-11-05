@@ -23,6 +23,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Shuffle
+import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -107,7 +108,7 @@ fun ArtistScreen(id: Long, name: String = "") {
                     Box(
                         Modifier.size(56.dp).clip(CircleShape).background(MaterialTheme.colorScheme.primary).bouncy({ app.engine.playAll(songs) }),
                         contentAlignment = Alignment.Center
-                    ) { Icon(androidx.compose.material.icons.Icons.Rounded.PlayArrow, "Riproduci", tint = MaterialTheme.colorScheme.onPrimary, modifier = Modifier.size(34.dp)) }
+                    ) { Icon(Icons.Rounded.PlayArrow, "Riproduci", tint = MaterialTheme.colorScheme.onPrimary, modifier = Modifier.size(34.dp)) }
                     Spacer(Modifier.width(6.dp))
                     IconButton(onClick = { app.engine.playAll(songs, shuffle = true) }) { Icon(Icons.Rounded.Shuffle, "Casuale", modifier = Modifier.size(28.dp)) }
                     Spacer(Modifier.width(8.dp))

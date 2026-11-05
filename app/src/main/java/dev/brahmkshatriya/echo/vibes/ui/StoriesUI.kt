@@ -194,6 +194,7 @@ fun StoryViewerScreen(startUserId: String) {
     var storyIndex by remember(userIndex) {
         mutableIntStateOf(group?.stories?.indexOfFirst { it.id !in group.seen }?.takeIf { it >= 0 } ?: 0)
     }
+    var slide by remember(userIndex, storyIndex) { mutableIntStateOf(0) }
     var paused by remember { mutableStateOf(false) }
     var reply by remember { mutableStateOf("") }
     var viewers by remember { mutableStateOf<List<Profile>?>(null) }
@@ -204,49 +205,77 @@ fun StoryViewerScreen(startUserId: String) {
     if (group == null || group.stories.isEmpty()) { LaunchedEffect(Unit) { nav.back() }; return }
     val story = group.stories[storyIndex.coerceIn(0, group.stories.lastIndex)]
     val mine = group.user.id == me
+    val slides = story.media
+    val media = slides.getOrNull(slide)
+    val segMs = media?.durationMs?.coerceIn(1000, MAX_VIDEO_MS) ?: STORY_MS.toLong()
 
     fun next() {
-        if (storyIndex < group.stories.lastIndex) storyIndex++
-        else if (userIndex < order.lastIndex) { userIndex++ }
-        else nav.back()
+        when {
+            slide < slides.lastIndex -> slide++
+            storyIndex < group.stories.lastIndex -> storyIndex++
+            userIndex < order.lastIndex -> userIndex++
+            else -> nav.back()
+        }
     }
     fun prev() {
-        if (storyIndex > 0) storyIndex--
-        else if (userIndex > 0) userIndex--
+        when {
+            slide > 0 -> slide--
+            storyIndex > 0 -> storyIndex--
+            userIndex > 0 -> userIndex--
+        }
     }
 
-    val progress = remember { Animatable(0f) }
+    // song: starts from the part the author picked and keeps going across the story's slides
     LaunchedEffect(story.id) {
         if (!mine) scope.launch { app.social.markStorySeen(story.id) }
-        progress.snapTo(0f)
+        clip.stop()
         val url = runCatching { VibesGraph.deezer.freshPreview(story.style.dz, story.song) }.getOrNull() ?: story.style.preview
-        url?.let { clip.load(it); clip.playFull() }
+        url?.let { clip.load(it); clip.playFrom(story.style.songStartMs, story.style.songVolume) }
     }
-    LaunchedEffect(story.id, paused) {
-        if (paused) { clip.stop(); progress.stop(); return@LaunchedEffect }
-        if (progress.value > 0f) clip.playFull()
-        progress.animateTo(1f, tween(((1f - progress.value) * STORY_MS).toInt(), easing = LinearEasing))
+    LaunchedEffect(paused) { if (paused) clip.stop() else clip.resume() }
+
+    val progress = remember { Animatable(0f) }
+    LaunchedEffect(story.id, slide) { progress.snapTo(0f) }
+    LaunchedEffect(story.id, slide, paused) {
+        if (paused) { progress.stop(); return@LaunchedEffect }
+        progress.animateTo(1f, tween(((1f - progress.value) * segMs).toInt(), easing = LinearEasing))
         next()
     }
 
     val top = parseColor(story.style.top); val bottom = parseColor(story.style.bottom)
     Box(Modifier.fillMaxSize().background(Color.Black)) {
-        Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(top, bottom))))
-        AsyncImage(story.song.cover, null, contentScale = ContentScale.Crop,
-            modifier = Modifier.fillMaxSize().blur(60.dp).background(Color.Black.copy(alpha = 0.2f)), alpha = 0.45f)
+        if (media == null) {
+            Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(top, bottom))))
+            AsyncImage(story.song.cover, null, contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize().blur(60.dp), alpha = 0.45f)
+        } else {
+            androidx.compose.animation.AnimatedContent("${story.id}/$slide", transitionSpec = { fadeIn(tween(220)) togetherWith fadeOut(tween(180)) }, label = "sl") { _ ->
+                SlideMedia(media.type, media.url, media.trimStartMs, media.durationMs, media.volume, media.zoom, media.offsetX, media.offsetY, playing = !paused)
+            }
+            StoryTextsLayer(media.texts, "${story.id}/$slide")
+        }
         // tap zones: left = back, right = forward, hold = pause
-        Box(Modifier.fillMaxSize().pointerInput(story.id) {
+        Box(Modifier.fillMaxSize().pointerInput(story.id, slide) {
             detectTapGestures(
                 onTap = { o -> if (o.x < size.width / 3) prev() else next() },
                 onPress = { paused = true; tryAwaitRelease(); paused = false },
             )
         })
+        if (media == null) Column(Modifier.align(Alignment.Center).padding(horizontal = 28.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+            if (story.caption.isNotBlank()) Text(story.caption, fontSize = 22.sp, fontWeight = FontWeight.Bold, color = Color.White,
+                textAlign = TextAlign.Center, modifier = Modifier.padding(top = 360.dp).clip(RoundedCornerShape(10.dp))
+                    .background(Color.Black.copy(alpha = 0.35f)).padding(horizontal = 14.dp, vertical = 8.dp))
+        }
+        // the song: big in the middle, then it shrinks to the bottom-right corner and breathes on the beat
+        SongSticker(story.song, story.style.bpm, story.id, paused)
+
         Column(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding().imePadding()) {
-            // progress bars
+            // progress bars: one per slide of this story
             Row(Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                group.stories.forEachIndexed { i, _ ->
+                val n = slides.size.coerceAtLeast(1)
+                repeat(n) { i ->
                     Box(Modifier.weight(1f).height(3.dp).clip(CircleShape).background(Color.White.copy(alpha = 0.3f))) {
-                        val f = when { i < storyIndex -> 1f; i == storyIndex -> progress.value; else -> 0f }
+                        val f = when { i < slide -> 1f; i == slide -> progress.value; else -> 0f }
                         Box(Modifier.fillMaxWidth(f).fillMaxHeight().background(Color.White))
                     }
                 }
@@ -256,23 +285,11 @@ fun StoryViewerScreen(startUserId: String) {
                 Spacer(Modifier.width(10.dp))
                 Text(if (mine) "La tua storia" else group.user.name, style = MaterialTheme.typography.titleSmall, color = Color.White)
                 Spacer(Modifier.width(8.dp))
-                Text(timeAgo(story.createdAt), style = MaterialTheme.typography.labelMedium, color = Color.White.copy(alpha = 0.7f))
+                Text(timeAgo(story.createdAt) + if (group.stories.size > 1) "  ${storyIndex + 1}/${group.stories.size}" else "",
+                    style = MaterialTheme.typography.labelMedium, color = Color.White.copy(alpha = 0.7f))
                 Spacer(Modifier.weight(1f))
                 if (mine) IconButton(onClick = { paused = true; confirmDelete = true }) { Icon(Icons.Rounded.Delete, "Elimina", tint = Color.White) }
                 IconButton(onClick = { nav.back() }) { Icon(Icons.Rounded.Close, "Chiudi", tint = Color.White) }
-            }
-            Spacer(Modifier.weight(1f))
-            AnimatedContent(story.id, transitionSpec = { (fadeIn() + scaleIn(initialScale = 0.92f)) togetherWith fadeOut() }, label = "story",
-                modifier = Modifier.align(Alignment.CenterHorizontally)) { _ ->
-                Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.padding(horizontal = 28.dp)) {
-                    Cover(story.song.cover, Modifier.size(270.dp).shadow(30.dp, RoundedCornerShape(14.dp)), RoundedCornerShape(14.dp))
-                    Text(story.song.title, style = MaterialTheme.typography.headlineSmall, color = Color.White, textAlign = TextAlign.Center,
-                        modifier = Modifier.padding(top = 20.dp), maxLines = 2)
-                    Text(story.song.artist, style = MaterialTheme.typography.titleMedium, color = Color.White.copy(alpha = 0.8f), textAlign = TextAlign.Center)
-                    if (story.caption.isNotBlank()) Text(story.caption, fontSize = 22.sp, fontWeight = FontWeight.Bold, color = Color.White,
-                        textAlign = TextAlign.Center, modifier = Modifier.padding(top = 18.dp).clip(RoundedCornerShape(10.dp))
-                            .background(Color.Black.copy(alpha = 0.35f)).padding(horizontal = 14.dp, vertical = 8.dp))
-                }
             }
             Spacer(Modifier.weight(1f))
             Row(Modifier.fillMaxWidth().padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -349,87 +366,6 @@ fun StoryViewerScreen(startUserId: String) {
         }) { Text("Elimina") } },
         dismissButton = { TextButton(onClick = { confirmDelete = false; paused = false }) { Text("Annulla") } }
     )
-}
-
-// =====================================================================================  composer
-
-@Composable
-fun NewStoryScreen(initial: SongRef?) {
-    val app = LocalApp.current
-    val nav = app.nav
-    val context = LocalContext.current
-    val scope = rememberCoroutineScope()
-    var song by remember { mutableStateOf(initial) }
-    var caption by remember { mutableStateOf("") }
-    var gradient by remember { mutableIntStateOf(0) }
-    var picking by remember { mutableStateOf(initial == null) }
-    var posting by remember { mutableStateOf(false) }
-    val clip = remember { ClipPlayer(context) }
-    var preview by remember { mutableStateOf<String?>(null) }
-    var dzId by remember { mutableStateOf<Long?>(null) }
-    DisposableEffect(Unit) { onDispose { clip.release() } }
-    LaunchedEffect(song?.key) {
-        preview = null
-        song?.let { s ->
-            dzId = runCatching { VibesGraph.deezer.deezerId(s) }.getOrNull()
-            preview = runCatching { VibesGraph.deezer.freshPreview(dzId, s) }.getOrNull()
-            preview?.let { clip.load(it); clip.playFull() }
-        }
-    }
-
-    val (top, bottom) = storyGradients[gradient]
-    Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(parseColor(top), parseColor(bottom))))) {
-        Column(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding().imePadding()) {
-            Row(Modifier.fillMaxWidth().padding(4.dp), verticalAlignment = Alignment.CenterVertically) {
-                IconButton(onClick = { nav.back() }) { Icon(Icons.Rounded.Close, "Annulla", tint = Color.White) }
-                Text("Nuova storia", style = MaterialTheme.typography.titleLarge, color = Color.White, modifier = Modifier.weight(1f))
-                Text("Cambia brano", color = Color.White, style = MaterialTheme.typography.labelLarge,
-                    modifier = Modifier.clip(CircleShape).clickable { picking = true }.padding(12.dp))
-            }
-            Spacer(Modifier.weight(1f))
-            val s = song
-            if (s != null) Column(Modifier.fillMaxWidth().padding(horizontal = 28.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                Cover(s.cover, Modifier.size(240.dp).shadow(30.dp, RoundedCornerShape(14.dp)), RoundedCornerShape(14.dp))
-                Text(s.title, style = MaterialTheme.typography.headlineSmall, color = Color.White, textAlign = TextAlign.Center, modifier = Modifier.padding(top = 18.dp))
-                Text(s.artist, style = MaterialTheme.typography.titleMedium, color = Color.White.copy(alpha = 0.8f))
-                Box(Modifier.padding(top = 16.dp).clip(RoundedCornerShape(10.dp)).background(Color.Black.copy(alpha = 0.35f))
-                    .padding(horizontal = 14.dp, vertical = 8.dp)) {
-                    androidx.compose.foundation.text.BasicTextField(
-                        caption, { caption = it.take(80) },
-                        textStyle = androidx.compose.ui.text.TextStyle(color = Color.White, fontSize = 22.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center),
-                        cursorBrush = androidx.compose.ui.graphics.SolidColor(Color.White),
-                        decorationBox = { inner ->
-                            Box(contentAlignment = Alignment.Center) {
-                                if (caption.isEmpty()) Text("Scrivi qualcosa…", color = Color.White.copy(alpha = 0.6f), fontSize = 20.sp)
-                                inner()
-                            }
-                        }
-                    )
-                }
-            } else Text("Scegli un brano", color = Color.White, style = MaterialTheme.typography.headlineSmall,
-                modifier = Modifier.align(Alignment.CenterHorizontally).clickable { picking = true })
-            Spacer(Modifier.weight(1f))
-            LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                items(storyGradients.size) { i ->
-                    val (a, b) = storyGradients[i]
-                    Box(Modifier.size(40.dp).clip(CircleShape).background(Brush.verticalGradient(listOf(parseColor(a), parseColor(b))))
-                        .border(if (i == gradient) 3.dp else 1.dp, Color.White, CircleShape).clickable { gradient = i })
-                }
-            }
-            BigButton("Pubblica storia", {
-                val sng = song ?: return@BigButton
-                posting = true
-                scope.launch {
-                    runCatching { app.social.postStory(sng, caption.trim(), StoryStyle(top, bottom, preview, dzId)) }
-                        .onSuccess { nav.toast("Storia pubblicata ✨"); nav.back() }
-                        .onFailure { nav.toast(it.message ?: "Non sono riuscito a pubblicarla") }
-                    posting = false
-                }
-            }, Modifier.fillMaxWidth().padding(16.dp), enabled = song != null, loading = posting,
-                container = Color.White, content = Color.Black)
-        }
-    }
-    if (picking) GlobalSongPicker(onDismiss = { picking = false; if (song == null) nav.back() }) { picked -> song = picked; picking = false }
 }
 
 // =====================================================================================  monthly recap
