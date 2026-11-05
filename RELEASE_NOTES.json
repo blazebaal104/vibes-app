@@ -1,9 +1,10 @@
 {
-  "title": "Fix play: ricollega Deezer",
+  "title": "Fix play + Deezer in un minuto",
   "notes": [
     "Trovato il motivo per cui il play non partiva: Deezer aveva chiuso la sessione e Vibes non te lo diceva",
-    "Ora se Deezer rifiuta un brano compare subito \"Ricollega Deezer\" invece di restare fermo",
+    "Ora se Deezer rifiuta un brano compare subito \"Collega Deezer\" invece di restare fermo",
+    "Crea un account Deezer gratis o accedi direttamente dentro Vibes: si collega da solo, niente codici",
     "Risolto: dopo aver ricollegato Deezer i brani restavano bloccati fino al riavvio dell'app",
-    "Chi non ha ancora collegato Deezer viene guidato a farlo alla prima riproduzione"
+    "Gli aggiornamenti ora sono obbligatori: un solo tasto, Installa ora"
   ]
 }

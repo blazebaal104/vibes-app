@@ -1,5 +1,7 @@
 package dev.brahmkshatriya.echo.vibes.ui
 
+import androidx.compose.foundation.verticalScroll
+
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -280,13 +282,41 @@ fun DeezerLoginScreen() {
     var arl by remember { mutableStateOf("") }
     var loading by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
+    var web by remember { mutableStateOf<Boolean?>(null) } // true = sign up, false = log in on deezer.com
+
+    web?.let { signup ->
+        GradientBackground {
+            DeezerWebLogin(signup, onBack = { web = null }) { arl ->
+                app.engine.loginWithArl(arl)
+                dev.brahmkshatriya.echo.vibes.music.DeezerAuth.linked()
+                nav.toast("Deezer collegato 🎉 ora puoi ascoltare tutto")
+                nav.back()
+            }
+        }
+        return
+    }
 
     GradientBackground {
-        Column(Modifier.fillMaxSize().statusBarsPadding().imePadding().padding(horizontal = 20.dp)) {
+        Column(Modifier.fillMaxSize().statusBarsPadding().imePadding().padding(horizontal = 20.dp)
+            .verticalScroll(androidx.compose.foundation.rememberScrollState())) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 IconButton(onClick = { nav.back() }) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Indietro") }
                 Text("Collega Deezer", style = MaterialTheme.typography.headlineSmall)
             }
+            Spacer(Modifier.height(10.dp))
+            Text(
+                "La musica di Vibes arriva da Deezer. Non hai un account? Crealo qui dentro in un minuto, è gratis: " +
+                        "appena hai finito Vibes si collega da solo.",
+                style = MaterialTheme.typography.bodyMedium
+            )
+            Spacer(Modifier.height(16.dp))
+            BigButton("Crea account Deezer gratis", { web = true }, Modifier.fillMaxWidth())
+            Spacer(Modifier.height(10.dp))
+            BigButton("Ho già Deezer: accedi", { web = false }, Modifier.fillMaxWidth(),
+                container = MaterialTheme.colorScheme.surfaceVariant, content = MaterialTheme.colorScheme.onSurface)
+            Spacer(Modifier.height(26.dp))
+            Text("Oppure inserisci i dati qui", style = MaterialTheme.typography.titleSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant)
             Spacer(Modifier.height(10.dp))
             Text(
                 "Vibes usa il tuo account Deezer per cercare e riprodurre la musica. Le credenziali restano solo sul telefono.",

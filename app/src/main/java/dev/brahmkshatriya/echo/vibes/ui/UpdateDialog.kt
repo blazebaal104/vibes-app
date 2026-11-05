@@ -54,104 +54,104 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.LifecycleResumeEffect
 import dev.brahmkshatriya.echo.vibes.VibesGraph
 import dev.brahmkshatriya.echo.vibes.update.Updater
+import dev.chrisbanes.haze.hazeEffect
 import kotlinx.coroutines.launch
 
 /** Checks for a new version on start and shows the update panel. */
 @Composable
 fun UpdateHost() {
     val updater = VibesGraph.updater
-    val prefs = LocalSettings.current
-    LaunchedEffect(Unit) {
-        if (prefs.autoUpdate) runCatching { updater.check() }.getOrNull()?.let { updater.show(it) }
+    // mandatory updates: always check at start and every time the app comes back to the foreground
+    var checks by remember { mutableStateOf(0) }
+    LifecycleResumeEffect(Unit) { checks++; onPauseOrDispose { } }
+    LaunchedEffect(checks) {
+        if (updater.pending.value == null) runCatching { updater.check(force = true) }.getOrNull()?.let { updater.show(it) }
     }
     val info by updater.pending.collectAsState()
     val phase by updater.phase.collectAsState()
     val scope = rememberCoroutineScope()
     var needPermission by remember { mutableStateOf(false) }
+    var wantInstall by remember { mutableStateOf(false) }
+    fun installNow(u: dev.brahmkshatriya.echo.vibes.update.UpdateInfo) {
+        if (updater.canInstall()) updater.install(u) else { needPermission = true; updater.openInstallPermission() }
+    }
     // coming back from the "install unknown apps" screen: continue
     LifecycleResumeEffect(needPermission) {
         if (needPermission && updater.canInstall()) { needPermission = false; info?.let { updater.install(it) } }
         onPauseOrDispose { }
     }
+    // one tap: download, then the installer opens by itself
+    LaunchedEffect(phase, wantInstall) {
+        if (wantInstall && phase is Updater.Phase.Ready) { wantInstall = false; info?.let { installNow(it) } }
+    }
+    // no way around it: back does nothing while an update is pending
+    androidx.activity.compose.BackHandler(enabled = info != null) { }
 
     AnimatedVisibility(info != null, enter = fadeIn(), exit = fadeOut()) {
-        Box(
-            Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.6f))
-                .clickable(remember { MutableInteractionSource() }, null) { },
-            contentAlignment = Alignment.BottomCenter
-        ) {
+        val haze = LocalHaze.current
+        Box(Modifier.fillMaxSize()) {
+            // the whole app, blurred, behind the card
+            Box(
+                Modifier.fillMaxSize()
+                    .then(if (haze != null) Modifier.hazeEffect(haze) { blurRadius = 28.dp; noiseFactor = 0.05f } else Modifier)
+                    .background(Color.Black.copy(alpha = 0.45f))
+                    .clickable(remember { MutableInteractionSource() }, null) { }
+            )
             val u = info ?: return@Box
             val accent = MaterialTheme.colorScheme.primary
-            androidx.compose.animation.AnimatedVisibility(
-                true, enter = slideInVertically { it } + fadeIn(), exit = slideOutVertically { it }
+            Column(
+                Modifier.align(Alignment.Center).padding(horizontal = 22.dp).fillMaxWidth()
+                    .clip(RoundedCornerShape(28.dp)).background(MaterialTheme.colorScheme.background)
             ) {
-                Column(
-                    Modifier.fillMaxWidth().clip(RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp))
-                        .background(MaterialTheme.colorScheme.background)
+                Box(
+                    Modifier.fillMaxWidth().background(Brush.linearGradient(listOf(accent, accent.copy(alpha = 0.35f), Color.Transparent)))
+                        .padding(20.dp)
                 ) {
-                    // header
-                    Box(
-                        Modifier.fillMaxWidth().background(Brush.linearGradient(listOf(accent, accent.copy(alpha = 0.35f), Color.Transparent)))
-                            .padding(20.dp)
-                    ) {
-                        val bob = remember { androidx.compose.animation.core.Animatable(40f) }
-                        LaunchedEffect(Unit) { bob.animateTo(0f, spring(dampingRatio = 0.4f, stiffness = 120f)) }
-                        Column {
-                            Text("🚀", fontSize = 46.sp, modifier = Modifier.graphicsLayer { translationY = bob.value })
-                            Text("Nuova versione disponibile", style = MaterialTheme.typography.labelLarge, color = Color.White.copy(alpha = 0.9f),
-                                modifier = Modifier.padding(top = 8.dp))
-                            Text(u.title, style = MaterialTheme.typography.headlineMedium, color = Color.White)
-                            Text("Versione ${u.versionName.ifBlank { u.versionCode.toString() }}" +
-                                    (if (u.size > 0) " · ${"%.1f".format(u.size / 1_048_576f)} MB" else "") +
-                                    " · tu hai la ${updater.installedName}",
-                                style = MaterialTheme.typography.bodySmall, color = Color.White.copy(alpha = 0.85f))
-                        }
-                        IconButton(onClick = { updater.close() }, modifier = Modifier.align(Alignment.TopEnd)) {
-                            Icon(Icons.Rounded.Close, "Chiudi", tint = Color.White)
+                    val bob = remember { androidx.compose.animation.core.Animatable(40f) }
+                    LaunchedEffect(Unit) { bob.animateTo(0f, spring(dampingRatio = 0.4f, stiffness = 120f)) }
+                    Column {
+                        Text("🚀", fontSize = 46.sp, modifier = Modifier.graphicsLayer { translationY = bob.value })
+                        Text("Aggiornamento necessario", style = MaterialTheme.typography.labelLarge, color = Color.White.copy(alpha = 0.9f),
+                            modifier = Modifier.padding(top = 8.dp))
+                        Text(u.title, style = MaterialTheme.typography.headlineMedium, color = Color.White)
+                        Text("Versione ${u.versionName.ifBlank { u.versionCode.toString() }}" +
+                                (if (u.size > 0) " · ${"%.1f".format(u.size / 1_048_576f)} MB" else "") +
+                                " · tu hai la ${updater.installedName}",
+                            style = MaterialTheme.typography.bodySmall, color = Color.White.copy(alpha = 0.85f))
+                    }
+                }
+                Column(Modifier.padding(horizontal = 20.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("Cosa c'è di nuovo", style = MaterialTheme.typography.titleMedium)
+                    u.notes.forEachIndexed { i, n ->
+                        Row(Modifier.enter(i), verticalAlignment = Alignment.Top) {
+                            Box(Modifier.padding(top = 6.dp).size(8.dp).clip(CircleShape).background(accent))
+                            Spacer(Modifier.width(10.dp))
+                            Text(n, style = MaterialTheme.typography.bodyMedium)
                         }
                     }
-                    // notes
-                    Column(Modifier.padding(horizontal = 20.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Text("Cosa c'è di nuovo", style = MaterialTheme.typography.titleMedium)
-                        u.notes.forEachIndexed { i, n ->
-                            Row(Modifier.enter(i), verticalAlignment = Alignment.Top) {
-                                Box(Modifier.padding(top = 6.dp).size(8.dp).clip(CircleShape).background(accent))
-                                Spacer(Modifier.width(10.dp))
-                                Text(n, style = MaterialTheme.typography.bodyMedium)
-                            }
-                        }
+                }
+                Column(Modifier.padding(horizontal = 20.dp).padding(bottom = 18.dp)) {
+                    val p = phase
+                    if (p is Updater.Phase.Downloading) {
+                        val prog by animateFloatAsState(p.progress, label = "dl")
+                        LinearProgressIndicator(progress = { prog }, modifier = Modifier.fillMaxWidth().height(10.dp).clip(CircleShape), color = accent)
+                        Text("Scarico… ${(p.progress * 100).toInt()}%", style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 6.dp, bottom = 10.dp))
                     }
-                    // progress / actions
-                    Column(Modifier.padding(horizontal = 20.dp).padding(bottom = 16.dp).navigationBarsPadding()) {
-                        val p = phase
-                        if (p is Updater.Phase.Downloading) {
-                            val prog by animateFloatAsState(p.progress, label = "dl")
-                            LinearProgressIndicator(progress = { prog }, modifier = Modifier.fillMaxWidth().height(10.dp).clip(CircleShape), color = accent)
-                            Text("Scarico… ${(p.progress * 100).toInt()}%", style = MaterialTheme.typography.labelMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 6.dp, bottom = 10.dp))
-                        }
-                        if (p is Updater.Phase.Failed) Text(p.message, color = Color(0xFFFF5C7A), modifier = Modifier.padding(bottom = 8.dp))
-                        if (needPermission) Text(
-                            "Consenti a Vibes di installare app nella schermata che si è aperta, poi torna qui: l'installazione parte da sola.",
-                            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.padding(bottom = 8.dp)
-                        )
-                        AnimatedContent(p is Updater.Phase.Ready, transitionSpec = { scaleIn(initialScale = 0.9f) + fadeIn() togetherWith fadeOut() }, label = "btn") { ready ->
-                            BigButton(
-                                if (ready) "Installa ora" else "Scarica ora",
-                                {
-                                    if (ready) {
-                                        if (updater.canInstall()) updater.install(u) else { needPermission = true; updater.openInstallPermission() }
-                                    } else scope.launch { updater.download(u) }
-                                },
-                                Modifier.fillMaxWidth(), loading = p is Updater.Phase.Downloading
-                            )
-                        }
-                        Text("Più tardi", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.align(Alignment.CenterHorizontally).padding(top = 12.dp).clip(CircleShape)
-                                .clickable { updater.later() }.padding(horizontal = 16.dp, vertical = 8.dp))
-                    }
+                    if (p is Updater.Phase.Failed) Text(p.message, color = Color(0xFFFF5C7A), modifier = Modifier.padding(bottom = 8.dp))
+                    if (needPermission) Text(
+                        "Consenti a Vibes di installare app nella schermata che si è aperta, poi torna qui: l'installazione parte da sola.",
+                        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(bottom = 8.dp)
+                    )
+                    BigButton(
+                        "Installa ora",
+                        {
+                            if (p is Updater.Phase.Ready) installNow(u)
+                            else { wantInstall = true; scope.launch { updater.download(u) } }
+                        },
+                        Modifier.fillMaxWidth(), loading = p is Updater.Phase.Downloading
+                    )
                 }
             }
         }
