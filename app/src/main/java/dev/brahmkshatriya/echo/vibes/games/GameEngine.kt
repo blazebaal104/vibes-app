@@ -12,6 +12,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.MainScope
 import kotlinx.coroutines.async
+import dev.brahmkshatriya.echo.extensions.ExtensionUtils.getAs
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
@@ -244,87 +245,108 @@ class ClipPlayer(context: Context) {
 }
 
 /**
- * Game player that uses the FULL song through the Gladix engine, so clips start from the real
- * beginning of the track (Deezer previews are cut from the middle). It stops on the actual playback
- * position, not on a timer, so 1 s is 1 s even if buffering is slow. Falls back to the 30 s preview
- * when the full song can't start (no Deezer login, network...).
+ * Game audio: the FULL song from its real beginning, played as a plain sound (own ExoPlayer, no media
+ * session, no notification, the user's queue is untouched). The start of the track is fetched through
+ * the Deezer extension (already decrypted) into a small temp file; if that fails it falls back to
+ * the 30 s Deezer preview. Clips stop on the real playback position, not on a timer.
  */
 class EngineClip(private val engine: dev.brahmkshatriya.echo.vibes.music.MusicEngine, context: Context) {
-    private val fallback = ClipPlayer(context)
+    private val app = context.applicationContext
+    private val player = ExoPlayer.Builder(app).build()
     private val scope = MainScope()
     private var job: Job? = null
-    private var useFallback = false
+    private var prefetch: kotlinx.coroutines.Deferred<androidx.media3.common.MediaItem?>? = null
+    private var preview: String? = null
+    private var loaded: String? = null
     private var playing = false
     var onStateChange: ((Boolean) -> Unit)? = null
-        set(v) { field = v; fallback.onStateChange = v }
-
-    private val browser get() = engine.player.browser.value
 
     private fun setPlaying(p: Boolean) { if (p != playing) { playing = p; onStateChange?.invoke(p) } }
 
+    private val dir get() = java.io.File(app.cacheDir, "game_audio").apply { mkdirs() }
+
     fun load(t: GameTrack) {
-        job?.cancel()
-        useFallback = false
-        fallback.load(t.preview)
-        runCatching {
-            val song = t.toSongRef()
-            engine.player.setQueue(song.ext, listOf(song.toTrack()), 0, null)
-            engine.player.setPlaying(false)
-        }.onFailure { useFallback = true }
+        job?.cancel(); player.pause(); setPlaying(false)
+        preview = t.preview
+        loaded = null
+        dir.listFiles()?.forEach { it.delete() }
+        prefetch = scope.async(Dispatchers.IO) { runCatching { fetchStart(t) }.getOrNull() }
     }
 
-    /** Waits until the engine is really playing from the start; false if it doesn't within 8 s. */
+    /** Resolves the real stream of the track and keeps its first ~2.5 MB (well over 10 s of audio). */
+    private suspend fun fetchStart(t: GameTrack): androidx.media3.common.MediaItem? = kotlinx.coroutines.withTimeout(15_000) {
+        val ext = engine.extension()
+        val song = t.toSongRef()
+        val full = ext.getAs<dev.brahmkshatriya.echo.common.clients.TrackClient, dev.brahmkshatriya.echo.common.models.Track> {
+            loadTrack(song.toTrack(), false)
+        }.getOrThrow()
+        val server = full.servers.firstOrNull() ?: return@withTimeout null
+        val media = ext.getAs<dev.brahmkshatriya.echo.common.clients.TrackClient, dev.brahmkshatriya.echo.common.models.Streamable.Media> {
+            loadStreamableMedia(server, false)
+        }.getOrThrow() as? dev.brahmkshatriya.echo.common.models.Streamable.Media.Server ?: return@withTimeout null
+        when (val src = media.sources.firstOrNull()) {
+            is dev.brahmkshatriya.echo.common.models.Streamable.Source.Raw -> {
+                val (input, _) = src.streamProvider!!.provide(0, -1)
+                val file = java.io.File(dir, "t_${t.id}.audio")
+                input.use { i ->
+                    file.outputStream().use { o ->
+                        val buf = ByteArray(32 * 1024); var total = 0
+                        while (total < 2_500_000) { val n = i.read(buf); if (n < 0) break; o.write(buf, 0, n); total += n }
+                    }
+                }
+                androidx.media3.common.MediaItem.fromUri(android.net.Uri.fromFile(file))
+            }
+            is dev.brahmkshatriya.echo.common.models.Streamable.Source.Http ->
+                if (src.decryption != null) null
+                else androidx.media3.common.MediaItem.fromUri(src.request.url)
+            else -> null
+        }
+    }
+
+    /** Prepares the full-song start (or the preview) once per track. */
+    private suspend fun ensureLoaded() {
+        val item = runCatching { kotlinx.coroutines.withTimeout(12_000) { prefetch?.await() } }.getOrNull()
+        val key = item?.localConfiguration?.uri?.toString() ?: preview
+        if (key == loaded) return
+        loaded = key
+        player.setMediaItem(item ?: androidx.media3.common.MediaItem.fromUri(preview ?: return))
+        player.prepare()
+    }
+
     private suspend fun startFromZero(): Boolean {
-        val b = browser ?: return false
-        b.seekTo(0)
-        b.play()
+        ensureLoaded()
+        player.seekTo(0)
+        player.play()
         var waited = 0
-        while (!(b.isPlaying && b.currentPosition < 3000) && waited < 8000) { delay(15); waited += 15 }
-        return b.isPlaying
+        while (!player.isPlaying && waited < 8000) { delay(10); waited += 10 }
+        return player.isPlaying
     }
 
     fun playClip(ms: Long) {
         job?.cancel()
-        if (useFallback) { fallback.playClip(ms); return }
         job = scope.launch {
-            if (!startFromZero()) {
-                engine.pause(); useFallback = true; fallback.playClip(ms); return@launch
-            }
+            if (!startFromZero()) { player.pause(); return@launch }
             setPlaying(true)
-            val b = browser!!
-            while (b.currentPosition < ms) delay(8)
-            b.pause()
-            b.seekTo(0)
+            while (player.currentPosition < ms && player.isPlaying) delay(5)
+            player.pause()
             setPlaying(false)
         }
     }
 
     fun playFull(onEnd: () -> Unit = {}) {
         job?.cancel()
-        if (useFallback) { fallback.playFull(onEnd); return }
         job = scope.launch {
-            if (!startFromZero()) { useFallback = true; fallback.playFull(onEnd); return@launch }
+            if (!startFromZero()) return@launch
             setPlaying(true)
-            val b = browser!!
-            while (true) {
-                delay(300)
-                val d = b.duration
-                if (b.playbackState == androidx.media3.common.Player.STATE_ENDED || (d > 0 && b.currentPosition >= d - 400)) break
-            }
-            b.pause()
+            while (player.playbackState != androidx.media3.common.Player.STATE_ENDED) delay(250)
             setPlaying(false)
             onEnd()
         }
     }
 
-    fun position(): Long = if (useFallback) fallback.position() else browser?.currentPosition ?: 0L
+    fun position(): Long = player.currentPosition
 
-    fun stop() {
-        job?.cancel()
-        runCatching { browser?.pause() }
-        fallback.stop()
-        setPlaying(false)
-    }
+    fun stop() { job?.cancel(); player.pause(); setPlaying(false) }
 
-    fun release() { stop(); fallback.release() }
+    fun release() { stop(); prefetch?.cancel(); player.release(); dir.listFiles()?.forEach { it.delete() } }
 }
