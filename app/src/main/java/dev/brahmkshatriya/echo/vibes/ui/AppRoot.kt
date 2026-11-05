@@ -1,5 +1,7 @@
 package dev.brahmkshatriya.echo.vibes.ui
 
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.Spacer
 import dev.chrisbanes.haze.hazeSource
 import androidx.compose.ui.unit.sp
 import androidx.compose.animation.core.animateFloat

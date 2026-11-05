@@ -1,5 +1,6 @@
 package dev.brahmkshatriya.echo.vibes.ui
 
+import androidx.compose.material.icons.rounded.Search
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.ui.graphics.graphicsLayer
@@ -176,7 +177,7 @@ fun Aurora(colors: List<Color>, modifier: Modifier = Modifier) {
 fun SearchField(value: String, onChange: (String) -> Unit, placeholder: String, modifier: Modifier = Modifier) {
     Row(modifier.fillMaxWidth().glass(RoundedCornerShape(16.dp), fallback = LocalVibes.current.card).padding(horizontal = 14.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically) {
-        Icon(androidx.compose.material.icons.Icons.Rounded.Search, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+        Icon(Icons.Rounded.Search, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
         Spacer(Modifier.width(10.dp))
         Box(Modifier.weight(1f)) {
             if (value.isEmpty()) Text(placeholder, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodyLarge, maxLines = 1)
