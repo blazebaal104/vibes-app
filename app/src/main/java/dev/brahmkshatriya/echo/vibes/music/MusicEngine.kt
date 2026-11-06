@@ -1,5 +1,7 @@
 package dev.brahmkshatriya.echo.vibes.music
 
+import dev.brahmkshatriya.echo.playback.MediaItemUtils.extensionId
+
 import dev.brahmkshatriya.echo.common.MusicExtension
 import dev.brahmkshatriya.echo.common.clients.AlbumClient
 import dev.brahmkshatriya.echo.common.clients.ArtistClient
@@ -243,9 +245,23 @@ class MusicEngine(
         }
         val ext = songs[index.coerceIn(0, songs.size - 1)].ext
         val list = if (shuffle) songs.shuffled() else songs
-        player.setQueue(ext, list.map { it.toTrack() }, if (shuffle) 0 else index, null)
+        val start = if (shuffle) 0 else index.coerceIn(0, list.size - 1)
+        session = Session(list, start, ctx, shuffle)
+        player.setQueue(ext, list.map { it.toTrack() }, start, null)
         player.setPlaying(true)
     }
+
+    /**
+     * What was last started with [playAll]. The player queue only keeps the tapped song and the
+     * ones after it (the earlier ones are dropped), and "previous" only knows songs actually played
+     * since: so on the tapped song it restarted it instead of going back. Bug from friends:
+     * "quando mandi indietro non riparte la canzone precedente ma quella che stai ascoltando".
+     */
+    private data class Session(val list: List<SongRef>, val start: Int, val ctx: VibesPlaylist?, val shuffled: Boolean)
+    @Volatile private var session: Session? = null
+
+    private fun currentKey(): String? =
+        player.playerState.current.value?.let { "${it.mediaItem.extensionId}:${it.track.id}" }
 
     fun togglePlay() {
         val cur = player.playerState.current.value ?: return
@@ -254,7 +270,21 @@ class MusicEngine(
     }
 
     fun next() = player.next()
-    fun previous() = player.previous()
+    fun previous() {
+        val s = session
+        val key = currentKey()
+        // Same rule as Spotify/Apple Music: after 3 s "previous" restarts the song. In the first 3 s,
+        // on the song that was tapped (nothing played before it in this queue), go to the song that
+        // precedes it in the playlist by rebuilding the queue one step earlier.
+        if (s != null && key != null && position() <= 3_000 && s.start > 0 && s.list.getOrNull(s.start)?.key == key) {
+            val idx = s.start - 1
+            session = s.copy(start = idx)
+            player.setQueue(s.list[idx].ext, s.list.map { it.toTrack() }, idx, null)
+            player.setPlaying(true)
+            return
+        }
+        player.previous()
+    }
     fun seekTo(ms: Long) = player.seekTo(ms)
     fun pause() = player.setPlaying(false)
 

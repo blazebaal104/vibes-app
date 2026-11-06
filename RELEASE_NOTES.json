@@ -1,10 +1,7 @@
 {
-  "title": "YouTube Music e brani offline",
+  "title": "Tasto indietro sistemato",
   "notes": [
-    "Trasferimento da YouTube Music riparato: YouTube aveva cambiato formato e Vibes non trovava più le canzoni",
-    "Ora prende nome, copertina e tutte le canzoni, anche playlist lunghe con più di 100 brani",
-    "Nuovo: scarica playlist e brani preferiti con la freccia ⬇ e ascoltali senza internet",
-    "In Libreria trovi «Scaricati» con tutti i brani offline e quanto spazio occupano",
-    "Quando importi una playlist puoi scaricarla subito"
+    "Indietro nei primi 3 secondi torna davvero alla canzone precedente della playlist, anche sulla prima che hai toccato",
+    "Dopo 3 secondi riparte la canzone, come su Spotify"
   ]
 }
