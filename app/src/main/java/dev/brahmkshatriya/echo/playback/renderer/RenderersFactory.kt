@@ -82,7 +82,8 @@ class RenderersFactory(
         silenceSkipping: SilenceSkippingAudioProcessor,
         sonic: SonicAudioProcessor,
     ) : DefaultAudioSink.DefaultAudioProcessorChain(
-        arrayOf(effects), silenceSkipping, sonic
+        // Vibes: KaraokeProcessor after the effects (passthrough unless karaoke mode is on)
+        arrayOf(effects, KaraokeProcessor()), silenceSkipping, sonic
     ) {
         override fun getSkippedOutputFrameCount(): Long =
             super.getSkippedOutputFrameCount() + effects.discardedFrameCount()

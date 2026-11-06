@@ -34,6 +34,7 @@ import androidx.compose.material.icons.rounded.FavoriteBorder
 import androidx.compose.material.icons.rounded.KeyboardArrowDown
 import androidx.compose.material.icons.rounded.Pause
 import androidx.compose.material.icons.rounded.PlayArrow
+import androidx.compose.material.icons.rounded.Mic
 import androidx.compose.material.icons.rounded.PlaylistAdd
 import androidx.compose.material.icons.rounded.Repeat
 import androidx.compose.material.icons.rounded.RepeatOne
@@ -153,6 +154,8 @@ fun FullPlayer() {
     var seekValue by remember { mutableFloatStateOf(0f) }
     var shuffle by remember { mutableStateOf(app.engine.player.browser.value?.shuffleModeEnabled == true) }
     var repeat by remember { mutableIntStateOf(app.engine.player.browser.value?.repeatMode ?: 0) }
+    var karaoke by remember { mutableStateOf(false) }
+    if (karaoke) { KaraokeScreen(song, playing) { karaoke = false }; return }
     val baseScale by animateFloatAsState(if (playing) 1f else 0.86f, spring(dampingRatio = 0.6f, stiffness = 300f), label = "cover")
     // "canvas": the cover slowly breathes while the song plays
     val breathe by androidx.compose.animation.core.rememberInfiniteTransition(label = "br").animateFloat(
@@ -266,6 +269,12 @@ fun FullPlayer() {
                     Spacer(Modifier.width(8.dp))
                     Text("Condividi", color = MaterialTheme.colorScheme.onPrimary, style = MaterialTheme.typography.titleSmall)
                 }
+                Box(
+                    Modifier.size(46.dp).clip(CircleShape)
+                        .background(Brush.linearGradient(listOf(Color(0xFFFF4FD8), Color(0xFF8E7BFF))))
+                        .bouncy({ karaoke = true }),
+                    contentAlignment = Alignment.Center
+                ) { Icon(Icons.Rounded.Mic, "Karaoke", tint = Color.White) }
                 Box(
                     Modifier.size(46.dp).clip(CircleShape).background(LocalVibes.current.cardHigh)
                         .bouncy({ app.nav.addToPlaylist = song }),

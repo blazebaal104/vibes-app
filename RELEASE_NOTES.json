@@ -1,9 +1,9 @@
 {
-  "title": "Indietro e dissolvenza sistemati",
+  "title": "Modalità karaoke 🎤",
   "notes": [
-    "Indietro nei primi 3 secondi torna davvero alla canzone precedente della playlist, anche sulla prima che hai toccato",
-    "Tolto il silenzio di qualche secondo tra una canzone e l'altra",
-    "Dissolvenza tra i brani attiva di default (3 secondi): la regoli o la spegni in Impostazioni → Riproduzione",
-    "Se una dissolvenza salta o c'è un silenzio, Vibes manda il motivo per poterlo sistemare"
+    "Nuovo: tasto 🎤 nel player per la modalità karaoke",
+    "La voce viene tolta in tempo reale e resta la base, con basso e batteria intatti",
+    "Il testo scorre a tempo con la riga che stai cantando illuminata; tocca una riga per saltarci",
+    "Con lo slider «Voce originale» scegli quanta voce lasciare"
   ]
 }
