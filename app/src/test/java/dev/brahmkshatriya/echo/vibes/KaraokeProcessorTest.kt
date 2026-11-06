@@ -67,7 +67,7 @@ class KaraokeProcessorTest {
         assertTrue("bass must stay (got $l)", l > 0.85 * 0.3 / sqrt(2.0))
     }
 
-    @Test fun `mixed song: centre removed, sides kept`() {
+    @Test fun `mixed song - centre removed, sides kept`() {
         // voice centred at 300 Hz, guitar 70% left at 1000 Hz, synth 70% right at 2500 Hz
         val wet = run(true) { val v = sine(300.0, it); val g = sine(1000.0, it, 0.2); val sy = sine(2500.0, it, 0.2)
             (v + g * 0.85 + sy * 0.15) to (v + g * 0.15 + sy * 0.85) }
