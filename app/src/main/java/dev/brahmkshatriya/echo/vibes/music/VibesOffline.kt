@@ -109,7 +109,27 @@ object VibesOffline {
 
     private suspend fun fetch(song: SongRef) {
         _states.update { it + (song.key to State.Downloading(0f)) }
+        val tmp = File(dir, "${song.ext}_${song.id}.part")
+        val out = File(dir, "${song.ext}_${song.id}.audio")
+        val (full, total) = fetchAudio(song, tmp) { p -> _states.update { it + (song.key to State.Downloading(p)) } }
+        tmp.renameTo(out)
+        // keep the full track (with its Deezer extras) so the player can show it without network
+        val stored = song.copy(data = runCatching { full.toJson() }.getOrNull() ?: song.data)
+        _entries.update { it + (song.key to Entry(stored, out.absolutePath, total)) }
+        save()
+    }
+
+    /**
+     * Writes the real (decrypted) audio of [song] to [out]: the downloaded copy if there is one,
+     * otherwise straight from the extension's stream. Also used by karaoke HD to get the audio
+     * to separate. Returns the loaded track and the byte count.
+     */
+    suspend fun fetchAudio(song: SongRef, out: File, onProgress: (Float) -> Unit = {}): Pair<Track, Long> {
         val eng = this.engine ?: throw IllegalStateException("Apri Vibes per scaricare")
+        _entries.value[song.key]?.file?.let(::File)?.takeIf { it.exists() }?.let { local ->
+            local.copyTo(out, overwrite = true)
+            return song.toTrack() to local.length()
+        }
         val ext = eng.extension()
         val (full: Track, media: Streamable.Media.Server) = withTimeout(30_000) {
             val full = ext.getAs<TrackClient, Track> { loadTrack(song.toTrack(), false) }.getOrThrow()
@@ -117,8 +137,6 @@ object VibesOffline {
             full to (ext.getAs<TrackClient, Streamable.Media> { loadStreamableMedia(server, false) }.getOrThrow()
                     as? Streamable.Media.Server ?: throw IllegalStateException("Brano non disponibile"))
         }
-        val tmp = File(dir, "${song.ext}_${song.id}.part")
-        val out = File(dir, "${song.ext}_${song.id}.audio")
         val expected = (full.duration ?: song.duration ?: 0L).let { ms -> if (ms > 0) ms / 1000 * 40_000 else 0L } // ~320 kbps
         val input = when (val src = media.sources.firstOrNull()) {
             is Streamable.Source.Raw -> src.streamProvider!!.provide(0, -1).first
@@ -134,20 +152,16 @@ object VibesOffline {
         }
         var total = 0L
         input.use { i ->
-            tmp.outputStream().use { o ->
+            out.outputStream().use { o ->
                 val buf = ByteArray(64 * 1024)
                 while (true) {
                     val n = i.read(buf); if (n < 0) break
                     o.write(buf, 0, n); total += n
-                    if (expected > 0) _states.update { it + (song.key to State.Downloading((total.toFloat() / expected).coerceIn(0f, 0.99f))) }
+                    if (expected > 0) onProgress((total.toFloat() / expected).coerceIn(0f, 0.99f))
                 }
             }
         }
-        if (total < 50_000) { tmp.delete(); throw IllegalStateException("Download incompleto") }
-        tmp.renameTo(out)
-        // keep the full track (with its Deezer extras) so the player can show it without network
-        val stored = song.copy(data = runCatching { full.toJson() }.getOrNull() ?: song.data)
-        _entries.update { it + (song.key to Entry(stored, out.absolutePath, total)) }
-        save()
+        if (total < 50_000) { out.delete(); throw IllegalStateException("Download incompleto") }
+        return full to total
     }
 }

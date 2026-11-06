@@ -144,3 +144,7 @@
 # resolution and suspend/lambda types crossing the extension classloader boundary still resolve after
 # shrinking (proguard-android-optimize keeps *Annotation* but NOT Signature/InnerClasses/EnclosingMethod).
 -keepattributes Signature,Exceptions,InnerClasses,EnclosingMethod,*Annotation*
+
+# Vibes karaoke HD: ONNX Runtime is called from native code via JNI
+-keep class ai.onnxruntime.** { *; }
+-dontwarn ai.onnxruntime.**

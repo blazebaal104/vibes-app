@@ -61,6 +61,9 @@ import dev.brahmkshatriya.echo.common.models.Feed.Companion.loadAll
 import dev.brahmkshatriya.echo.common.models.Lyrics
 import dev.brahmkshatriya.echo.extensions.ExtensionUtils.getAs
 import dev.brahmkshatriya.echo.playback.renderer.Karaoke
+import dev.brahmkshatriya.echo.vibes.karaoke.KaraokeHD
+import androidx.compose.runtime.collectAsState
+import kotlinx.coroutines.launch
 import dev.brahmkshatriya.echo.vibes.backend.SongRef
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -97,20 +100,60 @@ suspend fun loadKaraokeLines(app: AppState, song: SongRef): List<KaraokeLine>? =
 @Composable
 fun KaraokeScreen(song: SongRef, playing: Boolean, onClose: () -> Unit) {
     val app = LocalApp.current
-    val (pos, _) = rememberProgress()
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val (mainPos, _) = rememberProgress()
     var lines by remember(song.key) { mutableStateOf<List<KaraokeLine>?>(null) }
     var loading by remember(song.key) { mutableStateOf(true) }
     var voice by remember { mutableFloatStateOf(1f - Karaoke.strength) }
+    val hdPhase by KaraokeHD.phase.collectAsState()
+    val hdActive by KaraokeHD.active.collectAsState()
+    val hdPlaying by KaraokeHD.playing.collectAsState()
+    var hdPos by remember { mutableStateOf(0L) }
+    val scope = androidx.compose.runtime.rememberCoroutineScope()
+
+    fun leave() {
+        val at = KaraokeHD.close()
+        if (at != null) { app.engine.seekTo(at); app.engine.player.setPlaying(true) }
+        onClose()
+    }
     DisposableEffect(Unit) {
         Karaoke.enabled = true
-        onDispose { Karaoke.enabled = false }
+        KaraokeHD.init(context)
+        KaraokeHD.onEnded = {
+            // HD reached the end of the song: hand back to the normal player, which goes to the next one
+            scope.launch {
+                KaraokeHD.close()
+                app.engine.next(); app.engine.player.setPlaying(true)
+            }
+        }
+        onDispose {
+            Karaoke.enabled = false
+            KaraokeHD.onEnded = null
+            KaraokeHD.close()?.let { at -> app.engine.seekTo(at); app.engine.player.setPlaying(true) }
+        }
     }
-    BackHandler { onClose() }
+    BackHandler { leave() }
+    // AI separation of this song, starting from where we are
+    LaunchedEffect(song.key) { KaraokeHD.open(song, app.engine.position()) }
     LaunchedEffect(song.key) {
         loading = true
         lines = loadKaraokeLines(app, song)
         loading = false
     }
+    // HD position + automatic switch from the real-time filter to the AI backing track
+    LaunchedEffect(song.key) {
+        while (true) {
+            KaraokeHD.externalPositionMs = app.engine.position()
+            if (KaraokeHD.active.value) hdPos = KaraokeHD.positionMs()
+            else if (app.engine.player.playerState.current.value?.isPlaying == true && KaraokeHD.readyAtMs(app.engine.position())) {
+                val at = app.engine.position()
+                if (KaraokeHD.play(at)) app.engine.pause()
+            }
+            kotlinx.coroutines.delay(100)
+        }
+    }
+    val pos = if (hdActive) hdPos else mainPos
+    val isPlaying = if (hdActive) hdPlaying else playing
     val list = lines.orEmpty()
     // a line stays "current" until the next one starts (gaps keep the previous line lit)
     val current = list.indexOfLast { it.start <= pos + 150 }
@@ -129,7 +172,7 @@ fun KaraokeScreen(song: SongRef, playing: Boolean, onClose: () -> Unit) {
         )))
         Column(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding()) {
             Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                IconButton(onClick = onClose) { Icon(Icons.Rounded.Close, "Esci dal karaoke", tint = Color.White) }
+                IconButton(onClick = { leave() }) { Icon(Icons.Rounded.Close, "Esci dal karaoke", tint = Color.White) }
                 Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Icon(Icons.Rounded.Mic, null, tint = Color(0xFFFF4FD8), modifier = Modifier.size(16.dp))
@@ -139,8 +182,8 @@ fun KaraokeScreen(song: SongRef, playing: Boolean, onClose: () -> Unit) {
                     Text(song.title, style = MaterialTheme.typography.titleSmall, color = Color.White, maxLines = 1)
                     Text(song.artist, style = MaterialTheme.typography.bodySmall, color = Color.White.copy(alpha = 0.7f), maxLines = 1)
                 }
-                IconButton(onClick = { app.engine.togglePlay() }) {
-                    Icon(if (playing) Icons.Rounded.Pause else Icons.Rounded.PlayArrow, "Play/Pausa", tint = Color.White)
+                IconButton(onClick = { if (hdActive) KaraokeHD.toggle() else app.engine.togglePlay() }) {
+                    Icon(if (isPlaying) Icons.Rounded.Pause else Icons.Rounded.PlayArrow, "Play/Pausa", tint = Color.White)
                 }
             }
             Box(Modifier.weight(1f).fillMaxWidth()) {
@@ -174,7 +217,14 @@ fun KaraokeScreen(song: SongRef, playing: Boolean, onClose: () -> Unit) {
                             )
                             val scale by animateFloatAsState(if (isNow) 1.06f else 1f, label = "ks$i")
                             Column(Modifier.graphicsLayer { scaleX = scale; scaleY = scale; transformOrigin = androidx.compose.ui.graphics.TransformOrigin(0f, 0.5f) }
-                                .bouncy({ app.engine.seekTo(line.start) })) {
+                                .bouncy({
+                                    if (hdActive) {
+                                        if (!KaraokeHD.seekTo(line.start)) {
+                                            // that part is not separated yet: back to the normal player there
+                                            KaraokeHD.stopPlayback(); app.engine.seekTo(line.start); app.engine.player.setPlaying(true)
+                                        }
+                                    } else app.engine.seekTo(line.start)
+                                })) {
                                 Text(line.text, color = color, fontSize = if (isNow) 30.sp else 26.sp, lineHeight = 34.sp,
                                     fontWeight = if (isNow) FontWeight.ExtraBold else FontWeight.Bold)
                                 if (isNow && line.end > line.start) {
@@ -190,8 +240,9 @@ fun KaraokeScreen(song: SongRef, playing: Boolean, onClose: () -> Unit) {
                     }
                 }
             }
-            // voice amount: 0 = no voice (full karaoke), 1 = original song
-            Column(Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 10.dp)) {
+            HdStatus(hdPhase, hdActive, onDownload = { KaraokeHD.downloadModel(song, app.engine.position()) })
+            // voice amount (real-time filter): 0 = no voice, 1 = original song
+            if (!hdActive) Column(Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 6.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text("Voce originale", color = Color.White, style = MaterialTheme.typography.labelLarge, modifier = Modifier.weight(1f))
                     Text(if (voice < 0.05f) "tolta" else "${(voice * 100).toInt()}%", color = Color.White.copy(alpha = 0.7f),
@@ -199,6 +250,48 @@ fun KaraokeScreen(song: SongRef, playing: Boolean, onClose: () -> Unit) {
                 }
                 Slider(voice, { voice = it; Karaoke.strength = 1f - it }, valueRange = 0f..1f)
             }
+        }
+    }
+}
+
+
+/** HD state under the lyrics: download offer, preparation progress, or the "HD" badge. */
+@Composable
+private fun HdStatus(phase: KaraokeHD.Phase, active: Boolean, onDownload: () -> Unit) {
+    val pink = Color(0xFFFF4FD8)
+    Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 6.dp)
+        .clip(androidx.compose.foundation.shape.RoundedCornerShape(18.dp)).background(Color.White.copy(alpha = 0.08f)).padding(14.dp)) {
+        when {
+            active -> Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("HD", color = Color.Black, fontWeight = FontWeight.ExtraBold, style = MaterialTheme.typography.labelMedium,
+                    modifier = Modifier.clip(CircleShape).background(pink).padding(horizontal = 8.dp, vertical = 2.dp))
+                Spacer(Modifier.width(10.dp))
+                Text("Voce tolta con l'intelligenza artificiale", color = Color.White, style = MaterialTheme.typography.bodyMedium)
+            }
+            phase is KaraokeHD.Phase.NeedsModel -> {
+                Text("Karaoke HD", color = Color.White, fontWeight = FontWeight.Bold)
+                Text("Toglie la voce del tutto, anche riverbero e acuti, con un'AI che gira sul telefono. Si scarica una volta sola (66 MB, meglio col Wi-Fi).",
+                    color = Color.White.copy(alpha = 0.75f), style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(top = 2.dp, bottom = 8.dp))
+                BigButton("Scarica karaoke HD", onDownload, Modifier.fillMaxWidth(), container = pink, content = Color.Black)
+            }
+            phase is KaraokeHD.Phase.DownloadingModel -> {
+                Text("Scarico il karaoke HD… ${(phase.progress * 100).toInt()}%", color = Color.White, style = MaterialTheme.typography.bodyMedium)
+                androidx.compose.material3.LinearProgressIndicator(progress = { phase.progress }, color = pink,
+                    modifier = Modifier.padding(top = 8.dp).fillMaxWidth().height(6.dp).clip(CircleShape))
+            }
+            phase is KaraokeHD.Phase.Fetching || phase is KaraokeHD.Phase.Separating -> {
+                val p = (phase as? KaraokeHD.Phase.Separating)?.progress ?: 0f
+                Text(if (phase is KaraokeHD.Phase.Fetching) "Preparo la versione HD…" else "Tolgo la voce con l'AI… ${(p * 100).toInt()}%",
+                    color = Color.White, style = MaterialTheme.typography.bodyMedium)
+                Text("Intanto senti il filtro veloce: passa all'HD da sola appena è pronta", color = Color.White.copy(alpha = 0.6f),
+                    style = MaterialTheme.typography.bodySmall)
+                androidx.compose.material3.LinearProgressIndicator(progress = { p }, color = pink,
+                    modifier = Modifier.padding(top = 8.dp).fillMaxWidth().height(6.dp).clip(CircleShape))
+            }
+            phase is KaraokeHD.Phase.Ready -> Text("Versione HD pronta: parte appena premi play", color = Color.White, style = MaterialTheme.typography.bodyMedium)
+            phase is KaraokeHD.Phase.Failed -> Text("HD non disponibile per questo brano (${phase.message}). Uso il filtro veloce.",
+                color = Color.White.copy(alpha = 0.7f), style = MaterialTheme.typography.bodySmall)
+            else -> {}
         }
     }
 }

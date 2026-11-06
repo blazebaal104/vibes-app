@@ -14,6 +14,7 @@ object VibesGraph {
 
     fun init(context: Context) {
         dev.brahmkshatriya.echo.vibes.music.VibesOffline.init(context)
+        dev.brahmkshatriya.echo.vibes.karaoke.KaraokeHD.init(context)
         if (ctx == null) ctx = context.applicationContext
         dev.brahmkshatriya.echo.vibes.diag.ErrorReporter.install(context.applicationContext)
     }

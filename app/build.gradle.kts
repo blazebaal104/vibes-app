@@ -100,6 +100,8 @@ android {
     compileSdk = 37
 
     defaultConfig {
+        // phones only: keeps the AI engine's native code to ARM (x86 is emulators)
+        ndk { abiFilters += listOf("arm64-v8a", "armeabi-v7a") }
         applicationId = "app.vibes.music"
         minSdk = 24
         targetSdk = 37
@@ -317,6 +319,9 @@ kotlin {
 }
 
 dependencies {
+    // Vibes karaoke HD: on-device vocal separation (UVR MDX-Net Inst_HQ_3, downloaded on first use)
+    implementation("com.microsoft.onnxruntime:onnxruntime-android:1.22.0")
+    implementation("com.github.wendykierp:JTransforms:3.1")
     implementation(project(":common"))
     implementation(project(":deezer-extension"))
     implementation(libs.kotlin.reflect)
