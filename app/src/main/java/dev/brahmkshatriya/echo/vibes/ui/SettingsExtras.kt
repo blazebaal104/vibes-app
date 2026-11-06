@@ -223,7 +223,7 @@ fun LazyListScope.vibesSettings() {
     item {
         val context = LocalContext.current
         val sp = remember { context.getSettings() }
-        var fade by remember { mutableFloatStateOf(sp.getInt("true_crossfade_seconds", 0).toFloat()) }
+        var fade by remember { mutableFloatStateOf(sp.getInt("true_crossfade_seconds", dev.brahmkshatriya.echo.playback.PlayerService.VIBES_DEFAULT_FADE).toFloat()) }
         SliderRow("Dissolvenza tra i brani", if (fade.toInt() == 0) "Spenta" else "${fade.toInt()} s", fade, 0f..10f, steps = 9,
             subtitle = "Il brano successivo entra mentre finisce quello attuale",
             onChange = { fade = it }, onDone = { sp.edit { putInt("true_crossfade_seconds", fade.toInt()) } })

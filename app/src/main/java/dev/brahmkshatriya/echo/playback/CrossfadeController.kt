@@ -860,6 +860,8 @@ class CrossfadeController(
      * crossfade that quietly does not happen half the time.
      */
     private fun plainTransition(reason: String) {
+        // Vibes: friends hear "no fade"; record why so it can be fixed from the error log.
+        dev.brahmkshatriya.echo.vibes.diag.ErrorReporter.report("crossfade", "dissolvenza saltata: $reason (fade ${fadeSeconds}s)")
         endPath = "plain"
         switchQueuedMs = sidecarQueuedMs()
         abort(Abort.PLAIN, reason)

@@ -145,7 +145,8 @@ class PlayerService : MediaLibraryService() {
     // the sidecar is reused across transitions and released only here (slider to 0) and in onDestroy.
     @OptIn(UnstableApi::class)
     private fun syncCrossfade() {
-        val seconds = app.settings.getInt(TRUE_CROSSFADE_SECONDS, 0)
+        // Vibes: crossfade is ON by default (6 s); 0 only when the user turns it off.
+        val seconds = app.settings.getInt(TRUE_CROSSFADE_SECONDS, VIBES_DEFAULT_FADE)
             .coerceIn(CrossfadeController.FADE_SECONDS_MIN, CrossfadeController.FADE_SECONDS_MAX)
         val existing = crossfade
         if (seconds == 0) {
@@ -1243,9 +1244,11 @@ class PlayerService : MediaLibraryService() {
                     .setAudioOffloadPreferences(audioOffloadPreferences)
                     .build()
                 it.skipSilenceEnabled = app.settings.getBoolean(SKIP_SILENCE, true)
-                // Vibes: buffer the first seconds of the NEXT song in the queue ahead of time, so
-                // skipping / the next track / "Ascolta insieme" transitions start instantly.
-                runCatching { it.preloadConfiguration = ExoPlayer.PreloadConfiguration(8_000_000L) }
+                // Vibes 2026-11-06: the PreloadConfiguration(8 s) added on 11-05 is removed. The engine's
+                // own notes (PlayerEventListener "nothing prefetches") say it was scoped and never
+                // shipped, and right after it went in users reported a silence of a few seconds
+                // between songs. ExoPlayer already prepares the next song ~50 s before the end
+                // (LoadControl min == max == 50 s), which is what made transitions gapless before.
             }
     }
 
@@ -1302,6 +1305,7 @@ class PlayerService : MediaLibraryService() {
         // that must ship OFF. A separate key makes "off" the honest default for every existing user.
         // 0 = off, and 0 is the default; range 0..10s (CrossfadeController.FADE_SECONDS_MIN/MAX).
         const val TRUE_CROSSFADE_SECONDS = "true_crossfade_seconds"
+        const val VIBES_DEFAULT_FADE = 6
 
         const val CACHE_SIZE = "cache_size"
 

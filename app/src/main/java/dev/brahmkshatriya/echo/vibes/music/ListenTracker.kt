@@ -57,6 +57,25 @@ class ListenTracker(private val player: Player, context: Context) : Player.Liste
 
     override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
         flush(); begin(mediaItem)
+        // automatic advance (song ended): time until the next one is actually audible
+        transitionAt = if (reason == Player.MEDIA_ITEM_TRANSITION_REASON_AUTO && player.playWhenReady) now() else null
+    }
+
+    private var transitionAt: Long? = null
+
+    override fun onPlaybackStateChanged(playbackState: Int) {
+        if (playbackState == Player.STATE_READY && player.playWhenReady) checkGap()
+    }
+
+    private fun checkGap() {
+        val t = transitionAt ?: return
+        transitionAt = null
+        val gap = now() - t
+        if (gap > 800) {
+            val mi = player.currentMediaItem
+            val what = runCatching { mi?.track?.let { "${it.title} [${mi.extensionId}:${it.id}]" } }.getOrNull() ?: "?"
+            dev.brahmkshatriya.echo.vibes.diag.ErrorReporter.report("transition", "silenzio di ${gap / 100 * 100} ms prima di $what")
+        }
     }
 
     /** A song that can't play: report why (with the track) so it can be fixed. */
@@ -72,7 +91,7 @@ class ListenTracker(private val player: Player, context: Context) : Player.Liste
     }
 
     override fun onIsPlayingChanged(isPlaying: Boolean) {
-        if (isPlaying) DeezerAuth.ok()
+        if (isPlaying) { DeezerAuth.ok(); checkGap() }
         if (item == null) { if (isPlaying) begin(player.currentMediaItem); return }
         if (isPlaying) { if (playingSince == null) playingSince = now() }
         else { playingSince?.let { acc += now() - it }; playingSince = null }
