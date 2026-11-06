@@ -32,6 +32,7 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROCESSING" />
     <uses-permission android:name="android.permission.READ_MEDIA_AUDIO" />
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <!--    <uses-permission android:name="android.permission.READ_MEDIA_VIDEO" />-->
@@ -362,6 +363,12 @@
             android:name="androidx.work.impl.foreground.SystemForegroundService"
             android:foregroundServiceType="dataSync"
             tools:node="merge" />
+
+        <!-- Vibes karaoke HD: keeps the AI separation going with the app in the background -->
+        <service
+            android:name="dev.brahmkshatriya.echo.vibes.karaoke.KaraokeService"
+            android:exported="false"
+            android:foregroundServiceType="dataSync|mediaProcessing" />
 
         <meta-data
             android:name="com.google.android.gms.car.application"

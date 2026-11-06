@@ -26,6 +26,9 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Mic
+import androidx.compose.material.icons.rounded.SkipNext
+import androidx.compose.material.icons.rounded.SkipPrevious
+import androidx.compose.material.icons.rounded.Stop
 import androidx.compose.material.icons.rounded.Pause
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material3.CircularProgressIndicator
@@ -191,9 +194,7 @@ fun KaraokeScreen(song: SongRef, playing: Boolean, onClose: () -> Unit) {
                     Text(song.title, style = MaterialTheme.typography.titleSmall, color = Color.White, maxLines = 1)
                     Text(song.artist, style = MaterialTheme.typography.bodySmall, color = Color.White.copy(alpha = 0.7f), maxLines = 1)
                 }
-                IconButton(onClick = { if (hdActive) KaraokeHD.toggle() else app.engine.togglePlay() }) {
-                    Icon(if (isPlaying) Icons.Rounded.Pause else Icons.Rounded.PlayArrow, "Play/Pausa", tint = Color.White)
-                }
+                Spacer(Modifier.size(48.dp))
             }
             Box(Modifier.weight(1f).fillMaxWidth()) {
                 when {
@@ -249,6 +250,20 @@ fun KaraokeScreen(song: SongRef, playing: Boolean, onClose: () -> Unit) {
                     }
                 }
             }
+            KaraokeControls(
+                playing = isPlaying,
+                onPrev = {
+                    if (hdActive && KaraokeHD.positionMs() > 3000) KaraokeHD.seekTo(0)
+                    else { KaraokeHD.stopPlayback(); app.engine.previous(); app.engine.player.setPlaying(true) }
+                },
+                onToggle = { if (hdActive) KaraokeHD.toggle() else app.engine.togglePlay() },
+                onNext = { KaraokeHD.stopPlayback(); app.engine.next(); app.engine.player.setPlaying(true) },
+                onStop = {
+                    // stop: everything paused and back to the start of the song
+                    if (hdActive) { KaraokeHD.pause(); KaraokeHD.seekTo(0); KaraokeHD.pause() }
+                    else { app.engine.pause(); app.engine.seekTo(0) }
+                }
+            )
             HdStatus(hdPhase, hdActive, onDownload = { KaraokeHD.downloadModel(song, app.engine.position()) })
             val bgState by KaraokeHD.background.collectAsState()
             bgState?.let { b ->
@@ -339,6 +354,96 @@ fun KaraokePrepButton(songs: List<SongRef>) {
             )
             Icon(Icons.Rounded.Mic, "Prepara per il karaoke", tint = if (all) Color(0xFFFF4FD8) else MaterialTheme.colorScheme.onSurface,
                 modifier = Modifier.size(if (bg != null && !all) 16.dp else 24.dp))
+        }
+    }
+}
+
+
+/** Big centred transport: previous, play/pause, next, stop. */
+@Composable
+private fun KaraokeControls(playing: Boolean, onPrev: () -> Unit, onToggle: () -> Unit, onNext: () -> Unit, onStop: () -> Unit) {
+    Row(Modifier.fillMaxWidth().padding(vertical = 6.dp), horizontalArrangement = Arrangement.SpaceEvenly,
+        verticalAlignment = Alignment.CenterVertically) {
+        IconButton(onClick = onStop, modifier = Modifier.size(52.dp)) {
+            Icon(Icons.Rounded.Stop, "Stop", tint = Color.White.copy(alpha = 0.85f), modifier = Modifier.size(30.dp))
+        }
+        IconButton(onClick = onPrev, modifier = Modifier.size(56.dp)) {
+            Icon(Icons.Rounded.SkipPrevious, "Precedente", tint = Color.White, modifier = Modifier.size(38.dp))
+        }
+        Box(
+            Modifier.size(72.dp).clip(CircleShape)
+                .background(Brush.linearGradient(listOf(Color(0xFFFF4FD8), Color(0xFF8E7BFF))))
+                .bouncy(onToggle),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(if (playing) Icons.Rounded.Pause else Icons.Rounded.PlayArrow, if (playing) "Pausa" else "Play",
+                tint = Color.White, modifier = Modifier.size(40.dp))
+        }
+        IconButton(onClick = onNext, modifier = Modifier.size(56.dp)) {
+            Icon(Icons.Rounded.SkipNext, "Successivo", tint = Color.White, modifier = Modifier.size(38.dp))
+        }
+        Spacer(Modifier.size(52.dp))
+    }
+}
+
+
+/**
+ * Lyrics under the full player: a card with the synced lines (current one lit, auto-scrolling,
+ * tap to jump) and a shortcut to the karaoke. Text comes from the Deezer lyrics service.
+ */
+@Composable
+fun PlayerLyricsCard(song: SongRef, pos: Long, onOpenKaraoke: () -> Unit) {
+    val app = LocalApp.current
+    var lines by remember(song.key) { mutableStateOf<List<KaraokeLine>?>(null) }
+    var loading by remember(song.key) { mutableStateOf(true) }
+    LaunchedEffect(song.key) { loading = true; lines = loadKaraokeLines(app, song); loading = false }
+    val list = lines.orEmpty()
+    val current = list.indexOfLast { it.start <= pos + 150 }
+    val state = rememberLazyListState()
+    LaunchedEffect(current) { if (current >= 0) state.animateScrollToItem((current - 1).coerceAtLeast(0)) }
+    Column(
+        Modifier.padding(horizontal = 16.dp).fillMaxWidth()
+            .clip(androidx.compose.foundation.shape.RoundedCornerShape(22.dp))
+            .background(Brush.verticalGradient(listOf(Color(0xFF6A2BB8), Color(0xFF3A1466))))
+            .padding(18.dp)
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("Testo", color = Color.White, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold,
+                modifier = Modifier.weight(1f))
+            Row(
+                Modifier.clip(CircleShape).background(Color.White.copy(alpha = 0.15f)).bouncy(onOpenKaraoke)
+                    .padding(horizontal = 12.dp, vertical = 6.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(Icons.Rounded.Mic, null, tint = Color.White, modifier = Modifier.size(16.dp))
+                Spacer(Modifier.width(4.dp))
+                Text("Karaoke", color = Color.White, style = MaterialTheme.typography.labelLarge)
+            }
+        }
+        Spacer(Modifier.height(10.dp))
+        when {
+            loading -> Box(Modifier.fillMaxWidth().height(120.dp), contentAlignment = Alignment.Center) {
+                CircularProgressIndicator(color = Color.White, modifier = Modifier.size(28.dp))
+            }
+            list.isEmpty() -> Text(
+                if (lines == null) "Testo non disponibile per questo brano" else "Questo brano non ha il testo sincronizzato",
+                color = Color.White.copy(alpha = 0.7f), style = MaterialTheme.typography.bodyMedium,
+                modifier = Modifier.padding(vertical = 20.dp)
+            )
+            else -> LazyColumn(state = state, modifier = Modifier.fillMaxWidth().height(380.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                itemsIndexed(list) { i, line ->
+                    val color by animateColorAsState(
+                        when {
+                            i == current -> Color.White
+                            i < current -> Color.White.copy(alpha = 0.45f)
+                            else -> Color.Black.copy(alpha = 0.55f)
+                        }, label = "pl$i"
+                    )
+                    Text(line.text, color = color, fontSize = 22.sp, lineHeight = 28.sp, fontWeight = FontWeight.Bold,
+                        modifier = Modifier.fillMaxWidth().bouncy({ app.engine.seekTo(line.start) }))
+                }
+            }
         }
     }
 }

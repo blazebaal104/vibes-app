@@ -80,6 +80,27 @@ object KaraokeHD {
     val active: StateFlow<Boolean> = _active
     private val _playing = MutableStateFlow(false)
     val playing: StateFlow<Boolean> = _playing
+    /** Separating or downloading: keeps [KaraokeService] (and the notification) alive. */
+    private val _busy = MutableStateFlow(false)
+    val busy: StateFlow<Boolean> = _busy
+    private fun markBusy() { if (!_busy.value) { _busy.value = true; if (::ctx.isInitialized) KaraokeService.start(ctx) } }
+
+    /** Title, text and progress for the notification. */
+    fun statusLine(): Triple<String, String, Float> {
+        when (val p = _phase.value) {
+            is Phase.DownloadingModel -> return Triple("Scarico il karaoke HD", "${(p.progress * 100).toInt()}%", p.progress)
+            is Phase.Fetching -> return Triple("Karaoke HD", "Preparo la canzone…", 0f)
+            is Phase.Separating -> return Triple("Karaoke HD: tolgo la voce", "${curSep?.song?.title ?: ""} · ${(p.progress * 100).toInt()}%", p.progress)
+            else -> {}
+        }
+        val b = _background.value
+        return if (b != null) Triple(
+            "Karaoke HD: preparo in anticipo",
+            "${b.title ?: ""} · ${(b.progress * 100).toInt()}%" + if (b.batch > 0) " · ${b.doneInBatch}/${b.batch}" else "",
+            b.progress
+        ) else Triple("Karaoke HD", "Quasi fatto…", 0f)
+    }
+
     /** Keys of songs whose HD backing track is stored. */
     private val _cached = MutableStateFlow<Set<String>>(emptySet())
     val cached: StateFlow<Set<String>> = _cached
@@ -146,6 +167,7 @@ object KaraokeHD {
         curSep = if (bg?.song?.key == song.key) bg.also { bgSep = null } else null
         if (!hasModel()) { _phase.value = Phase.NeedsModel; return }
         loadJob?.cancel()
+        markBusy()
         loadJob = scope.launch {
             runCatching {
                 val cached = cacheFile(song.key)
@@ -167,6 +189,7 @@ object KaraokeHD {
             }.onFailure { e ->
                 if (e !is kotlinx.coroutines.CancellationException && curKey == song.key)
                     _phase.value = Phase.Failed(e.message ?: "Errore")
+                if (worker?.isActive != true) _busy.value = false
             }
         }
     }
@@ -205,6 +228,7 @@ object KaraokeHD {
 
     private fun startWorker() {
         if (worker?.isActive == true) return
+        markBusy()
         worker = scope.launch {
             while (isActive) {
                 val did = runCatching { step() }.getOrElse { e ->
@@ -214,12 +238,13 @@ object KaraokeHD {
                     false
                 }
                 if (!did) delay(300)
-                if (!did && curSep == null && bgSep == null && playlistQueue.isEmpty() && nextInQueue == null) {
+                if (!did && (curSep == null || curSep!!.complete) && bgSep == null && playlistQueue.isEmpty() &&
+                    (nextInQueue == null || nextInQueue!!.key in _cached.value)) {
                     _background.value = null
                     break
                 }
             }
-        }
+        }.also { j -> j.invokeOnCompletion { if (loadJob?.isActive != true) _busy.value = false } }
     }
 
     /** Separates one piece of the most important song. Returns false if there was nothing to do. */
@@ -317,6 +342,7 @@ object KaraokeHD {
 
     fun downloadModel(song: SongRef, positionMs: Long) {
         loadJob?.cancel()
+        markBusy()
         loadJob = scope.launch(Dispatchers.IO) {
             runCatching {
                 val dst = modelFile.apply { parentFile?.mkdirs() }
@@ -337,7 +363,10 @@ object KaraokeHD {
                 if (tmp.length() < MODEL_MIN_BYTES) { tmp.delete(); throw IllegalStateException("Modello incompleto, riprova") }
                 tmp.renameTo(dst)
             }.onSuccess { curKey = null; open(song, positionMs) }
-                .onFailure { e -> if (e !is kotlinx.coroutines.CancellationException) _phase.value = Phase.Failed(e.message ?: "Errore") }
+                .onFailure { e ->
+                    if (e !is kotlinx.coroutines.CancellationException) _phase.value = Phase.Failed(e.message ?: "Errore")
+                    if (worker?.isActive != true) _busy.value = false
+                }
         }
     }
 

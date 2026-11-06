@@ -1,5 +1,7 @@
 package dev.brahmkshatriya.echo.vibes.ui
 
+import androidx.compose.foundation.verticalScroll
+
 import android.os.Build
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.core.animateFloatAsState
@@ -179,7 +181,11 @@ fun FullPlayer() {
             listOf(v.bgTop.copy(alpha = 0.55f), MaterialTheme.colorScheme.background.copy(alpha = 0.75f), MaterialTheme.colorScheme.background)
         )))
 
-        Column(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding().padding(horizontal = 22.dp)) {
+        // scroll down under the controls for the synced lyrics (like Spotify)
+        androidx.compose.foundation.layout.BoxWithConstraints(Modifier.fillMaxSize()) {
+        val screenH = maxHeight
+        Column(Modifier.fillMaxSize().verticalScroll(androidx.compose.foundation.rememberScrollState())) {
+        Column(Modifier.fillMaxWidth().height(screenH).statusBarsPadding().navigationBarsPadding().padding(horizontal = 22.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 IconButton(onClick = { app.nav.playerOpen = false }) { Icon(Icons.Rounded.KeyboardArrowDown, "Chiudi", modifier = Modifier.size(32.dp)) }
                 Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
@@ -282,6 +288,10 @@ fun FullPlayer() {
                 ) { Icon(Icons.Rounded.PlaylistAdd, "Aggiungi a playlist") }
             }
             Spacer(Modifier.height(18.dp))
+        }
+        PlayerLyricsCard(song, pos, onOpenKaraoke = { karaoke = true })
+        Spacer(Modifier.navigationBarsPadding().height(24.dp))
+        }
         }
     }
 }
