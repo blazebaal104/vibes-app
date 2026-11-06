@@ -1305,7 +1305,7 @@ class PlayerService : MediaLibraryService() {
         // that must ship OFF. A separate key makes "off" the honest default for every existing user.
         // 0 = off, and 0 is the default; range 0..10s (CrossfadeController.FADE_SECONDS_MIN/MAX).
         const val TRUE_CROSSFADE_SECONDS = "true_crossfade_seconds"
-        const val VIBES_DEFAULT_FADE = 6
+        const val VIBES_DEFAULT_FADE = 3
 
         const val CACHE_SIZE = "cache_size"
 

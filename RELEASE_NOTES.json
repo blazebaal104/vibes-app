@@ -3,7 +3,7 @@
   "notes": [
     "Indietro nei primi 3 secondi torna davvero alla canzone precedente della playlist, anche sulla prima che hai toccato",
     "Tolto il silenzio di qualche secondo tra una canzone e l'altra",
-    "Dissolvenza tra i brani attiva di default (6 secondi): la regoli o la spegni in Impostazioni → Riproduzione",
+    "Dissolvenza tra i brani attiva di default (3 secondi): la regoli o la spegni in Impostazioni → Riproduzione",
     "Se una dissolvenza salta o c'è un silenzio, Vibes manda il motivo per poterlo sistemare"
   ]
 }
