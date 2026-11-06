@@ -312,6 +312,7 @@ fun PlaylistScreen(id: String) {
                     art = { PlaylistArt(p, Modifier.size(220.dp)) },
                     onPlay = { app.engine.playAll(p.songs, ctx = p) }, onShuffle = { app.engine.playAll(p.songs, shuffle = true, ctx = p) },
                     actions = {
+                        KaraokePrepButton(p.songs)
                         DownloadAllButton(p.songs, p.name)
                         IconButton(onClick = { nav.share = ShareItem.Playlist(p) }) { Icon(Icons.Rounded.Share, "Condividi") }
                         IconButton(onClick = { editing = true }) { Icon(Icons.Rounded.Edit, "Modifica") }

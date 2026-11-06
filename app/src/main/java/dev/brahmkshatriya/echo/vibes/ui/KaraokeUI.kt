@@ -62,6 +62,8 @@ import dev.brahmkshatriya.echo.common.models.Lyrics
 import dev.brahmkshatriya.echo.extensions.ExtensionUtils.getAs
 import dev.brahmkshatriya.echo.playback.renderer.Karaoke
 import dev.brahmkshatriya.echo.vibes.karaoke.KaraokeHD
+import dev.brahmkshatriya.echo.playback.MediaItemUtils.extensionId
+import dev.brahmkshatriya.echo.playback.MediaItemUtils.track
 import androidx.compose.runtime.collectAsState
 import kotlinx.coroutines.launch
 import dev.brahmkshatriya.echo.vibes.backend.SongRef
@@ -142,8 +144,15 @@ fun KaraokeScreen(song: SongRef, playing: Boolean, onClose: () -> Unit) {
     }
     // HD position + automatic switch from the real-time filter to the AI backing track
     LaunchedEffect(song.key) {
+        var tick = 0
         while (true) {
             KaraokeHD.externalPositionMs = app.engine.position()
+            // the next song of the queue gets prepared in the background so it starts in HD
+            if (tick++ % 10 == 0) KaraokeHD.nextInQueue = runCatching {
+                app.engine.player.browser.value?.takeIf { it.hasNextMediaItem() }?.getMediaItemAt(
+                    app.engine.player.browser.value!!.nextMediaItemIndex
+                )?.let { mi -> SongRef.from(mi.extensionId, mi.track) }
+            }.getOrNull()
             if (KaraokeHD.active.value) hdPos = KaraokeHD.positionMs()
             else if (app.engine.player.playerState.current.value?.isPlaying == true && KaraokeHD.readyAtMs(app.engine.position())) {
                 val at = app.engine.position()
@@ -241,6 +250,12 @@ fun KaraokeScreen(song: SongRef, playing: Boolean, onClose: () -> Unit) {
                 }
             }
             HdStatus(hdPhase, hdActive, onDownload = { KaraokeHD.downloadModel(song, app.engine.position()) })
+            val bgState by KaraokeHD.background.collectAsState()
+            bgState?.let { b ->
+                Text("Preparo in anticipo: ${b.title ?: "prossima canzone"} · ${(b.progress * 100).toInt()}%",
+                    color = Color.White.copy(alpha = 0.6f), style = MaterialTheme.typography.labelMedium,
+                    modifier = Modifier.padding(horizontal = 24.dp), maxLines = 1)
+            }
             // voice amount (real-time filter): 0 = no voice, 1 = original song
             if (!hdActive) Column(Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 6.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -292,6 +307,38 @@ private fun HdStatus(phase: KaraokeHD.Phase, active: Boolean, onDownload: () -> 
             phase is KaraokeHD.Phase.Failed -> Text("HD non disponibile per questo brano (${phase.message}). Uso il filtro veloce.",
                 color = Color.White.copy(alpha = 0.7f), style = MaterialTheme.typography.bodySmall)
             else -> {}
+        }
+    }
+}
+
+
+/** Playlist action: separates every song for karaoke HD in the background. */
+@Composable
+fun KaraokePrepButton(songs: List<SongRef>) {
+    val app = LocalApp.current
+    val context = androidx.compose.ui.platform.LocalContext.current
+    LaunchedEffect(Unit) { KaraokeHD.init(context) }
+    val cached by KaraokeHD.cached.collectAsState()
+    val bg by KaraokeHD.background.collectAsState()
+    val ready = songs.count { it.key in cached }
+    val all = songs.isNotEmpty() && ready == songs.size
+    IconButton(onClick = {
+        when {
+            songs.isEmpty() || all -> app.nav.toast(if (all) "Già pronta per il karaoke HD 🎤" else "Playlist vuota")
+            !KaraokeHD.hasModel() -> app.nav.toast("Prima scarica il karaoke HD: apri il karaoke 🎤 dal player")
+            else -> {
+                KaraokeHD.preparePlaylist(songs)
+                app.nav.toast("Preparo ${songs.size - ready} brani per il karaoke HD. Meglio col telefono in carica")
+            }
+        }
+    }) {
+        Box(contentAlignment = Alignment.Center) {
+            if (bg != null && !all) CircularProgressIndicator(
+                progress = { if (songs.isEmpty()) 0f else ready.toFloat() / songs.size },
+                modifier = Modifier.size(28.dp), strokeWidth = 2.5.dp, color = Color(0xFFFF4FD8)
+            )
+            Icon(Icons.Rounded.Mic, "Prepara per il karaoke", tint = if (all) Color(0xFFFF4FD8) else MaterialTheme.colorScheme.onSurface,
+                modifier = Modifier.size(if (bg != null && !all) 16.dp else 24.dp))
         }
     }
 }

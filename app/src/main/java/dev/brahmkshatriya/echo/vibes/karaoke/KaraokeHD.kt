@@ -8,8 +8,11 @@ import android.media.AudioAttributes
 import android.media.AudioFormat
 import android.media.AudioTrack
 import android.media.MediaCodec
+import android.media.MediaCodecInfo
 import android.media.MediaExtractor
 import android.media.MediaFormat
+import android.media.MediaMuxer
+import androidx.core.content.edit
 import dev.brahmkshatriya.echo.vibes.backend.SongRef
 import dev.brahmkshatriya.echo.vibes.music.VibesOffline
 import kotlinx.coroutines.CoroutineScope
@@ -21,21 +24,28 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.io.File
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.nio.FloatBuffer
+import java.nio.ShortBuffer
 import java.util.concurrent.TimeUnit
 import kotlin.coroutines.coroutineContext
 
 /**
  * Karaoke HD: the lead vocal is removed by an AI model (UVR MDX-Net "Inst_HQ_3", 66 MB, downloaded
- * once on first use) running on the phone. The song is separated in ~6 s pieces starting from where
- * you are; as soon as enough is ready (ahead of playback, at the measured speed) the backing track
- * plays from its own audio output in sync, while the normal player is paused. Separated songs are
- * cached so they start instantly the next time.
+ * once) running on the phone.
+ *
+ * One worker separates ~6 s pieces with this priority:
+ *  1. the song on screen, from the play position forward (then the start);
+ *  2. the next song of the queue, from its start, so it begins in HD;
+ *  3. playlists the user asked to "prepare for karaoke".
+ * HD takes over from the real-time filter as soon as the separated part stays ahead of playback
+ * at the measured speed. Finished songs are stored compressed (AAC, ~6 MB) and start instantly.
+ * The first runs try the engine settings (threads / XNNPACK) and keep the fastest for this phone.
  */
 object KaraokeHD {
     private const val MODEL_NAME = "UVR-MDX-NET-Inst_HQ_3.onnx"
@@ -43,18 +53,20 @@ object KaraokeHD {
         "https://github.com/TRvlvr/model_repo/releases/download/all_public_uvr_models/UVR-MDX-NET-Inst_HQ_3.onnx"
     private const val MODEL_MIN_BYTES = 60_000_000L
     const val RATE = 44100
-    private const val CACHE_KEEP = 8
+    private const val CACHE_MAX_BYTES = 450L * 1024 * 1024
 
     sealed interface Phase {
         data object Idle : Phase
         data object NeedsModel : Phase
         data class DownloadingModel(val progress: Float) : Phase
         data class Fetching(val progress: Float) : Phase
-        /** [progress] of the whole song; [aheadMs] separated audio available after the play position. */
-        data class Separating(val progress: Float, val readyToPlay: Boolean) : Phase
+        data class Separating(val progress: Float) : Phase
         data object Ready : Phase
         data class Failed(val message: String) : Phase
     }
+
+    /** Background preparation (next song / playlist). */
+    data class Background(val title: String?, val progress: Float, val queued: Int, val doneInBatch: Int, val batch: Int)
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private lateinit var ctx: Context
@@ -62,58 +74,250 @@ object KaraokeHD {
 
     private val _phase = MutableStateFlow<Phase>(Phase.Idle)
     val phase: StateFlow<Phase> = _phase
-    /** HD backing track is the one playing right now. */
+    private val _background = MutableStateFlow<Background?>(null)
+    val background: StateFlow<Background?> = _background
     private val _active = MutableStateFlow(false)
     val active: StateFlow<Boolean> = _active
     private val _playing = MutableStateFlow(false)
     val playing: StateFlow<Boolean> = _playing
+    /** Keys of songs whose HD backing track is stored. */
+    private val _cached = MutableStateFlow<Set<String>>(emptySet())
+    val cached: StateFlow<Set<String>> = _cached
 
-    // current song
-    private var key: String? = null
-    private var job: Job? = null
-    @Volatile private var outL: ShortArray = ShortArray(0)
-    @Volatile private var outR: ShortArray = ShortArray(0)
-    @Volatile private var totalSamples = 0
-    /** Separated, contiguous range [readyFrom, readyTo) of the song. */
-    @Volatile private var readyFrom = 0
-    @Volatile private var readyTo = 0
-    @Volatile private var samplesPerSecond = 0.0 // measured separation speed (audio samples / wall s)
-
-    private var session: OrtSession? = null
-
-    fun init(context: Context) { if (!::ctx.isInitialized) ctx = context.applicationContext }
+    fun init(context: Context) {
+        if (::ctx.isInitialized) return
+        ctx = context.applicationContext
+        refreshCached()
+    }
 
     private val modelFile get() = File(ctx.filesDir, "models/$MODEL_NAME")
     fun hasModel() = modelFile.exists() && modelFile.length() > MODEL_MIN_BYTES
-    private fun cacheFile(k: String) = File(ctx.cacheDir, "karaoke/${k.replace(':', '_')}.pcm")
-
-    /** Opens the karaoke for [song] at [positionMs] (prepares HD in the background if possible). */
-    fun open(song: SongRef, positionMs: Long) {
-        if (key == song.key && job?.isActive == true) return
-        stopPlayback()
-        key = song.key
-        job?.cancel()
-        readyFrom = 0; readyTo = 0; totalSamples = 0
-        if (!hasModel()) { _phase.value = Phase.NeedsModel; return }
-        job = scope.launch { runCatching { prepare(song, positionMs) }.onFailure { e ->
-            if (e !is kotlinx.coroutines.CancellationException)
-                _phase.value = Phase.Failed(e.message ?: "Errore")
-        } }
+    private val cacheDir get() = File(ctx.filesDir, "karaoke").apply { mkdirs() }
+    private fun cacheFile(k: String) = File(cacheDir, "${k.replace(':', '_')}.m4a")
+    private fun refreshCached() {
+        _cached.value = cacheDir.listFiles { f -> f.name.endsWith(".m4a") }
+            ?.map { it.name.removeSuffix(".m4a").replaceFirst('_', ':') }?.toSet().orEmpty()
     }
 
-    /** Leaving the karaoke: stops HD, returns where it was so the normal player can continue. */
+    // ------------------------------------------------------------------ per-song separation state
+
+    private class Sep(val song: SongRef, val sep: MdxSeparator, val inL: ShortBuffer, val inR: ShortBuffer, val total: Int) {
+        val outL: ShortBuffer = direct(total); val outR: ShortBuffer = direct(total)
+        val chunks = (total + sep.gen - 1) / sep.gen
+        val done = BooleanArray(chunks)
+        @Volatile var doneCount = 0
+        val complete get() = doneCount == chunks
+        fun chunkOf(sample: Int) = (sample / sep.gen).coerceIn(0, chunks - 1)
+        /** Samples separated contiguously from [at]. */
+        fun readyAhead(at: Int): Int {
+            var c = chunkOf(at)
+            while (c < chunks && done[c]) c++
+            return (minOf(c * sep.gen, total) - at).coerceAtLeast(0)
+        }
+        fun undoneFrom(at: Int) = (chunkOf(at) until chunks).count { !done[it] }
+    }
+
+    private class Ready(val song: SongRef, val outL: ShortBuffer, val outR: ShortBuffer, val total: Int)
+
+    private fun direct(n: Int): ShortBuffer = ByteBuffer.allocateDirect(maxOf(n, 1) * 2).order(ByteOrder.nativeOrder()).asShortBuffer()
+
+    /** The song on screen: either still separating ([curSep]) or ready ([curReady]). */
+    @Volatile private var curKey: String? = null
+    @Volatile private var curSep: Sep? = null
+    @Volatile private var curReady: Ready? = null
+    /** Background slot: next song of the queue or a playlist song. */
+    @Volatile private var bgSep: Sep? = null
+    @Volatile var nextInQueue: SongRef? = null
+    private val playlistQueue = ArrayDeque<SongRef>()
+    private var batchSize = 0; private var batchDone = 0
+    @Volatile private var samplesPerSecond = 0.0
+    @Volatile var externalPositionMs: Long = 0
+    private var worker: Job? = null
+    private var loadJob: Job? = null
+
+    /** Opens the karaoke for [song] at [positionMs]. */
+    fun open(song: SongRef, positionMs: Long) {
+        if (curKey == song.key) return
+        stopPlayback()
+        curKey = song.key; curReady = null
+        externalPositionMs = positionMs
+        // the background slot may already hold this song (it was "next"): promote it
+        val bg = bgSep
+        curSep = if (bg?.song?.key == song.key) bg.also { bgSep = null } else null
+        if (!hasModel()) { _phase.value = Phase.NeedsModel; return }
+        loadJob?.cancel()
+        loadJob = scope.launch {
+            runCatching {
+                val cached = cacheFile(song.key)
+                when {
+                    curSep != null -> _phase.value = if (curSep!!.complete) Phase.Ready else Phase.Separating(curSep!!.doneCount.toFloat() / curSep!!.chunks)
+                    cached.exists() -> {
+                        _phase.value = Phase.Fetching(1f)
+                        val (l, r, n) = decode(cached)
+                        cached.setLastModified(System.currentTimeMillis())
+                        if (curKey == song.key) { curReady = Ready(song, l, r, n); _phase.value = Phase.Ready }
+                    }
+                    else -> {
+                        _phase.value = Phase.Fetching(0f)
+                        val s = load(song) { if (curKey == song.key) _phase.value = Phase.Fetching(it) }
+                        if (curKey == song.key) { curSep = s; _phase.value = Phase.Separating(0f) }
+                    }
+                }
+                startWorker()
+            }.onFailure { e ->
+                if (e !is kotlinx.coroutines.CancellationException && curKey == song.key)
+                    _phase.value = Phase.Failed(e.message ?: "Errore")
+            }
+        }
+    }
+
+    /** Leaving the karaoke: returns where HD was (null if it was not playing). */
     fun close(): Long? {
         val pos = if (_active.value) positionMs() else null
         stopPlayback()
-        job?.cancel(); job = null; key = null
-        outL = ShortArray(0); outR = ShortArray(0)
+        loadJob?.cancel()
+        // an unfinished current song keeps being separated in the background slot if it is free
+        val s = curSep
+        if (s != null && !s.complete && bgSep == null) bgSep = s
+        curSep = null; curReady = null; curKey = null; nextInQueue = null
         _phase.value = Phase.Idle
         return pos
     }
 
+    /** "Prepare for karaoke": separates these songs in the background and stores them. */
+    fun preparePlaylist(songs: List<SongRef>) {
+        val todo = songs.filter { it.key !in _cached.value && playlistQueue.none { q -> q.key == it.key } }
+        playlistQueue.addAll(todo)
+        batchSize += todo.size
+        startWorker()
+    }
+
+    private suspend fun load(song: SongRef, onFetch: (Float) -> Unit): Sep = withContext(Dispatchers.IO) {
+        val src = File(ctx.cacheDir, "karaoke-src-${song.id}.audio")
+        try {
+            VibesOffline.fetchAudio(song, src, onFetch)
+            val (l, r, n) = decode(src)
+            Sep(song, MdxSeparator { runModel(it) }, l, r, n)
+        } finally { src.delete() }
+    }
+
+    // ------------------------------------------------------------------ worker
+
+    private fun startWorker() {
+        if (worker?.isActive == true) return
+        worker = scope.launch {
+            while (isActive) {
+                val did = runCatching { step() }.getOrElse { e ->
+                    if (e is kotlinx.coroutines.CancellationException) throw e
+                    _background.value = null
+                    bgSep = null
+                    false
+                }
+                if (!did) delay(300)
+                if (!did && curSep == null && bgSep == null && playlistQueue.isEmpty() && nextInQueue == null) {
+                    _background.value = null
+                    break
+                }
+            }
+        }
+    }
+
+    /** Separates one piece of the most important song. Returns false if there was nothing to do. */
+    private suspend fun step(): Boolean {
+        if (!hasModel()) return false
+        // 1. the song on screen
+        curSep?.let { s ->
+            val at = if (_active.value) positionSamples() else (externalPositionMs * RATE / 1000).toInt()
+            val forward = (s.chunkOf(at) until s.chunks).firstOrNull { !s.done[it] }
+            val c = forward ?: (0 until s.chunks).firstOrNull { !s.done[it] }
+            if (c != null) {
+                runChunk(s, c)
+                if (curSep === s) _phase.value = if (s.complete) Phase.Ready else Phase.Separating(s.doneCount.toFloat() / s.chunks)
+                if (s.complete) finish(s)
+                return true
+            }
+        }
+        // 2. background slot: the next song of the queue has priority over a playlist song
+        val next = nextInQueue?.takeIf { it.key !in _cached.value && it.key != curKey }
+        var bg = bgSep
+        if (next != null && bg != null && bg.song.key != next.key) {
+            // a playlist song was in progress: put it back in line (its progress is redone later)
+            if (bg.song.key != curKey) playlistQueue.addFirst(bg.song)
+            bgSep = null; bg = null
+        }
+        if (bg == null) {
+            val target = next ?: run {
+                var t: SongRef? = null
+                while (t == null && playlistQueue.isNotEmpty()) {
+                    t = playlistQueue.removeFirst().takeIf { it.key !in _cached.value && it.key != curKey }
+                    if (t == null) batchDone++
+                }
+                t
+            } ?: return false
+            _background.value = Background(target.title, 0f, playlistQueue.size, batchDone, batchSize)
+            bg = runCatching { load(target) {} }.getOrNull()
+            if (bg == null) { if (target.key != next?.key) batchDone++; return true }
+            bgSep = bg
+        }
+        val s = bg
+        val c = (0 until s.chunks).firstOrNull { !s.done[it] }
+        if (c != null) runChunk(s, c)
+        _background.value = Background(s.song.title, s.doneCount.toFloat() / s.chunks, playlistQueue.size, batchDone, batchSize)
+        if (s.complete) {
+            finish(s)
+            if (bgSep === s) bgSep = null
+            if (s.song.key != nextInQueue?.key) batchDone++
+            if (playlistQueue.isEmpty() && batchDone >= batchSize) { batchDone = 0; batchSize = 0 }
+        }
+        return true
+    }
+
+    private fun runChunk(s: Sep, c: Int) {
+        val sep = s.sep
+        val outStart = c * sep.gen
+        val wl = FloatArray(sep.chunk); val wr = FloatArray(sep.chunk)
+        val from = sep.windowStart(outStart)
+        for (i in 0 until sep.chunk) {
+            val j = from + i
+            if (j in 0 until s.total) { wl[i] = s.inL.get(j) / 32768f; wr[i] = s.inR.get(j) / 32768f }
+        }
+        val n = minOf(sep.gen, s.total - outStart)
+        val t0 = System.nanoTime()
+        val (a, b) = sep.processWindow(wl, wr, n)
+        val secs = (System.nanoTime() - t0) / 1e9
+        for (i in 0 until n) {
+            s.outL.put(outStart + i, (a[i].coerceIn(-1f, 1f) * 32767f).toInt().toShort())
+            s.outR.put(outStart + i, (b[i].coerceIn(-1f, 1f) * 32767f).toInt().toShort())
+        }
+        s.done[c] = true; s.doneCount++
+        val sps = n / secs
+        samplesPerSecond = if (samplesPerSecond == 0.0) sps else samplesPerSecond * 0.7 + sps * 0.3
+    }
+
+    private fun finish(s: Sep) {
+        runCatching { encodeM4a(s.outL, s.outR, s.total, cacheFile(s.song.key)); trimCache(); refreshCached() }
+        if (curSep === s) { curReady = Ready(s.song, s.outL, s.outR, s.total); curSep = null }
+    }
+
+    /** Can HD take over at [ms] and stay ahead of playback until the end? */
+    fun readyAtMs(ms: Long): Boolean {
+        val at = (ms * RATE / 1000).toInt()
+        curReady?.let { return at < it.total }
+        val s = curSep ?: return false
+        if (s.complete) return true
+        val ahead = s.readyAhead(at)
+        if (ahead < 6 * RATE) return false
+        val sps = samplesPerSecond.takeIf { it > 0 } ?: return false
+        val timeToFinish = s.undoneFrom(at).toDouble() * s.sep.gen / sps
+        val timeUntilEnd = (s.total - at).toDouble() / RATE
+        return timeToFinish < timeUntilEnd - 4
+    }
+
+    // ------------------------------------------------------------------ model / engine tuning
+
     fun downloadModel(song: SongRef, positionMs: Long) {
-        job?.cancel()
-        job = scope.launch(Dispatchers.IO) {
+        loadJob?.cancel()
+        loadJob = scope.launch(Dispatchers.IO) {
             runCatching {
                 val dst = modelFile.apply { parentFile?.mkdirs() }
                 val tmp = File(dst.path + ".part")
@@ -132,100 +336,47 @@ object KaraokeHD {
                 }
                 if (tmp.length() < MODEL_MIN_BYTES) { tmp.delete(); throw IllegalStateException("Modello incompleto, riprova") }
                 tmp.renameTo(dst)
-            }.onSuccess {
-                key = null
-                open(song, positionMs)
-            }.onFailure { e -> if (e !is kotlinx.coroutines.CancellationException) _phase.value = Phase.Failed(e.message ?: "Errore") }
+            }.onSuccess { curKey = null; open(song, positionMs) }
+                .onFailure { e -> if (e !is kotlinx.coroutines.CancellationException) _phase.value = Phase.Failed(e.message ?: "Errore") }
         }
     }
 
-    private fun session(): OrtSession = session ?: run {
+    /** Engine configurations tried on this phone; the fastest one is remembered. */
+    private val configs = listOf("cpu4", "xnn4", "cpu6", "xnn6")
+    private val prefs by lazy { ctx.getSharedPreferences("karaoke_hd", Context.MODE_PRIVATE) }
+    private var session: OrtSession? = null
+    private var sessionConfig: String? = null
+
+    private fun sessionFor(config: String): OrtSession {
+        if (sessionConfig == config) session?.let { return it }
+        session?.close(); session = null
         val env = OrtEnvironment.getEnvironment()
+        val threads = config.takeLast(1).toInt().coerceAtMost(Runtime.getRuntime().availableProcessors())
         val opts = OrtSession.SessionOptions().apply {
-            setIntraOpNumThreads(Runtime.getRuntime().availableProcessors().coerceIn(2, 6))
             setOptimizationLevel(OrtSession.SessionOptions.OptLevel.ALL_OPT)
+            if (config.startsWith("xnn")) {
+                addXnnpack(mapOf("intra_op_num_threads" to threads.toString()))
+                setIntraOpNumThreads(1)
+            } else setIntraOpNumThreads(threads)
         }
-        env.createSession(modelFile.absolutePath, opts).also { session = it }
+        return env.createSession(modelFile.absolutePath, opts).also { session = it; sessionConfig = config }
     }
-
-    private suspend fun prepare(song: SongRef, positionMs: Long) {
-        // cached result: instant
-        val cached = cacheFile(song.key)
-        if (cached.exists() && cached.length() > 0) {
-            val (l, r) = readPcm(cached)
-            outL = l; outR = r; totalSamples = l.size; readyFrom = 0; readyTo = l.size
-            _phase.value = Phase.Ready
-            return
-        }
-        _phase.value = Phase.Fetching(0f)
-        val src = File(ctx.cacheDir, "karaoke/src.audio").apply { parentFile?.mkdirs() }
-        kotlinx.coroutines.withContext(Dispatchers.IO) {
-            VibesOffline.fetchAudio(song, src) { _phase.value = Phase.Fetching(it) }
-        }
-        val (inL, inR) = decode(src)
-        src.delete()
-        totalSamples = inL.size
-        outL = ShortArray(inL.size); outR = ShortArray(inR.size)
-        val sep = MdxSeparator { input -> runModel(input) }
-        // start at the piece containing the current position, then go on to the end, then the beginning
-        val startPos = ((positionMs * RATE / 1000).toInt() / sep.gen * sep.gen).coerceIn(0, maxOf(0, totalSamples - 1))
-        readyFrom = startPos; readyTo = startPos
-        val order = (startPos until totalSamples step sep.gen) + (0 until startPos step sep.gen)
-        val began = System.nanoTime()
-        var done = 0L
-        val wl = FloatArray(sep.chunk); val wr = FloatArray(sep.chunk)
-        for (outStart in order) {
-            coroutineContext.ensureActiveCompat()
-            val from = sep.windowStart(outStart)
-            for (i in 0 until sep.chunk) {
-                val j = from + i
-                if (j in 0 until totalSamples) { wl[i] = inL[j] / 32768f; wr[i] = inR[j] / 32768f } else { wl[i] = 0f; wr[i] = 0f }
-            }
-            val n = minOf(sep.gen, totalSamples - outStart)
-            val (a, b) = sep.processWindow(wl, wr, n)
-            for (i in 0 until n) {
-                outL[outStart + i] = (a[i].coerceIn(-1f, 1f) * 32767f).toInt().toShort()
-                outR[outStart + i] = (b[i].coerceIn(-1f, 1f) * 32767f).toInt().toShort()
-            }
-            done += n
-            samplesPerSecond = done / ((System.nanoTime() - began) / 1e9)
-            // the front range [startPos, readyTo) grows contiguously; the part before startPos is
-            // filled afterwards and only becomes playable when everything is done
-            if (outStart == readyTo) readyTo = outStart + n
-            _phase.value = Phase.Separating(done.toFloat() / totalSamples, readyToPlayAt(currentPlaySample()))
-        }
-        readyFrom = 0; readyTo = totalSamples
-        _phase.value = Phase.Ready
-        scope.launch(Dispatchers.IO) { runCatching { writeCache(song.key) } }
-    }
-
-    private fun kotlin.coroutines.CoroutineContext.ensureActiveCompat() {
-        if (!isActive) throw kotlinx.coroutines.CancellationException()
-    }
-
-    /** Last play position reported by the karaoke screen (normal player), in samples. */
-    @Volatile var externalPositionMs: Long = 0
-    private fun currentPlaySample() = if (_active.value) positionSamples() else (externalPositionMs * RATE / 1000).toInt()
-
-    /**
-     * Can HD take over at sample [at]? Enough separated audio ahead so that, at the measured speed,
-     * separation stays in front of playback until the end of the song (plus a margin).
-     */
-    fun readyToPlayAt(at: Int): Boolean {
-        if (totalSamples == 0 || at < readyFrom || at >= readyTo) return false
-        if (readyFrom == 0 && readyTo >= totalSamples) return true
-        val ahead = readyTo - at
-        val remainingToSeparate = totalSamples - readyTo
-        val sps = samplesPerSecond.takeIf { it > 0 } ?: return false
-        val timeToFinish = remainingToSeparate / sps
-        val timeUntilPlaybackGetsThere = (totalSamples - at).toDouble() / RATE
-        return ahead > 6 * RATE && timeToFinish < timeUntilPlaybackGetsThere - 4
-    }
-
-    fun readyAtMs(ms: Long) = readyToPlayAt((ms * RATE / 1000).toInt())
 
     private fun runModel(input: FloatArray): FloatArray {
-        val s = session()
+        val best = prefs.getString("best", null)
+        val config = best ?: configs.firstOrNull { prefs.getFloat("t_$it", -1f) < 0f }
+            ?: configs.minBy { prefs.getFloat("t_$it", Float.MAX_VALUE) }.also { prefs.edit { putString("best", it) } }
+        var t0 = System.nanoTime()
+        val out = runCatching { val ses = sessionFor(config); t0 = System.nanoTime(); runWith(ses, input) }.getOrElse {
+            // configuration not supported on this phone: mark it as very slow and use the plain CPU one
+            prefs.edit { putFloat("t_$config", Float.MAX_VALUE / 2) }
+            runWith(sessionFor("cpu4"), input)
+        }
+        if (best == null) prefs.edit { putFloat("t_$config", ((System.nanoTime() - t0) / 1e9).toFloat()) }
+        return out
+    }
+
+    private fun runWith(s: OrtSession, input: FloatArray): FloatArray {
         val env = OrtEnvironment.getEnvironment()
         OnnxTensor.createTensor(env, FloatBuffer.wrap(input), longArrayOf(1, 4, 3072, 256)).use { t ->
             s.run(mapOf(s.inputNames.first() to t)).use { res ->
@@ -235,26 +386,28 @@ object KaraokeHD {
         }
     }
 
-    // ---------------- playback (own AudioTrack, so the main player and its effects stay untouched)
+    // ------------------------------------------------------------------ playback (own AudioTrack)
 
     private var track: AudioTrack? = null
     private var writer: Thread? = null
-    @Volatile private var playFrom = 0      // sample where the current AudioTrack started
-    @Volatile private var writePos = 0      // next sample to write
+    @Volatile private var playFrom = 0
+    @Volatile private var writePos = 0
     @Volatile private var stopFlag = false
-    /** Called when the backing track reaches the end of the song. */
     @Volatile var onEnded: (() -> Unit)? = null
+
+    private fun playTotal() = curReady?.total ?: curSep?.total ?: 0
 
     fun positionSamples(): Int {
         val t = track ?: return playFrom
-        return (playFrom + (t.playbackHeadPosition.toLong() and 0xFFFFFFFFL)).toInt().coerceAtMost(totalSamples)
+        return (playFrom + (t.playbackHeadPosition.toLong() and 0xFFFFFFFFL)).toInt().coerceAtMost(playTotal())
     }
     fun positionMs(): Long = positionSamples().toLong() * 1000 / RATE
 
     /** Starts the HD backing track at [ms]; false if that part is not separated yet. */
     fun play(ms: Long): Boolean {
-        val at = (ms * RATE / 1000).toInt().coerceIn(0, maxOf(0, totalSamples - 1))
-        if (at < readyFrom || at >= readyTo) return false
+        val total = playTotal()
+        val at = (ms * RATE / 1000).toInt().coerceIn(0, maxOf(0, total - 1))
+        if (total == 0 || !readyAtMs(ms)) return false
         stopPlayback()
         val minBuf = AudioTrack.getMinBufferSize(RATE, AudioFormat.CHANNEL_OUT_STEREO, AudioFormat.ENCODING_PCM_16BIT)
         val t = AudioTrack.Builder()
@@ -269,15 +422,21 @@ object KaraokeHD {
             val block = 2048
             val buf = ShortArray(block * 2)
             while (!stopFlag) {
-                if (writePos >= totalSamples) {
-                    // let the buffer drain, then report the end
+                val ready = curReady; val sep = curSep
+                val tot = ready?.total ?: sep?.total ?: 0
+                if (tot == 0) { Thread.sleep(30); continue }
+                if (writePos >= tot) {
                     Thread.sleep(400)
-                    if (!stopFlag && positionSamples() >= totalSamples - RATE / 10) { stopFlag = true; onEnded?.invoke() }
+                    if (!stopFlag && positionSamples() >= tot - RATE / 10) { stopFlag = true; onEnded?.invoke() }
                     continue
                 }
-                if (writePos >= readyTo || writePos < readyFrom) { Thread.sleep(30); continue } // waiting for the model
-                val n = minOf(block, readyTo - writePos, totalSamples - writePos)
-                for (i in 0 until n) { buf[2 * i] = outL[writePos + i]; buf[2 * i + 1] = outR[writePos + i] }
+                val l: ShortBuffer; val r: ShortBuffer; val avail: Int
+                if (ready != null) { l = ready.outL; r = ready.outR; avail = tot - writePos }
+                else if (sep != null) { l = sep.outL; r = sep.outR; avail = sep.readyAhead(writePos) }
+                else { Thread.sleep(30); continue }
+                if (avail <= 0) { Thread.sleep(30); continue } // waiting for the model
+                val n = minOf(block, avail)
+                for (i in 0 until n) { buf[2 * i] = l.get(writePos + i); buf[2 * i + 1] = r.get(writePos + i) }
                 val w = t.write(buf, 0, n * 2)
                 if (w > 0) writePos += w / 2 else Thread.sleep(10)
             }
@@ -288,8 +447,7 @@ object KaraokeHD {
     fun pause() { track?.pause(); _playing.value = false }
     fun resume() { track?.play(); _playing.value = true }
     fun toggle() = if (_playing.value) pause() else resume()
-
-    fun seekTo(ms: Long): Boolean = if (readyAtMs(ms) || (readyFrom == 0 && readyTo >= totalSamples)) play(ms) else false
+    fun seekTo(ms: Long): Boolean = play(ms)
 
     fun stopPlayback() {
         stopFlag = true
@@ -299,19 +457,23 @@ object KaraokeHD {
         _active.value = false; _playing.value = false
     }
 
-    // ---------------- audio decode / cache
+    // ------------------------------------------------------------------ audio decode / AAC cache
 
-    /** Any format Android can decode -> 16-bit stereo 44.1 kHz. */
-    private fun decode(file: File): Pair<ShortArray, ShortArray> {
+    private data class Pcm(val l: ShortBuffer, val r: ShortBuffer, val n: Int)
+
+    /** Any format Android can decode -> 16-bit stereo 44.1 kHz in native memory. */
+    private fun decode(file: File): Pcm {
         val ex = MediaExtractor(); ex.setDataSource(file.absolutePath)
         val ti = (0 until ex.trackCount).first { ex.getTrackFormat(it).getString(MediaFormat.KEY_MIME)?.startsWith("audio/") == true }
         ex.selectTrack(ti)
         val fmt = ex.getTrackFormat(ti)
+        val durUs = runCatching { fmt.getLong(MediaFormat.KEY_DURATION) }.getOrDefault(300_000_000L)
         val codec = MediaCodec.createDecoderByType(fmt.getString(MediaFormat.KEY_MIME)!!)
         codec.configure(fmt, null, null, 0); codec.start()
         var rate = fmt.getInteger(MediaFormat.KEY_SAMPLE_RATE)
         var channels = fmt.getInteger(MediaFormat.KEY_CHANNEL_COUNT)
-        val l = ShortGrow(); val r = ShortGrow()
+        var cap = (durUs * rate / 1_000_000 + rate).toInt()
+        var l = direct(cap); var r = direct(cap); var n = 0
         val info = MediaCodec.BufferInfo()
         var inputDone = false; var outputDone = false
         while (!outputDone) {
@@ -319,9 +481,9 @@ object KaraokeHD {
                 val ii = codec.dequeueInputBuffer(10_000)
                 if (ii >= 0) {
                     val ib = codec.getInputBuffer(ii)!!
-                    val n = ex.readSampleData(ib, 0)
-                    if (n < 0) { codec.queueInputBuffer(ii, 0, 0, 0, MediaCodec.BUFFER_FLAG_END_OF_STREAM); inputDone = true }
-                    else { codec.queueInputBuffer(ii, 0, n, ex.sampleTime, 0); ex.advance() }
+                    val sz = ex.readSampleData(ib, 0)
+                    if (sz < 0) { codec.queueInputBuffer(ii, 0, 0, 0, MediaCodec.BUFFER_FLAG_END_OF_STREAM); inputDone = true }
+                    else { codec.queueInputBuffer(ii, 0, sz, ex.sampleTime, 0); ex.advance() }
                 }
             }
             val oi = codec.dequeueOutputBuffer(info, 10_000)
@@ -335,55 +497,89 @@ object KaraokeHD {
                     ob.position(info.offset); ob.limit(info.offset + info.size)
                     val sb = ob.asShortBuffer()
                     val frames = sb.remaining() / channels
+                    if (n + frames > cap) {
+                        cap = (n + frames) * 2
+                        val nl = direct(cap); val nr = direct(cap)
+                        for (i in 0 until n) { nl.put(i, l.get(i)); nr.put(i, r.get(i)) }
+                        l = nl; r = nr
+                    }
                     for (f in 0 until frames) {
                         val a = sb.get(f * channels)
-                        val b = if (channels > 1) sb.get(f * channels + 1) else a
-                        l.add(a); r.add(b)
+                        l.put(n + f, a); r.put(n + f, if (channels > 1) sb.get(f * channels + 1) else a)
                     }
+                    n += frames
                     codec.releaseOutputBuffer(oi, false)
                     if (info.flags and MediaCodec.BUFFER_FLAG_END_OF_STREAM != 0) outputDone = true
                 }
             }
         }
         codec.stop(); codec.release(); ex.release()
-        val ll = l.toArray(); val rr = r.toArray()
-        return if (rate == RATE) ll to rr else resample(ll, rate) to resample(rr, rate)
-    }
-
-    private fun resample(x: ShortArray, from: Int): ShortArray {
-        val n = (x.size.toLong() * RATE / from).toInt()
-        return ShortArray(n) { i ->
-            val p = i.toDouble() * from / RATE
-            val j = p.toInt().coerceAtMost(x.size - 2)
-            val f = p - j
-            (x[j] * (1 - f) + x[j + 1] * f).toInt().toShort()
+        if (rate == RATE) return Pcm(l, r, n)
+        val m = (n.toLong() * RATE / rate).toInt()
+        val rl = direct(m); val rr = direct(m)
+        for (i in 0 until m) {
+            val p = i.toDouble() * rate / RATE
+            val j = p.toInt().coerceAtMost(n - 2); val f = p - j
+            rl.put(i, (l.get(j) * (1 - f) + l.get(j + 1) * f).toInt().toShort())
+            rr.put(i, (r.get(j) * (1 - f) + r.get(j + 1) * f).toInt().toShort())
         }
+        return Pcm(rl, rr, m)
     }
 
-    private class ShortGrow {
-        private var a = ShortArray(1 shl 20); private var n = 0
-        fun add(v: Short) { if (n == a.size) a = a.copyOf(a.size * 2); a[n++] = v }
-        fun toArray() = a.copyOf(n)
+    /** Stores a separated song as AAC 256 kbps in an .m4a (~6 MB for 3 minutes). */
+    private fun encodeM4a(l: ShortBuffer, r: ShortBuffer, total: Int, out: File) {
+        val tmp = File(out.path + ".part")
+        val fmt = MediaFormat.createAudioFormat(MediaFormat.MIMETYPE_AUDIO_AAC, RATE, 2).apply {
+            setInteger(MediaFormat.KEY_AAC_PROFILE, MediaCodecInfo.CodecProfileLevel.AACObjectLC)
+            setInteger(MediaFormat.KEY_BIT_RATE, 256_000)
+            setInteger(MediaFormat.KEY_MAX_INPUT_SIZE, 16384)
+        }
+        val enc = MediaCodec.createEncoderByType(MediaFormat.MIMETYPE_AUDIO_AAC)
+        enc.configure(fmt, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE); enc.start()
+        val mux = MediaMuxer(tmp.absolutePath, MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4)
+        var trackIdx = -1; var muxing = false
+        val info = MediaCodec.BufferInfo()
+        var pos = 0; var inputDone = false; var outputDone = false
+        while (!outputDone) {
+            if (!inputDone) {
+                val ii = enc.dequeueInputBuffer(10_000)
+                if (ii >= 0) {
+                    val ib = enc.getInputBuffer(ii)!!.order(ByteOrder.LITTLE_ENDIAN)
+                    ib.clear()
+                    val frames = minOf(ib.capacity() / 4, total - pos)
+                    if (frames <= 0) {
+                        enc.queueInputBuffer(ii, 0, 0, pos * 1_000_000L / RATE, MediaCodec.BUFFER_FLAG_END_OF_STREAM); inputDone = true
+                    } else {
+                        for (i in 0 until frames) { ib.putShort(l.get(pos + i)); ib.putShort(r.get(pos + i)) }
+                        enc.queueInputBuffer(ii, 0, frames * 4, pos * 1_000_000L / RATE, 0)
+                        pos += frames
+                    }
+                }
+            }
+            val oi = enc.dequeueOutputBuffer(info, 10_000)
+            when {
+                oi == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED -> { trackIdx = mux.addTrack(enc.outputFormat); mux.start(); muxing = true }
+                oi >= 0 -> {
+                    val ob = enc.getOutputBuffer(oi)!!
+                    if (info.flags and MediaCodec.BUFFER_FLAG_CODEC_CONFIG != 0) info.size = 0
+                    if (info.size > 0 && muxing) { ob.position(info.offset); ob.limit(info.offset + info.size); mux.writeSampleData(trackIdx, ob, info) }
+                    enc.releaseOutputBuffer(oi, false)
+                    if (info.flags and MediaCodec.BUFFER_FLAG_END_OF_STREAM != 0) outputDone = true
+                }
+            }
+        }
+        enc.stop(); enc.release()
+        if (muxing) mux.stop()
+        mux.release()
+        tmp.renameTo(out)
     }
 
-    private fun writeCache(k: String) {
-        val l = outL; val r = outR
-        if (l.isEmpty()) return
-        val f = cacheFile(k).apply { parentFile?.mkdirs() }
-        val bb = ByteBuffer.allocate(l.size * 4).order(ByteOrder.LITTLE_ENDIAN)
-        for (i in l.indices) { bb.putShort(l[i]); bb.putShort(r[i]) }
-        f.writeBytes(bb.array())
-        // keep only the most recent songs
-        f.parentFile?.listFiles { x -> x.name.endsWith(".pcm") }?.sortedByDescending { it.lastModified() }
-            ?.drop(CACHE_KEEP)?.forEach { it.delete() }
+    private fun trimCache() {
+        val files = cacheDir.listFiles { f -> f.name.endsWith(".m4a") }?.sortedByDescending { it.lastModified() } ?: return
+        var sum = 0L
+        files.forEach { f -> sum += f.length(); if (sum > CACHE_MAX_BYTES) f.delete() }
     }
 
-    private fun readPcm(f: File): Pair<ShortArray, ShortArray> {
-        val bb = ByteBuffer.wrap(f.readBytes()).order(ByteOrder.LITTLE_ENDIAN)
-        val n = bb.remaining() / 4
-        val l = ShortArray(n); val r = ShortArray(n)
-        for (i in 0 until n) { l[i] = bb.short; r[i] = bb.short }
-        f.setLastModified(System.currentTimeMillis())
-        return l to r
-    }
+    fun cacheBytes(): Long = cacheDir.listFiles { f -> f.name.endsWith(".m4a") }?.sumOf { it.length() } ?: 0L
+    fun clearCache() { cacheDir.listFiles()?.forEach { it.delete() }; refreshCached() }
 }
