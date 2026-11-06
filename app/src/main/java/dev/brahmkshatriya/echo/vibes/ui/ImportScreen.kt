@@ -61,7 +61,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
-private val serviceColors = mapOf("Spotify" to Color(0xFF1ED760), "Deezer" to Color(0xFFA238FF), "YouTube Music" to Color(0xFFFF0033), "YouTube" to Color(0xFFFF0033))
+private val serviceColors = mapOf("Spotify" to Color(0xFF1ED760), "Deezer" to Color(0xFFA238FF), "YouTube Music" to Color(0xFFFF0033), "YouTube" to Color(0xFFFF0033), "Apple Music" to Color(0xFFFA2D48))
 
 /**
  * "Trasferisci playlist": paste a Spotify / Deezer / YouTube Music link → Vibes reads it and shows a
@@ -117,7 +117,7 @@ fun ImportScreen() {
                 }
                 Column(Modifier.padding(horizontal = 16.dp)) {
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(bottom = 12.dp)) {
-                        listOf("Spotify", "Deezer", "YouTube Music").forEach { n ->
+                        listOf("Spotify", "Deezer", "YouTube Music", "Apple Music").forEach { n ->
                             val c = serviceColors[n]!!
                             Box(Modifier.clip(CircleShape).background(c.copy(alpha = if (service == n || (n == "YouTube Music" && service == "YouTube")) 0.55f else 0.2f))
                                 .padding(horizontal = 12.dp, vertical = 6.dp)) {
@@ -133,7 +133,7 @@ fun ImportScreen() {
                             cm.primaryClip?.getItemAt(0)?.coerceToText(context)?.toString()?.let { link = it }
                         })
                     }
-                    if (link.isNotBlank() && service == null) Text("Link non supportato: usa una playlist di Spotify, Deezer o YouTube Music.",
+                    if (link.isNotBlank() && service == null) Text("Link non supportato: usa una playlist di Spotify, Deezer, YouTube Music o Apple Music.",
                         color = Color(0xFFFF7A8F), style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(top = 8.dp))
                     error?.let { Text(it, color = Color(0xFFFF7A8F), modifier = Modifier.padding(top = 10.dp)) }
                     AnimatedVisibility(progress != null) {

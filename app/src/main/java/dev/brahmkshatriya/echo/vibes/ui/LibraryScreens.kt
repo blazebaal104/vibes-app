@@ -513,6 +513,7 @@ private val transferServices = listOf(
     "Spotify" to Color(0xFF1ED760),
     "Deezer" to Color(0xFFA238FF),
     "YouTube Music" to Color(0xFFFF0033),
+    "Apple Music" to Color(0xFFFA2D48),
 )
 
 /**

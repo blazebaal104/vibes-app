@@ -1,9 +1,8 @@
 {
-  "title": "Karaoke HD in sottofondo + testo nel player",
+  "title": "Playlist da Apple Music",
   "notes": [
-    "Il karaoke HD continua a lavorare anche se esci dall'app o spegni lo schermo, con il progresso nelle notifiche",
-    "Nel karaoke: play/pausa grande al centro, con indietro, avanti e stop",
-    "Nel player a schermo intero scorri verso il basso per vedere il testo sincronizzato, anche senza karaoke",
-    "Dal riquadro del testo puoi aprire direttamente il karaoke"
+    "Nuovo: trasferisci playlist e album da Apple Music / iTunes",
+    "Incolla il link condiviso: vedi nome, copertina e tutte le canzoni prima di salvarla",
+    "Funzionano anche i link itunes.apple.com"
   ]
 }

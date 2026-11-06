@@ -43,6 +43,7 @@ class Importer(private val deezer: DeezerPublic, private val libraryProvider: ()
             deezerRe.containsMatchIn(url) || url.contains("link.deezer.com") || url.contains("deezer.page.link") -> "Deezer"
             spotifyRe.containsMatchIn(url) || url.contains("spotify.link") -> "Spotify"
             youtubeRe.containsMatchIn(url) -> if (url.contains("music.youtube")) "YouTube Music" else "YouTube"
+            appleRe.containsMatchIn(url) -> "Apple Music"
             else -> null
         }
     }
@@ -53,10 +54,11 @@ class Importer(private val deezer: DeezerPublic, private val libraryProvider: ()
         if (url.contains("link.deezer.com") || url.contains("spotify.link") || url.contains("deezer.page.link"))
             url = deezer.resolveUrl(url)
         onProgress(Progress(0, 0, 0, "Leggo la playlist…"))
-        val service = detect(url) ?: throw IllegalArgumentException("Link non riconosciuto: incolla il link di una playlist di Spotify, Deezer o YouTube Music")
+        val service = detect(url) ?: throw IllegalArgumentException("Link non riconosciuto: incolla il link di una playlist di Spotify, Deezer, YouTube Music o Apple Music")
         val source = when (service) {
             "Deezer" -> fromDeezer(url)
             "Spotify" -> fromSpotify(url)
+            "Apple Music" -> fromApple(url)
             else -> fromYouTube(url)
         }
         val items: List<PreviewItem> = source.deezerTracks?.map { PreviewItem(it.title, it.artist, it.toSongRef()) }
@@ -238,6 +240,52 @@ class Importer(private val deezer: DeezerPublic, private val libraryProvider: ()
         return Source(name, null, items, null)
     }
 
+    private val appleRe = Regex("""(?:music|itunes)\.apple\.com/(?:[a-z]{2}/)?(?:playlist|album)/""")
+
+    /**
+     * Apple Music / iTunes playlist or album (also itunes.apple.com links). The public page carries
+     * a "serialized-server-data" JSON where every song has title + artistName + duration; verified
+     * in CI on editorial playlists of 54 and 100 songs and on an album (2026-11-06).
+     */
+    internal suspend fun fromApple(url: String): Source {
+        val clean = url.substringBefore("#").replace("itunes.apple.com", "music.apple.com")
+        val html = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            runCatching {
+                http.newCall(okhttp3.Request.Builder().url(clean)
+                    .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
+                    .header("Accept-Language", "it-IT,it;q=0.9").build()).execute().use { if (it.isSuccessful) it.body.string() else null }
+            }.getOrNull()
+        } ?: throw IllegalStateException("Non riesco a leggere la playlist di Apple Music")
+        val data = Regex("""<script[^>]*id="serialized-server-data"[^>]*>(.*?)</script>""", RegexOption.DOT_MATCHES_ALL)
+            .find(html)?.groupValues?.get(1)
+            ?: throw IllegalStateException("Playlist di Apple Music privata o non trovata: condividila come pubblica")
+        val root = Supa.json.parseToJsonElement(data)
+        val seen = HashSet<String>()
+        val items = mutableListOf<Pair<String, String>>()
+        fun walk(e: JsonElement) {
+            when (e) {
+                is JsonObject -> {
+                    val title = e.s("title"); val artist = e.s("artistName")
+                    if (title != null && artist != null && e["duration"] != null) {
+                        val id = e.s("id") ?: "$title|$artist"
+                        if (seen.add(id)) items += title.trim() to artist.trim()
+                    } else e.values.forEach { walk(it) }
+                }
+                is JsonArray -> e.forEach { walk(it) }
+                else -> {}
+            }
+        }
+        walk(root)
+        fun meta(prop: String) = Regex("""<meta (?:property|name)="og:$prop" content="([^"]*)"""").find(html)?.groupValues?.get(1)
+        val ldName = Regex("""<script[^>]*type="application/ld\+json"[^>]*>(.*?)</script>""", RegexOption.DOT_MATCHES_ALL)
+            .find(html)?.groupValues?.get(1)?.let { runCatching { (Supa.json.parseToJsonElement(it) as? JsonObject)?.s("name") }.getOrNull() }
+        val name = (ldName ?: meta("title")?.substringBefore(" su Apple Music")?.substringBefore(" on Apple Music") ?: "Da Apple Music")
+            .replace("&amp;", "&").replace("&quot;", "\"").replace("&#39;", "'").replace("&apos;", "'")
+        val cover = meta("image")?.replace(Regex("""/\d+x\d+[^/]*\.(jpg|png)"""), "/600x600bb.jpg")
+        if (items.isEmpty()) throw IllegalStateException("Nessun brano trovato in questa playlist di Apple Music")
+        return Source(name, cover, items, null)
+    }
+
     private val deezerRe = Regex("""deezer\.com/(?:[a-z]{2}(?:-[a-z]{2})?/)?(playlist|album)/(\d+)""")
     private val spotifyRe = Regex("""open\.spotify\.com/(?:intl-[a-z-]+/)?(playlist|album)/([A-Za-z0-9]+)""")
 
@@ -251,7 +299,7 @@ class Importer(private val deezer: DeezerPublic, private val libraryProvider: ()
             deezerRe.containsMatchIn(url) -> fromDeezer(url)
             spotifyRe.containsMatchIn(url) -> fromSpotify(url)
             youtubeRe.containsMatchIn(url) -> fromYouTube(url)
-            url.contains("music.apple.com") -> throw IllegalArgumentException("Apple Music non è ancora supportato: usa Spotify, Deezer o YouTube Music")
+            appleRe.containsMatchIn(url) -> fromApple(url)
             else -> throw IllegalArgumentException("Link non riconosciuto: incolla il link di una playlist o di un album di Spotify o Deezer")
         }
         val songs: List<SongRef> = source.deezerTracks?.map { it.toSongRef() } ?: matchAll(source.items.orEmpty(), onProgress)
