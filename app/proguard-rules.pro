@@ -148,3 +148,6 @@
 # Vibes karaoke HD: ONNX Runtime is called from native code via JNI
 -keep class ai.onnxruntime.** { *; }
 -dontwarn ai.onnxruntime.**
+# JTransforms' large-array helper references a JVM-only class it never uses on Android
+-dontwarn sun.misc.Cleaner
+-dontwarn pl.edu.icm.jlargearrays.**
