@@ -161,10 +161,11 @@ fun ListenLobbyScreen(id: String) {
                             when {
                                 pos != null && pos.posMs < 0 -> "Si parte tutti insieme tra ${(-pos.posMs / 100) / 10.0} s…"
                                 state?.playing != true -> "In pausa"
+                                isHost -> "👑 Sei tu il tempo: gli altri seguono te"
                                 e == null -> "Mi sincronizzo…"
                                 abs(e) <= 40 -> "✅ In sync con il gruppo (±${abs(e)} ms)"
                                 abs(e) <= 100 -> "🟡 Quasi in sync (${abs(e)} ms)"
-                                else -> "🔄 Recupero ${abs(e)} ms…"
+                                else -> "🔄 Mi riallineo al re (${abs(e)} ms)…"
                             },
                             style = MaterialTheme.typography.labelLarge, modifier = Modifier.padding(top = 8.dp)
                         )

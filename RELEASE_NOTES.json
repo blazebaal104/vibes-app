@@ -1,10 +1,9 @@
 {
-  "title": "Sample nuovi e istantanei 🎹",
+  "title": "Lobby d'ascolto rifatta",
   "notes": [
-    "Libreria sample rifatta: quasi 4000 suoni musicali veri da Freesound (piano, chitarra, voci, pad, synth, archi, fiati, soul & jazz, lo-fi, bassi, plucks, cinematic)",
-    "Niente più 808, batterie, urla o effetti a caso: solo loop e suoni da usare nei beat",
-    "Si caricano subito: il catalogo resta sul telefono e la ricerca è istantanea, anche offline",
-    "Filtri per BPM, tonalità e loop/one-shot. Licenze libere: se c'è scritto CC-BY cita l'autore",
-    "Lobby d'ascolto: ora si crea senza errori"
+    "Il re è l'orologio del gruppo: non si corregge più da solo",
+    "Play, pausa e salti del re: tutti si fermano o ripartono dallo stesso punto nello stesso istante (mezzo secondo dopo il tocco)",
+    "Niente più click e scatti: se un telefono è fuori tempo si riallinea una volta sola, dolcemente",
+    "Gli altri seguono il re molto più in fretta"
   ]
 }

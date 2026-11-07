@@ -215,7 +215,7 @@ class ListenLobbies(private val supa: Supa, private val context: Context) {
         })
     }
 
-    /** Host: start [songs] from [index] for everyone, 1.5 s from now (time to buffer). */
+    /** Host: start [songs] from [index] for everyone, 1.5 s from now (time to load the song). */
     suspend fun play(songs: List<SongRef>, index: Int = 0) {
         if (!isHost) return
         if (offset == null) syncClock()
@@ -223,21 +223,33 @@ class ListenLobbies(private val supa: Supa, private val context: Context) {
         writeState(LobbyState(songs, index.coerceIn(0, songs.size - 1), now + 1500, 0, true))
     }
 
+    /** Where the group is now (song index + position), from the last anchor. */
     private fun current(now: Long): LobbySync.Position? {
         val s = _lobby.value?.state ?: return null
         if (s.queue.isEmpty()) return null
-        return LobbySync.expected(s.index, s.anchorPos, s.anchorServer, s.playing, now, s.queue.map { it.duration })
+        return LobbySync.expected(s.index, s.anchorPos, s.anchorServer, s.playing, maxOf(now, s.anchorServer), s.queue.map { it.duration })
     }
 
+    /** The host's REAL player position (the host is the master clock, never the anchor maths). */
+    private fun hostPosition(): Long? = engine?.position()
+
+    /**
+     * Host play/pause. Pause: everyone stops on the exact position the host's player is at.
+     * Play: everyone (host included) starts from that position at the same server instant,
+     * 0.6 s from now (enough for the others to get it and be ready, paused on that spot).
+     */
     suspend fun togglePlay() {
         if (!isHost) return
         val s = _lobby.value?.state ?: return
         val now = serverNow() ?: return
         val p = current(now) ?: return
-        writeState(
-            if (s.playing) s.copy(index = p.index, anchorPos = p.posMs.coerceAtLeast(0), anchorServer = now, playing = false)
-            else s.copy(index = p.index, anchorPos = p.posMs.coerceAtLeast(0), anchorServer = now + 800, playing = true)
-        )
+        if (s.playing) {
+            engine?.player?.setPlaying(false) // the host stops at once
+            val at = hostPosition() ?: p.posMs
+            writeState(s.copy(index = p.index, anchorPos = at.coerceAtLeast(0), anchorServer = now, playing = false))
+        } else {
+            writeState(s.copy(index = p.index, anchorPos = s.anchorPos.coerceAtLeast(0), anchorServer = now + 600, playing = true))
+        }
     }
 
     suspend fun skip(delta: Int) {
@@ -246,7 +258,7 @@ class ListenLobbies(private val supa: Supa, private val context: Context) {
         val now = serverNow() ?: return
         val p = current(now) ?: return
         val i = if (delta < 0 && p.posMs > 3000) p.index else (p.index + delta).coerceIn(0, s.queue.size - 1)
-        writeState(s.copy(index = i, anchorPos = 0, anchorServer = now + 1200, playing = true))
+        writeState(s.copy(index = i, anchorPos = 0, anchorServer = now + 1500, playing = true))
     }
 
     suspend fun seek(ms: Long) {
@@ -255,6 +267,13 @@ class ListenLobbies(private val supa: Supa, private val context: Context) {
         val now = serverNow() ?: return
         val p = current(now) ?: return
         writeState(s.copy(index = p.index, anchorPos = ms.coerceAtLeast(0), anchorServer = now + 600))
+    }
+
+    /** Host: its player stalled (buffering): re-anchor the group on where the host really is. */
+    private suspend fun reanchor(pos: Long) {
+        val s = _lobby.value?.state ?: return
+        val now = serverNow() ?: return
+        writeState(s.copy(anchorPos = pos, anchorServer = now))
     }
 
     // ------------------------------------------------------------------ follow the group
@@ -295,7 +314,7 @@ class ListenLobbies(private val supa: Supa, private val context: Context) {
                     runCatching { supa.update("vibes_listen_members", "lobby_id=eq.$lobbyId&user_id=eq.$me", buildJsonObject { put("seen_at", java.time.Instant.now().toString()) }) }
                 }
                 if (SystemClock.elapsedRealtime() - lastClockSync > 30_000) syncClock()
-                delay(600)
+                delay(250) // host actions reach everyone within ~0.3 s
             }
         }
         loop = scope.launch { followLoop() }
@@ -313,88 +332,128 @@ class ListenLobbies(private val supa: Supa, private val context: Context) {
     private fun currentKey(e: MusicEngine): String? =
         e.player.playerState.current.value?.let { "${it.mediaItem.extensionId}:${it.track.id}" }
 
+    /**
+     * Same loop for everyone, two roles:
+     *  - before a scheduled start: sit PAUSED exactly on the start position (seeking while paused is
+     *    silent), then press play at the start instant minus this phone's learned start delay;
+     *  - after the start: the HOST never corrects itself (it is the clock). A MEMBER measures for
+     *    2 s and, only if it is off by more than 40 ms, does ONE gentle catch-up (2.5 % faster or
+     *    slower for the needed seconds, then back to normal) or ONE seek if off by more than
+     *    0.5 s. Then it leaves the audio alone: no constant tiny changes, no clicks.
+     */
     private suspend fun followLoop() {
-        val errs = ArrayDeque<Long>()
         var lastLoadAt = 0L
-        var lastFixAt = 0L
-        var startedAt = 0L
+        var startedAt = 0L          // elapsedRealtime of our last start (or seek)
+        var startedSeq = -1L        // anchor we started for
+        var corrected = false       // already did the one correction for this anchor
+        var speedUntil = 0L         // a catch-up at modified speed ends here
+        var learned = false
+        val errs = ArrayDeque<Long>()
         while (true) {
-            delay(100)
+            delay(50)
             val e = engine ?: continue
             val l = _lobby.value ?: continue
             val s = l.state
             val now = serverNow() ?: continue
             if (s.queue.isEmpty()) continue
-            val exp = LobbySync.expected(s.index, s.anchorPos, s.anchorServer, s.playing, now + calibrationMs, s.queue.map { it.duration })
-            val want = s.queue[exp.index]
             val browser = e.player.browser.value ?: continue
-            if (exp.ended) { if (browser.isPlaying) e.player.setPlaying(false); _syncError.value = null; continue }
+            val host = l.host == uid
+            val nowCal = now + if (host) 0 else calibrationMs
+            val p = LobbySync.expected(s.index, s.anchorPos, s.anchorServer, s.playing, maxOf(nowCal, s.anchorServer), s.queue.map { it.duration })
+            if (p.ended) { if (browser.isPlaying) e.player.setPlaying(false); _syncError.value = null; continue }
+            val want = s.queue[p.index]
 
-            // 1. the right song loaded (with the rest of the queue after it, so the next one preloads)
+            // the right song loaded (with the rest of the queue, so the next one preloads)
             if (currentKey(e) != want.key) {
                 if (SystemClock.elapsedRealtime() - lastLoadAt > 2500) {
-                    e.player.setQueue(want.ext, s.queue.drop(exp.index).map { it.toTrack() }, 0, null)
+                    e.player.setQueue(want.ext, s.queue.drop(p.index).map { it.toTrack() }, 0, null)
                     e.player.setPlaying(false)
-                    errs.clear()
                     lastLoadAt = SystemClock.elapsedRealtime()
+                    startedSeq = -1
                 }
                 continue
             }
+            if (s.seq != startedSeq) {
+                // a new host action: forget previous measurements and corrections
+                errs.clear(); corrected = false; learned = false
+                if (speedUntil > 0) { browser.setPlaybackSpeed(1f); speedUntil = 0 }
+            }
 
-            // 2. paused group: hold the exact position
+            // paused group: everyone stopped on the host's exact position
             if (!s.playing) {
                 if (browser.isPlaying) e.player.setPlaying(false)
-                if (kotlin.math.abs(e.position() - exp.posMs) > 300) e.seekTo(exp.posMs.coerceAtLeast(0))
+                if (kotlin.math.abs(e.position() - s.anchorPos) > 30) e.seekTo(s.anchorPos)
+                startedSeq = s.seq
                 _syncError.value = null
                 continue
             }
-            // 3. start scheduled in the future: sit at 0 ready, press play exactly on time
-            if (exp.posMs < 0) {
-                if (e.position() > 500) e.seekTo(0)
+
+            val wait = s.anchorServer - nowCal
+            // scheduled start: wait paused on the start position, press play right on time
+            if (wait > 0 && s.seq != startedSeq) {
                 if (browser.isPlaying) e.player.setPlaying(false)
-                if (-exp.posMs <= startLatency + 100 && browser.playbackState == Player.STATE_READY) {
-                    delay((-exp.posMs - startLatency).coerceAtLeast(0))
-                    e.player.setPlaying(true); startedAt = SystemClock.elapsedRealtime(); errs.clear()
+                if (kotlin.math.abs(e.position() - p.posMs) > 30) e.seekTo(p.posMs)
+                if (wait <= startLatency + 60 && browser.playbackState == Player.STATE_READY) {
+                    delay((wait - startLatency).coerceAtLeast(0))
+                    e.player.setPlaying(true)
+                    startedAt = SystemClock.elapsedRealtime(); startedSeq = s.seq
                 }
                 continue
             }
-            // 4. playing: join late / resume after buffering
-            if (!browser.isPlaying) {
+            // started late (joined, slow load or missed the instant): jump in once, then play
+            if (s.seq != startedSeq || !browser.isPlaying) {
                 if (browser.playbackState == Player.STATE_READY || browser.playbackState == Player.STATE_IDLE) {
-                    e.seekTo(exp.posMs + startLatency + seekLatency / 2)
-                    e.player.setPlaying(true); startedAt = SystemClock.elapsedRealtime(); errs.clear()
+                    if (!browser.isPlaying) {
+                        e.seekTo(p.posMs + startLatency + seekLatency)
+                        e.player.setPlaying(true)
+                    }
+                    startedAt = SystemClock.elapsedRealtime(); startedSeq = s.seq
                 }
                 continue
             }
-            // 5. measure and correct (skip the first 700 ms after a start: positions settle)
-            if (SystemClock.elapsedRealtime() - startedAt < 700) continue
-            val err = e.position() - exp.posMs
-            errs.addLast(err); if (errs.size > 5) errs.removeFirst()
-            if (errs.size < 3) continue
+
+            // end of a catch-up at modified speed
+            if (speedUntil > 0 && SystemClock.elapsedRealtime() >= speedUntil) { browser.setPlaybackSpeed(1f); speedUntil = 0; errs.clear() }
+            // measure only once things settled (1.5 s after a start) and not during a catch-up
+            if (SystemClock.elapsedRealtime() - startedAt < 1500 || speedUntil > 0) continue
+            errs.addLast(e.position() - p.posMs); if (errs.size > 12) errs.removeFirst()
+            if (errs.size < 12) continue
             val med = LobbySync.median(errs.toList())
-            _syncError.value = med
-            // learn this phone's start delay from the first measurement after a start
-            if (SystemClock.elapsedRealtime() - startedAt < 2000 && kotlin.math.abs(med) < 400) {
-                startLatency = (startLatency - med / 2)
+            _syncError.value = if (host) 0 else med
+
+            // learn how long "play" takes to become sound on this phone (first measurement only)
+            if (!learned) {
+                learned = true
+                if (kotlin.math.abs(med) < 400) startLatency = startLatency - med / 2
             }
-            if (SystemClock.elapsedRealtime() - lastFixAt < 400) continue
-            when (val f = LobbySync.fix(med, exp.posMs, seekLatency)) {
-                LobbySync.Fix.None -> browser.setPlaybackSpeed(1f)
-                is LobbySync.Fix.Speed -> browser.setPlaybackSpeed(f.speed)
-                is LobbySync.Fix.Seek -> {
-                    browser.setPlaybackSpeed(1f)
-                    e.seekTo(f.toMs)
+            if (host) {
+                // the host is the clock: if its player stalled (buffering), move the anchor, never the audio
+                if (kotlin.math.abs(med) > 150) { reanchor(e.position()); errs.clear() }
+                continue
+            }
+            if (corrected) continue
+            when {
+                kotlin.math.abs(med) <= 40 -> {}
+                kotlin.math.abs(med) <= 500 -> {
+                    // one smooth catch-up: 2.5 % faster/slower for exactly the time needed
+                    val speed = if (med > 0) 0.975f else 1.025f
+                    browser.setPlaybackSpeed(speed)
+                    speedUntil = SystemClock.elapsedRealtime() + (kotlin.math.abs(med) / 0.025).toLong()
+                    corrected = true
+                }
+                else -> {
+                    e.seekTo(p.posMs + seekLatency)
                     startedAt = SystemClock.elapsedRealtime()
-                    // the error after this seek tells how long a seek takes on this phone
+                    corrected = true
                     scope.launch {
-                        delay(1500)
-                        val after = e.position() - (current(serverNow() ?: return@launch)?.posMs ?: return@launch)
+                        delay(2000)
+                        val pos2 = current(serverNow() ?: return@launch)?.posMs ?: return@launch
+                        val after = e.position() - pos2
                         if (kotlin.math.abs(after) < 400) seekLatency = seekLatency - after / 2
                     }
                 }
             }
             errs.clear()
-            lastFixAt = SystemClock.elapsedRealtime()
         }
     }
 }
