@@ -79,6 +79,9 @@ class StreamableLoader(
 
     private suspend fun loadTrack(item: MediaItem): MediaState.Loaded<Track> {
         val stub = item.state.item
+        // Vibes: songs published on Vibes are not on Deezer, they play from their own URL
+        if (dev.brahmkshatriya.echo.vibes.music.VibesUploads.isUpload(stub.id))
+            return MediaState.Loaded(item.extensionId, stub, null, null, null, null, null, false, false, probesDegraded = true)
         // Vibes offline: a downloaded song must start without network. Use the cached track if
         // it comes quickly, otherwise the stub (the file is served by loadServer below).
         if (dev.brahmkshatriya.echo.vibes.music.VibesOffline.fileFor(app.context, item.extensionId, stub.id) != null) {
@@ -102,6 +105,11 @@ class StreamableLoader(
     }
 
     private suspend fun loadServer(mediaItem: MediaItem): Result<Streamable.Media.Server> {
+        if (dev.brahmkshatriya.echo.vibes.music.VibesUploads.isUpload(mediaItem.track.id)) {
+            val url = dev.brahmkshatriya.echo.vibes.music.VibesUploads.urlFor(mediaItem.track.id)
+                ?: return Result.failure(IllegalStateException("Brano pubblicato non più disponibile"))
+            return Result.success(Streamable.Media.Server(listOf(url.toSource()), true))
+        }
         dev.brahmkshatriya.echo.vibes.music.VibesOffline.fileFor(app.context, mediaItem.extensionId, mediaItem.track.id)?.let { f ->
             return Result.success(Streamable.Media.Server(listOf(Uri.fromFile(f).toString().toSource()), true))
         }

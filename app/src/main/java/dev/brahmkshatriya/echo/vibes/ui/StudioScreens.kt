@@ -1,5 +1,7 @@
 package dev.brahmkshatriya.echo.vibes.ui
 
+import androidx.compose.material.icons.rounded.PlaylistAdd
+
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.animation.core.animateFloat
@@ -350,6 +352,9 @@ fun UploadRow(u: Upload, owner: Profile?, modifier: Modifier = Modifier, onDelet
             val sc by androidx.compose.animation.core.animateFloatAsState(if (liked == true) 1.2f else 1f, androidx.compose.animation.core.spring(dampingRatio = 0.35f), label = "lk")
             Text(if (liked == true) "❤️" else "🤍", fontSize = 20.sp, modifier = Modifier.padding(start = 8.dp).graphicsLayer { scaleX = sc; scaleY = sc }.clip(CircleShape).clickable { onLike() }.padding(4.dp))
         }
+        IconButton(onClick = { nav.addToPlaylist = dev.brahmkshatriya.echo.vibes.music.VibesUploads.songOf(u) }) {
+            Icon(Icons.Rounded.PlaylistAdd, "Aggiungi a playlist")
+        }
         onDelete?.let { IconButton(onClick = it) { Icon(Icons.Rounded.Delete, "Elimina") } }
     }
 }
@@ -512,6 +517,26 @@ private data class SampleRow(
     val loop: Boolean, val community: Sample? = null,
 )
 
+/**
+ * Hearted samples, stored with everything needed to show and play them. Before, only the ids were
+ * saved and the rows came from an in-memory cache, so after reopening the screen the favourites
+ * tab was empty ("i sample col cuore non compaiono nei preferiti").
+ */
+@kotlinx.serialization.Serializable
+private data class FavSample(val id: String, val name: String, val sub: String, val url: String, val bpm: Int? = null, val key: String? = null, val loop: Boolean = false)
+
+private object FavSamples {
+    private fun file(ctx: android.content.Context) = java.io.File(ctx.filesDir, "fav_samples.json")
+    fun load(ctx: android.content.Context): List<FavSample> =
+        runCatching { dev.brahmkshatriya.echo.vibes.backend.Supa.json.decodeFromString<List<FavSample>>(file(ctx).readText()) }.getOrDefault(emptyList())
+    fun save(ctx: android.content.Context, list: List<FavSample>) =
+        runCatching { file(ctx).writeText(dev.brahmkshatriya.echo.vibes.backend.Supa.json.encodeToString(list)) }
+    fun toggle(ctx: android.content.Context, r: SampleRow, on: Boolean) {
+        val cur = load(ctx).filter { it.id != r.id }
+        save(ctx, if (on) listOf(FavSample(r.id, r.name, r.sub, r.url, r.bpm, r.key, r.loop)) + cur else cur)
+    }
+}
+
 @Composable
 fun SamplesScreen() {
     val app = LocalApp.current
@@ -520,6 +545,8 @@ fun SamplesScreen() {
     val prefs = LocalSettings.current
     var source by remember { mutableIntStateOf(0) } // 0 web, 1 community, 2 favourites
     var q by remember { mutableStateOf("") }
+    var recordCat by remember { mutableStateOf<String?>(null) }
+    var favCount by remember { mutableIntStateOf(FavSamples.load(context).size) }
     var kind by remember { mutableStateOf<String?>(null) }
     var genre by remember { mutableStateOf<String?>(null) }
     var key by remember { mutableStateOf<String?>(null) }
@@ -532,15 +559,16 @@ fun SamplesScreen() {
     val st by VibesGraph.studio.state.collectAsState()
     val favCache = remember { mutableStateMapOf<String, SampleRow>() }
 
-    LaunchedEffect(q, kind, genre, key, bpm, sort, source, refresh) {
+    LaunchedEffect(q, kind, genre, key, bpm, sort, source, refresh, recordCat) {
         rows = null
         delay(300)
         val full = bpm.start <= 60f && bpm.endInclusive >= 180f
         val list: List<SampleRow> = when (source) {
             0 -> runCatching {
-                VibesGraph.webSamples.search(listOfNotNull(q.ifBlank { null }, genre, kind?.let { if (it == "loop") "loop" else "one shot" }).joinToString(" ").ifBlank { "drum loops" })
+                VibesGraph.webSamples.search(q, recordCat)
             }.getOrDefault(emptyList()).map { w ->
-                SampleRow(w.id, w.name, "${w.pack} · ${w.sizeKb} KB", w.url, w.bpm, w.key, loop = w.name.contains("loop", true))
+                SampleRow(w.id, w.name, listOfNotNull(w.pack.ifBlank { null }, w.seconds?.let { "%d:%02d".format(it / 60, it % 60) }).joinToString(" · "),
+                    w.url, null, null, loop = false)
             }
             1 -> runCatching {
                 app.social.searchSamples(q, kind, genre, if (full) null else bpm.start.toInt(), if (full) null else bpm.endInclusive.toInt())
@@ -548,9 +576,9 @@ fun SamplesScreen() {
                 SampleRow(c.id, c.name, listOfNotNull(if (c.kind == "loop") "Loop" else "One-shot", c.genre.ifBlank { null }, "${c.downloads} download").joinToString(" · "),
                     c.url, c.bpm, c.key, c.kind == "loop", c)
             }
-            else -> prefs.favSamples.mapNotNull { favCache[it] }
+            else -> FavSamples.load(context).map { SampleRow(it.id, it.name, it.sub, it.url, it.bpm, it.key, it.loop) }
         }
-        val filtered = list.filter { r ->
+        val filtered = if (source == 0) list else list.filter { r ->
             (key == null || r.key?.startsWith(key!!, true) == true) &&
                     (full || source == 1 || r.bpm == null || r.bpm in bpm.start.toInt()..bpm.endInclusive.toInt())
         }
@@ -578,16 +606,26 @@ fun SamplesScreen() {
                     Pill("+ Carica", true, { adding = true }, Modifier.padding(end = 12.dp))
                 }
                 Column(Modifier.padding(horizontal = 16.dp)) {
-                    SearchField(q, { q = it }, "808, piano, chitarra, vocal chop…")
+                    SearchField(q, { q = it }, if (source == 0) "Piano, blues, tromba, tango, un artista…" else "Cerca un sample")
                     Row(Modifier.padding(top = 10.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Pill("🌐 Web", source == 0, { source = 0 })
+                        Pill("💿 Dischi", source == 0, { source = 0 })
                         Pill("👥 Community", source == 1, { source = 1 })
-                        Pill("❤️ ${prefs.favSamples.size}", source == 2, { source = 2 })
+                        Pill("❤️ $favCount", source == 2, { source = 2 })
                         Spacer(Modifier.weight(1f))
-                        Pill(if (filters) "Filtri ▴" else "Filtri ▾", filters, { filters = !filters })
+                        if (source != 0) Pill(if (filters) "Filtri ▴" else "Filtri ▾", filters, { filters = !filters })
                     }
                 }
-                AnimatedVisibility(filters) {
+                if (source == 0) {
+                    Text("Registrazioni vere su disco a 78 giri, 1900-1925: di pubblico dominio, campionale liberamente.",
+                        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp))
+                    LazyRow(contentPadding = PaddingValues(16.dp, 4.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        items(VibesGraph.webSamples.categories.map { it.first }) { c ->
+                            Pill(c, recordCat == c, { recordCat = if (recordCat == c) null else c })
+                        }
+                    }
+                }
+                AnimatedVisibility(filters && source != 0) {
                     Column {
                         Row(Modifier.padding(start = 16.dp, top = 10.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             Pill("Tutti", kind == null, { kind = null }); Pill("Loop", kind == "loop", { kind = "loop" }); Pill("One-shot", kind == "oneshot", { kind = "oneshot" })
@@ -623,11 +661,11 @@ fun SamplesScreen() {
             if (list == null) item { Box(Modifier.fillMaxWidth().padding(30.dp), contentAlignment = Alignment.Center) { androidx.compose.material3.CircularProgressIndicator() } }
             else if (list.isEmpty()) item {
                 EmptyState("🎛️", when (source) { 2 -> "Nessun preferito"; 1 -> "Nessun sample della community"; else -> "Nessun risultato" },
-                    when (source) { 2 -> "Tocca il cuore su un sample per salvarlo qui."; 1 -> "Carica i tuoi loop: la community cresce con te."; else -> "Prova con un'altra parola: 808, kick, piano, guitar, vocal." })
+                    when (source) { 2 -> "Tocca il cuore su un sample per salvarlo qui."; 1 -> "Carica i tuoi loop: la community cresce con te."; else -> "Prova con un'altra parola: piano, blues, violin, tango, o un'altra categoria." })
             }
             else items(list, key = { it.id }) { r ->
                 val playing = st?.item?.id == r.id && st?.playing == true
-                val fav = r.id in prefs.favSamples
+                val fav = r.id in prefs.favSamples || (source == 2)
                 val bg by animateColorAsState(if (playing) MaterialTheme.colorScheme.primary.copy(alpha = 0.18f) else Color.Transparent, label = "sp")
                 Column(Modifier.fillMaxWidth().background(bg).clickable { play(r) }.padding(horizontal = 16.dp, vertical = 8.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -642,6 +680,9 @@ fun SamplesScreen() {
                         }
                         Text(if (fav) "❤️" else "🤍", fontSize = 18.sp, modifier = Modifier.clip(CircleShape).clickable {
                             VibesGraph.prefs.update { it.copy(favSamples = if (fav) it.favSamples - r.id else it.favSamples + r.id) }
+                            FavSamples.toggle(context, r, !fav)
+                            favCount = FavSamples.load(context).size
+                            if (source == 2) refresh++
                         }.padding(6.dp))
                         IconButton(onClick = {
                             downloadSample(context, r.name, r.url); r.community?.let { app.social.count("download", it.id) }

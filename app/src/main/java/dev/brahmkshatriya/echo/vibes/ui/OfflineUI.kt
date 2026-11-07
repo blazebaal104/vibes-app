@@ -1,6 +1,8 @@
 package dev.brahmkshatriya.echo.vibes.ui
 
 import androidx.compose.foundation.layout.Box
+import androidx.compose.ui.draw.clip
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -88,4 +90,32 @@ fun formatBytes(b: Long): String = when {
     b >= 1_073_741_824 -> "%.1f GB".format(b / 1_073_741_824f)
     b >= 1_048_576 -> "%.0f MB".format(b / 1_048_576f)
     else -> "${b / 1024} KB"
+}
+
+
+/** Round download toggle for one song (full player): arrow -> progress -> green tick. */
+@Composable
+fun SongDownloadButton(song: SongRef) {
+    val app = LocalApp.current
+    val entries by VibesOffline.entries.collectAsState()
+    val states by VibesOffline.states.collectAsState()
+    val done = entries.containsKey(song.key)
+    val st = states[song.key]
+    androidx.compose.foundation.layout.Box(
+        Modifier.size(46.dp).clip(androidx.compose.foundation.shape.CircleShape).background(LocalVibes.current.cardHigh)
+            .bouncy({
+                when {
+                    done -> { VibesOffline.remove(listOf(song)); app.nav.toast("Download rimosso") }
+                    st == null || st is VibesOffline.State.Failed -> { VibesOffline.download(listOf(song)); app.nav.toast("Scarico per l'ascolto offline") }
+                }
+            }),
+        contentAlignment = Alignment.Center
+    ) {
+        when {
+            done -> Icon(Icons.Rounded.CheckCircle, "Scaricato", tint = OfflineGreen)
+            st is VibesOffline.State.Downloading -> CircularProgressIndicator(progress = { st.progress }, modifier = Modifier.size(24.dp), strokeWidth = 2.5.dp, color = OfflineGreen)
+            st is VibesOffline.State.Queued -> CircularProgressIndicator(modifier = Modifier.size(24.dp), strokeWidth = 2.5.dp, color = OfflineGreen)
+            else -> Icon(Icons.Rounded.Download, "Scarica")
+        }
+    }
 }

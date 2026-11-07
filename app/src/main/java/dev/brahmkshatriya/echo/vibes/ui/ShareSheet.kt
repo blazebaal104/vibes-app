@@ -1,5 +1,7 @@
 package dev.brahmkshatriya.echo.vibes.ui
 
+import androidx.compose.material.icons.rounded.Download
+
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
@@ -154,6 +156,13 @@ fun ShareSheet(item: ShareItem, onDismiss: () -> Unit) {
                 is ShareItem.Song -> {
                     ShareOption(Icons.Rounded.AddCircle, "Aggiungi alla tua storia") { onDismiss(); app.nav.open(Route.NewStory(item.song)) }
                     ShareOption(Icons.Rounded.PlaylistAdd, "Aggiungi a playlist") { onDismiss(); app.nav.addToPlaylist = item.song }
+                    val offline = dev.brahmkshatriya.echo.vibes.music.VibesOffline
+                    val downloaded = offline.entries.collectAsState().value.containsKey(item.song.key)
+                    ShareOption(Icons.Rounded.Download, if (downloaded) "Rimuovi dai download" else "Scarica per ascoltarlo offline") {
+                        onDismiss()
+                        if (downloaded) { offline.remove(listOf(item.song)); app.nav.toast("Download rimosso") }
+                        else { offline.download(listOf(item.song)); app.nav.toast("Scarico \"${item.song.title}\"") }
+                    }
                     ShareOption(Icons.Rounded.Share, "Condividi su altre app") { shareToApps(context, externalText(item.song)) }
                     ShareOption(Icons.Rounded.ContentCopy, "Copia link") {
                         copyText(context, externalText(item.song)); app.nav.toast("Link copiato")

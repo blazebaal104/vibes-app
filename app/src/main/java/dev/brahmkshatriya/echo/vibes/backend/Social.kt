@@ -60,6 +60,9 @@ class Social(context: Context, val supa: Supa) {
     private val _incoming = MutableSharedFlow<Message>(extraBufferCapacity = 32)
     /** New messages addressed to me (for notifications). */
     val incoming = _incoming.asSharedFlow()
+    /** Someone invited me to a listening lobby (INSERT on vibes_listen_invites). */
+    private val _lobbyInvites = MutableSharedFlow<dev.brahmkshatriya.echo.vibes.listen.ListenInvite>(extraBufferCapacity = 8)
+    val lobbyInvites = _lobbyInvites.asSharedFlow()
 
     private val _messageChanges = MutableSharedFlow<Message>(extraBufferCapacity = 64)
     /** Inserts and tick updates of messages in any of my chats. */
@@ -398,6 +401,9 @@ class Social(context: Context, val supa: Supa) {
 
     suspend fun deleteUpload(id: String) = supa.delete("vibes_uploads", "id=eq.$id")
 
+    suspend fun uploadById(id: String): Upload? =
+        supa.select("vibes_uploads", "id=eq.$id&select=*&limit=1").firstOrNull()?.let { json.decodeFromJsonElement<Upload>(it) }
+
     suspend fun publishSample(s: Sample) {
         val id = uid ?: error("Non sei connesso")
         supa.insert("vibes_samples", buildJsonObject {
@@ -684,6 +690,9 @@ class Social(context: Context, val supa: Supa) {
                 val l = c.record?.let { json.decodeFromJsonElement<Lobby>(it) } ?: return
                 _lobbyChanges.emit(l)
                 if (c.type == "INSERT" && l.guestId == id) _newChallenges.emit(l)
+            }
+            "vibes_listen_invites" -> if (c.type == "INSERT") c.record?.let {
+                _lobbyInvites.emit(json.decodeFromJsonElement<dev.brahmkshatriya.echo.vibes.listen.ListenInvite>(it))
             }
             "vibes_friend_requests" -> refreshRequests()
             "vibes_friendships" -> refreshFriends()

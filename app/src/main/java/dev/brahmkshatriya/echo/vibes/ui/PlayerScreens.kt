@@ -286,6 +286,7 @@ fun FullPlayer() {
                         .bouncy({ app.nav.addToPlaylist = song }),
                     contentAlignment = Alignment.Center
                 ) { Icon(Icons.Rounded.PlaylistAdd, "Aggiungi a playlist") }
+                SongDownloadButton(song)
             }
             Spacer(Modifier.height(18.dp))
         }

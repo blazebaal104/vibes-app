@@ -235,6 +235,7 @@ suspend fun handleLink(app: AppState, uri: Uri) {
         }
         "playlist" -> parts.firstOrNull()?.let { nav.openOn(Route.Library, Route.SharedPlaylist(it)) }
         "user" -> parts.firstOrNull()?.let { nav.openOn(Route.Friends, Route.Profile(it)) }
+        "lobby" -> parts.firstOrNull()?.let { nav.openOn(Route.Friends, Route.ListenLobby(it)) }
         "challenge" -> if (parts.size >= 2) {
             val (game, lobby) = parts[0] to parts[1]
             nav.openOn(Route.Games, if (game == "blindtest") Route.BlindTest(lobby) else Route.Guess(lobby))
@@ -249,6 +250,7 @@ fun Screen(route: Route) {
         Route.Search -> SearchScreen()
         Route.Library -> LibraryScreen()
         Route.Friends -> FriendsScreen()
+        is Route.ListenLobby -> ListenLobbyScreen(route.id)
         Route.Games -> GamesScreen()
         is Route.Playlist -> PlaylistScreen(route.id)
         Route.Liked -> LikedScreen()

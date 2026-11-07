@@ -41,6 +41,9 @@ object VibesNotifier {
         scope.launch {
             VibesGraph.social.incoming.collect { m -> runCatching { show(context, m) } }
         }
+        scope.launch {
+            VibesGraph.social.lobbyInvites.collect { inv -> runCatching { showLobbyInvite(context, inv) } }
+        }
         scope.launch { runCatching { checkReleases(context) } }
     }
 
@@ -156,6 +159,33 @@ object VibesNotifier {
             .setContentIntent(pi)
             .build()
         NotificationManagerCompat.from(context).notify(m.senderId.hashCode(), n)
+    }
+
+    /** "X ti ha invitato nella lobby d'ascolto" -> opens the lobby. */
+    private suspend fun showLobbyInvite(context: Context, inv: dev.brahmkshatriya.echo.vibes.listen.ListenInvite) {
+        runCatching { VibesGraph.lobbies.refreshInvites() }
+        if (Build.VERSION.SDK_INT >= 33 &&
+            ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+        ) return
+        val name = VibesGraph.social.friendName(inv.fromUser)
+        val lobby = VibesGraph.lobbies.lobbyName(inv.lobbyId) ?: "una lobby"
+        val intent = Intent(context, VibesActivity::class.java).apply {
+            action = Intent.ACTION_VIEW
+            data = Uri.parse("vibes://lobby/${inv.lobbyId}")
+            flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
+        }
+        val pi = PendingIntent.getActivity(context, inv.lobbyId.hashCode(), intent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+        val n = NotificationCompat.Builder(context, CHANNEL_MESSAGES)
+            .setSmallIcon(R.drawable.ic_launcher_foreground)
+            .setContentTitle("🎧 $name ti invita ad ascoltare insieme")
+            .setContentText("Entra in «$lobby»: stessa musica, stesso istante")
+            .setCategory(NotificationCompat.CATEGORY_SOCIAL)
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setAutoCancel(true)
+            .setContentIntent(pi)
+            .build()
+        NotificationManagerCompat.from(context).notify(inv.lobbyId.hashCode(), n)
     }
 
     fun clear(context: Context, friendId: String) {

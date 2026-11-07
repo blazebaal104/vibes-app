@@ -554,7 +554,10 @@ fun TransferBanner(modifier: Modifier = Modifier, onClick: () -> Unit) {
                     (androidx.compose.animation.slideInVertically { it } + androidx.compose.animation.fadeIn())
                         .togetherWith(androidx.compose.animation.slideOutVertically { -it } + androidx.compose.animation.fadeOut())
                 }, label = "svc") { n ->
-                    Text(n, style = MaterialTheme.typography.headlineSmall, color = Color.White)
+                    // one line always ("Apple Music" used to wrap): shrink the longer names a bit
+                    Text(n, style = MaterialTheme.typography.headlineSmall, color = Color.White, maxLines = 1, softWrap = false,
+                        fontSize = if (n.length > 9) 21.sp else MaterialTheme.typography.headlineSmall.fontSize,
+                        overflow = androidx.compose.ui.text.style.TextOverflow.Clip)
                 }
             }
             Text("›", fontSize = 34.sp, color = Color.White)

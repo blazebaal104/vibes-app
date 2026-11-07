@@ -316,6 +316,7 @@ class Supa(context: Context) {
             "vibes_friendships" to "user_id=eq.$uid",
             "vibes_follows" to "followee_id=eq.$uid",
             "vibes_follows" to "follower_id=eq.$uid",
+            "vibes_listen_invites" to "to_user=eq.$uid",
         )
 
         fun start() {

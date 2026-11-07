@@ -128,6 +128,7 @@ fun FriendsScreen() {
                 }
                 Text("Chi vi seguite a vicenda siete amici: potete chattare e sfidarvi.", style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp))
+                LobbyEntryCard()
             }
             if (newFollowers.isNotEmpty()) {
                 item { SectionTitle("Ti seguono") }

@@ -15,6 +15,7 @@ object VibesGraph {
     fun init(context: Context) {
         dev.brahmkshatriya.echo.vibes.music.VibesOffline.init(context)
         dev.brahmkshatriya.echo.vibes.karaoke.KaraokeHD.init(context)
+        dev.brahmkshatriya.echo.vibes.music.VibesUploads.init(context)
         if (ctx == null) ctx = context.applicationContext
         dev.brahmkshatriya.echo.vibes.diag.ErrorReporter.install(context.applicationContext)
     }
@@ -23,6 +24,7 @@ object VibesGraph {
 
     val supa by lazy { Supa(app) }
     val social by lazy { Social(app, supa) }
+    val lobbies by lazy { dev.brahmkshatriya.echo.vibes.listen.ListenLobbies(supa, app) }
     val library by lazy { VibesLibrary(app) }
     val deezer by lazy { DeezerPublic(supa.http) }
     val recommender by lazy { dev.brahmkshatriya.echo.vibes.music.Recommender(deezer, library) }

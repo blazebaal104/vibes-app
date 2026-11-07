@@ -14,6 +14,8 @@ sealed interface Route {
     data object Search : Route
     data object Library : Route
     data object Friends : Route
+    /** Group listening lobby (null id = create a new one). */
+    data class ListenLobby(val id: String) : Route
     data object Games : Route
 
     data class Playlist(val id: String) : Route
