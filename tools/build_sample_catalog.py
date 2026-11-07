@@ -22,9 +22,12 @@ CATS = {
     "Lo-fi": ["lofi loop", "lo-fi melody", "lofi chords", "dusty sample", "vinyl melody"],
     "Bassi": ["bass loop", "bassline", "synth bass", "upright bass", "bass guitar riff"],
     "Plucks & Bells": ["bells melody", "pluck", "kalimba", "marimba", "music box"],
-    "Cinematic": ["orchestral", "cinematic", "epic strings", "piano ambient", "film score"],
+    "Cinematic": ["orchestral loop", "orchestral melody", "epic strings", "piano ambient", "film score melody"],
 }
 BANNED = re.compile(r"(?i)\b(808|kick|snare|hi-?hat|hats|drum|drums|drumloop|percussion|clap|cymbal|tom|beatbox|scream|shout|yell|noise|glitch|fx|sfx|foley|field-recording|ambience|footstep|explosion|horror|creepy|speech|talking|voice-over|asmr|bird|rain|wind|traffic)\b")
+# a sample is kept only if it is clearly MUSIC: an instrument, harmony, melody, tempo or key in its tags/name
+MUSICAL = re.compile(r"(?i)\b(loop|loops|melody|melodic|chord|chords|progression|riff|arpeggio|arp|bpm|piano|rhodes|keys|organ|guitar|bass|bassline|synth|pad|strings|violin|viola|cello|orchestra|orchestral|trumpet|sax|saxophone|flute|clarinet|brass|horn|trombone|vocal|vocals|voice|choir|singing|sing|hum|humming|harp|bells|bell|kalimba|marimba|xylophone|vibraphone|pluck|music|musical|note|notes|key|major|minor|lofi|lo-fi|jazz|soul|funk|gospel|ambient|chillhop|hiphop|hip-hop|instrument|instrumental|sample)\b")
+BANNED_EXTRA = re.compile(r"(?i)(crash|door|typing|keyboard typing|whoosh|swoosh|impact|hit|scratch|glass|car|engine|gun|shot|punch|swish|click|beep|alarm|siren|laugh|cough|breath|heartbeat|footsteps|water|thunder|fire|zombie|monster|game|ui|button|notification|ringtone|transition|riser|braam|boom)")
 FIELDS = "id,name,username,license,tags,duration,previews,avg_rating,num_downloads,num_ratings,ac_analysis"
 
 def api(path, params):
@@ -62,7 +65,8 @@ for cat, queries in CATS.items():
                 L = lic(s.get("license"))
                 if not L: continue
                 text = s.get("name", "") + " " + " ".join(s.get("tags", []))
-                if BANNED.search(text): continue
+                if BANNED.search(text) or BANNED_EXTRA.search(s.get("name", "")): continue
+                if not MUSICAL.search(text): continue
                 if (s.get("num_ratings") or 0) >= 2 and (s.get("avg_rating") or 0) < 3: continue
                 prev = (s.get("previews") or {}).get("preview-hq-mp3")
                 if not prev: continue
