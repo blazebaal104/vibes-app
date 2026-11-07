@@ -546,6 +546,9 @@ fun SamplesScreen() {
     var source by remember { mutableIntStateOf(0) } // 0 web, 1 community, 2 favourites
     var q by remember { mutableStateOf("") }
     var recordCat by remember { mutableStateOf<String?>(null) }
+    var loadError by remember { mutableStateOf<String?>(null) }
+    var cats by remember { mutableStateOf(VibesGraph.webSamples.categories.map { it.first }) }
+    LaunchedEffect(Unit) { runCatching { VibesGraph.webSamples.load(); cats = VibesGraph.webSamples.categories.map { it.first } } }
     var favCount by remember { mutableIntStateOf(FavSamples.load(context).size) }
     var kind by remember { mutableStateOf<String?>(null) }
     var genre by remember { mutableStateOf<String?>(null) }
@@ -561,14 +564,15 @@ fun SamplesScreen() {
 
     LaunchedEffect(q, kind, genre, key, bpm, sort, source, refresh, recordCat) {
         rows = null
-        delay(300)
+        loadError = null
+        delay(if (q.isBlank()) 0 else 200)
         val full = bpm.start <= 60f && bpm.endInclusive >= 180f
         val list: List<SampleRow> = when (source) {
             0 -> runCatching {
-                VibesGraph.webSamples.search(q, recordCat)
-            }.getOrDefault(emptyList()).map { w ->
-                SampleRow(w.id, w.name, listOfNotNull(w.pack.ifBlank { null }, w.seconds?.let { "%d:%02d".format(it / 60, it % 60) }).joinToString(" · "),
-                    w.url, null, null, loop = false)
+                VibesGraph.webSamples.search(q, recordCat, kind?.let { it == "loop" }, if (full) null else bpm.start.toInt()..bpm.endInclusive.toInt(), key)
+            }.onFailure { loadError = "Non riesco a caricare i sample: controlla la connessione" }.getOrDefault(emptyList()).map { w ->
+                SampleRow(w.id, w.name, listOfNotNull(w.pack.ifBlank { null }, w.seconds?.let { "${it}s" }).joinToString(" · "),
+                    w.url, w.bpm, w.key, loop = w.loop)
             }
             1 -> runCatching {
                 app.social.searchSamples(q, kind, genre, if (full) null else bpm.start.toInt(), if (full) null else bpm.endInclusive.toInt())
@@ -606,26 +610,26 @@ fun SamplesScreen() {
                     Pill("+ Carica", true, { adding = true }, Modifier.padding(end = 12.dp))
                 }
                 Column(Modifier.padding(horizontal = 16.dp)) {
-                    SearchField(q, { q = it }, if (source == 0) "Piano, blues, tromba, tango, un artista…" else "Cerca un sample")
+                    SearchField(q, { q = it }, if (source == 0) "Piano, vocal chop, sax, pad, lo-fi…" else "Cerca un sample")
                     Row(Modifier.padding(top = 10.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Pill("💿 Dischi", source == 0, { source = 0 })
+                        Pill("🎹 Sample", source == 0, { source = 0 })
                         Pill("👥 Community", source == 1, { source = 1 })
                         Pill("❤️ $favCount", source == 2, { source = 2 })
                         Spacer(Modifier.weight(1f))
-                        if (source != 0) Pill(if (filters) "Filtri ▴" else "Filtri ▾", filters, { filters = !filters })
+                        Pill(if (filters) "Filtri ▴" else "Filtri ▾", filters, { filters = !filters })
                     }
                 }
                 if (source == 0) {
-                    Text("Registrazioni vere su disco a 78 giri, 1900-1925: di pubblico dominio, campionale liberamente.",
+                    Text("Loop e suoni musicali liberi (CC0 / CC-BY: se è CC-BY cita l'autore).",
                         style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp))
                     LazyRow(contentPadding = PaddingValues(16.dp, 4.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        items(VibesGraph.webSamples.categories.map { it.first }) { c ->
+                        items(cats) { c ->
                             Pill(c, recordCat == c, { recordCat = if (recordCat == c) null else c })
                         }
                     }
                 }
-                AnimatedVisibility(filters && source != 0) {
+                AnimatedVisibility(filters) {
                     Column {
                         Row(Modifier.padding(start = 16.dp, top = 10.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             Pill("Tutti", kind == null, { kind = null }); Pill("Loop", kind == "loop", { kind = "loop" }); Pill("One-shot", kind == "oneshot", { kind = "oneshot" })
@@ -660,8 +664,8 @@ fun SamplesScreen() {
             val list = rows
             if (list == null) item { Box(Modifier.fillMaxWidth().padding(30.dp), contentAlignment = Alignment.Center) { androidx.compose.material3.CircularProgressIndicator() } }
             else if (list.isEmpty()) item {
-                EmptyState("🎛️", when (source) { 2 -> "Nessun preferito"; 1 -> "Nessun sample della community"; else -> "Nessun risultato" },
-                    when (source) { 2 -> "Tocca il cuore su un sample per salvarlo qui."; 1 -> "Carica i tuoi loop: la community cresce con te."; else -> "Prova con un'altra parola: piano, blues, violin, tango, o un'altra categoria." })
+                EmptyState("🎛️", when (source) { 2 -> "Nessun preferito"; 1 -> "Nessun sample della community"; else -> loadError ?: "Nessun risultato" },
+                    when (source) { 2 -> "Tocca il cuore su un sample per salvarlo qui."; 1 -> "Carica i tuoi loop: la community cresce con te."; else -> "Prova con un'altra parola: piano, guitar, vocal, pad, sax, o togli qualche filtro." })
             }
             else items(list, key = { it.id }) { r ->
                 val playing = st?.item?.id == r.id && st?.playing == true

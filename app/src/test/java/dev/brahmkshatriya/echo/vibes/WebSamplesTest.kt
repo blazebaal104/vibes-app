@@ -10,35 +10,42 @@ import org.junit.Test
 import java.net.InetAddress
 import java.util.concurrent.TimeUnit
 
-/** Network gate: the record library must return real, playable, public-domain records. */
+/** Network gate: the published sample catalog must be big, musical, fast and playable. */
 class WebSamplesTest {
     private val http = OkHttpClient.Builder().callTimeout(40, TimeUnit.SECONDS).build()
     private val samples = WebSamples(http)
-    private fun online() = runCatching { InetAddress.getByName("archive.org"); true }.getOrDefault(false)
+    private fun online() = runCatching { InetAddress.getByName("kxgswrwitsedppjzcokh.supabase.co"); true }.getOrDefault(false)
 
     @Test
-    fun `every category returns public domain records with audio`() = runBlocking {
+    fun `catalog loads fast and every category has real musical samples`() = runBlocking {
         assumeTrue(online())
-        val weak = mutableListOf<String>()
-        for ((cat, _) in samples.categories) {
-            val res = samples.search("", cat)
-            println("samples $cat: ${res.size} (${res.take(2).map { it.name + " / " + it.pack }})")
-            if (res.size < 8) weak += "$cat=${res.size}"
-            assertTrue("$cat: years must be <= 1925", res.all { (it.year ?: 1900) <= 1925 })
-            assertTrue("$cat: audio urls", res.all { it.url.startsWith("https://archive.org/download/") && it.url.endsWith(".mp3", true) })
-            assertTrue("$cat: no drum-kit one-shots", res.none { Regex("(?i)\\b808\\b|kick|snare|hi-?hat").containsMatchIn(it.name) })
-        }
-        assertTrue("categories with too few records: $weak", weak.size <= 2)
+        val t0 = System.currentTimeMillis()
+        val cat = samples.load()
+        val ms = System.currentTimeMillis() - t0
+        println("catalog: ${cat.items.size} samples in $ms ms")
+        assertTrue("catalog size ${cat.items.size}", cat.items.size >= 300)
+        val byCat = cat.items.groupBy { it.category }
+        println("per category: " + byCat.mapValues { it.value.size })
+        assertTrue("categories ${byCat.keys}", byCat.size >= 8)
+        val banned = Regex("(?i)\\b(808|kick|snare|hi-?hat|scream|noise|sfx)\\b")
+        assertTrue("no drum kit / noise", cat.items.none { banned.containsMatchIn(it.name) || it.tags.any { t -> banned.matches(t) } })
+        assertTrue("only free licences", cat.items.all { it.license == "CC0" || it.license == "CC-BY" })
+        // local search is instant
+        val t1 = System.nanoTime()
+        val piano = samples.search("piano")
+        val searchMs = (System.nanoTime() - t1) / 1_000_000
+        println("search 'piano': ${piano.size} in $searchMs ms")
+        assertTrue(piano.size >= 10 && searchMs < 200)
     }
 
     @Test
-    fun `free text search works and the audio actually downloads`() = runBlocking {
+    fun `previews actually play`() = runBlocking {
         assumeTrue(online())
-        val res = samples.search("piano")
-        assertTrue("piano results ${res.size}", res.size >= 5)
-        val first = res.first()
-        val code = http.newCall(Request.Builder().url(first.url).header("Range", "bytes=0-2047").build()).execute().use { it.code }
-        println("samples download ${first.url} -> $code")
-        assertTrue("download code $code", code == 200 || code == 206)
+        val items = samples.search("").take(5)
+        items.forEach { s ->
+            val code = http.newCall(Request.Builder().url(s.url).header("Range", "bytes=0-2047").build()).execute().use { it.code }
+            println("preview $code ${s.url}")
+            assertTrue("preview code $code", code == 200 || code == 206)
+        }
     }
 }
