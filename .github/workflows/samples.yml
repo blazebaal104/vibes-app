@@ -4,7 +4,7 @@ on:
   schedule:
     - cron: "17 3 * * 1"   # every Monday: new popular samples
   push:
-    branches: [ main ]
+    branches: [ main, samples-freesound ]
     paths: [ 'tools/build_sample_catalog.py', '.github/workflows/samples.yml' ]
 permissions:
   contents: read
@@ -15,15 +15,22 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Build catalog from Freesound
-        env:
-          FREESOUND_KEY: ${{ secrets.FREESOUND_KEY }}
-        run: python3 tools/build_sample_catalog.py catalog.json
+        run: |
+          # the Freesound key is handed out by the Vibes server only to this repo's verified CI job
+          TOKEN=$(curl -sS -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=vibes-release" | jq -r .value)
+          export FREESOUND_KEY=$(curl -sS --fail-with-body -X POST https://kxgswrwitsedppjzcokh.supabase.co/functions/v1/vibes-release \
+            -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" -d '{"freesound":true}' | jq -r .key)
+          echo "::add-mask::$FREESOUND_KEY"
+          python3 tools/build_sample_catalog.py catalog.json
+          jq -c '[.items[] | .c] | group_by(.) | map({(.[0]): length}) | add' catalog.json
+          jq -r '.items[0:15][] | "\(.c) | \(.n) | \(.b // "-") BPM | \(.k // "-") | \(.l)"' catalog.json
       - name: Check previews really play
         run: |
           for u in $(jq -r '.items[0:5][].p' catalog.json); do
             code=$(curl -s -o /dev/null -w "%{http_code}" -r 0-2047 "$u"); echo "$code $u"; [ "$code" = 200 ] || [ "$code" = 206 ] || exit 1
           done
       - name: Publish catalog
+        if: github.ref == 'refs/heads/main'
         run: |
           TOKEN=$(curl -sS -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=vibes-release" | jq -r .value)
           URL=$(curl -sS --fail-with-body -X POST https://kxgswrwitsedppjzcokh.supabase.co/functions/v1/vibes-release \
