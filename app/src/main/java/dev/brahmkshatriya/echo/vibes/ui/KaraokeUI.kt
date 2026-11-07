@@ -114,6 +114,8 @@ fun KaraokeScreen(song: SongRef, playing: Boolean, onClose: () -> Unit) {
     val hdActive by KaraokeHD.active.collectAsState()
     val hdPlaying by KaraokeHD.playing.collectAsState()
     var hdPos by remember { mutableStateOf(0L) }
+    /** The user wants music: HD may start even if the normal player cannot (e.g. Deezer refused). */
+    var wantPlay by remember { mutableStateOf(playing) }
     val scope = androidx.compose.runtime.rememberCoroutineScope()
 
     fun leave() {
@@ -156,8 +158,10 @@ fun KaraokeScreen(song: SongRef, playing: Boolean, onClose: () -> Unit) {
                     app.engine.player.browser.value!!.nextMediaItemIndex
                 )?.let { mi -> SongRef.from(mi.extensionId, mi.track) }
             }.getOrNull()
+            val mainPlaying = app.engine.player.playerState.current.value?.isPlaying == true
+            if (mainPlaying) wantPlay = true
             if (KaraokeHD.active.value) hdPos = KaraokeHD.positionMs()
-            else if (app.engine.player.playerState.current.value?.isPlaying == true && KaraokeHD.readyAtMs(app.engine.position())) {
+            else if (wantPlay && KaraokeHD.readyAtMs(app.engine.position())) {
                 val at = app.engine.position()
                 if (KaraokeHD.play(at)) app.engine.pause()
             }
@@ -226,15 +230,8 @@ fun KaraokeScreen(song: SongRef, playing: Boolean, onClose: () -> Unit) {
                                 }, label = "kc$i"
                             )
                             val scale by animateFloatAsState(if (isNow) 1.06f else 1f, label = "ks$i")
-                            Column(Modifier.graphicsLayer { scaleX = scale; scaleY = scale; transformOrigin = androidx.compose.ui.graphics.TransformOrigin(0f, 0.5f) }
-                                .bouncy({
-                                    if (hdActive) {
-                                        if (!KaraokeHD.seekTo(line.start)) {
-                                            // that part is not separated yet: back to the normal player there
-                                            KaraokeHD.stopPlayback(); app.engine.seekTo(line.start); app.engine.player.setPlaying(true)
-                                        }
-                                    } else app.engine.seekTo(line.start)
-                                })) {
+                            // lines are not tappable: friends kept jumping around the song by touching the text
+                            Column(Modifier.graphicsLayer { scaleX = scale; scaleY = scale; transformOrigin = androidx.compose.ui.graphics.TransformOrigin(0f, 0.5f) }) {
                                 Text(line.text, color = color, fontSize = if (isNow) 30.sp else 26.sp, lineHeight = 34.sp,
                                     fontWeight = if (isNow) FontWeight.ExtraBold else FontWeight.Bold)
                                 if (isNow && line.end > line.start) {
@@ -256,15 +253,24 @@ fun KaraokeScreen(song: SongRef, playing: Boolean, onClose: () -> Unit) {
                     if (hdActive && KaraokeHD.positionMs() > 3000) KaraokeHD.seekTo(0)
                     else { KaraokeHD.stopPlayback(); app.engine.previous(); app.engine.player.setPlaying(true) }
                 },
-                onToggle = { if (hdActive) KaraokeHD.toggle() else app.engine.togglePlay() },
+                onToggle = {
+                    when {
+                        hdActive -> KaraokeHD.toggle()
+                        isPlaying -> { wantPlay = false; app.engine.togglePlay() }
+                        KaraokeHD.readyAtMs(app.engine.position()) -> { wantPlay = true; KaraokeHD.play(app.engine.position()) }
+                        else -> { wantPlay = true; app.engine.togglePlay() }
+                    }
+                },
                 onNext = { KaraokeHD.stopPlayback(); app.engine.next(); app.engine.player.setPlaying(true) },
                 onStop = {
                     // stop: everything paused and back to the start of the song
-                    if (hdActive) { KaraokeHD.pause(); KaraokeHD.seekTo(0); KaraokeHD.pause() }
+                    wantPlay = false
+                    if (hdActive) { KaraokeHD.seekTo(0); KaraokeHD.pause() }
                     else { app.engine.pause(); app.engine.seekTo(0) }
                 }
             )
-            HdStatus(hdPhase, hdActive, onDownload = { KaraokeHD.downloadModel(song, app.engine.position()) })
+            HdStatus(hdPhase, hdActive, onDownload = { KaraokeHD.downloadModel(song, app.engine.position()) },
+                onRetry = { KaraokeHD.retry(song, app.engine.position()) })
             val bgState by KaraokeHD.background.collectAsState()
             bgState?.let { b ->
                 Text("Preparo in anticipo: ${b.title ?: "prossima canzone"} · ${(b.progress * 100).toInt()}%",
@@ -287,7 +293,7 @@ fun KaraokeScreen(song: SongRef, playing: Boolean, onClose: () -> Unit) {
 
 /** HD state under the lyrics: download offer, preparation progress, or the "HD" badge. */
 @Composable
-private fun HdStatus(phase: KaraokeHD.Phase, active: Boolean, onDownload: () -> Unit) {
+private fun HdStatus(phase: KaraokeHD.Phase, active: Boolean, onDownload: () -> Unit, onRetry: () -> Unit) {
     val pink = Color(0xFFFF4FD8)
     Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 6.dp)
         .clip(androidx.compose.foundation.shape.RoundedCornerShape(18.dp)).background(Color.White.copy(alpha = 0.08f)).padding(14.dp)) {
@@ -319,8 +325,13 @@ private fun HdStatus(phase: KaraokeHD.Phase, active: Boolean, onDownload: () -> 
                     modifier = Modifier.padding(top = 8.dp).fillMaxWidth().height(6.dp).clip(CircleShape))
             }
             phase is KaraokeHD.Phase.Ready -> Text("Versione HD pronta: parte appena premi play", color = Color.White, style = MaterialTheme.typography.bodyMedium)
-            phase is KaraokeHD.Phase.Failed -> Text("HD non disponibile per questo brano (${phase.message}). Uso il filtro veloce.",
-                color = Color.White.copy(alpha = 0.7f), style = MaterialTheme.typography.bodySmall)
+            phase is KaraokeHD.Phase.Failed -> Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("HD non riuscito: ${phase.message}. Intanto senti il filtro veloce.",
+                    color = Color.White.copy(alpha = 0.8f), style = MaterialTheme.typography.bodySmall, modifier = Modifier.weight(1f))
+                Spacer(Modifier.width(8.dp))
+                Text("Riprova", color = Color.Black, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.labelLarge,
+                    modifier = Modifier.clip(CircleShape).background(pink).bouncy(onRetry).padding(horizontal = 14.dp, vertical = 8.dp))
+            }
             else -> {}
         }
     }
@@ -441,7 +452,7 @@ fun PlayerLyricsCard(song: SongRef, pos: Long, onOpenKaraoke: () -> Unit) {
                         }, label = "pl$i"
                     )
                     Text(line.text, color = color, fontSize = 22.sp, lineHeight = 28.sp, fontWeight = FontWeight.Bold,
-                        modifier = Modifier.fillMaxWidth().bouncy({ app.engine.seekTo(line.start) }))
+                        modifier = Modifier.fillMaxWidth())
                 }
             }
         }

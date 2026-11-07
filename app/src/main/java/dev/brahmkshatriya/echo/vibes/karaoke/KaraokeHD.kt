@@ -158,7 +158,7 @@ object KaraokeHD {
 
     /** Opens the karaoke for [song] at [positionMs]. */
     fun open(song: SongRef, positionMs: Long) {
-        if (curKey == song.key) return
+        if (curKey == song.key && _phase.value !is Phase.Failed) return
         stopPlayback()
         curKey = song.key; curReady = null
         externalPositionMs = positionMs
@@ -181,17 +181,37 @@ object KaraokeHD {
                     }
                     else -> {
                         _phase.value = Phase.Fetching(0f)
-                        val s = load(song) { if (curKey == song.key) _phase.value = Phase.Fetching(it) }
+                        val s = kotlinx.coroutines.withTimeoutOrNull(120_000) {
+                            load(song) { if (curKey == song.key) _phase.value = Phase.Fetching(it) }
+                        } ?: throw IllegalStateException("la canzone non si scarica (connessione lenta?)")
                         if (curKey == song.key) { curSep = s; _phase.value = Phase.Separating(0f) }
                     }
                 }
                 startWorker()
             }.onFailure { e ->
-                if (e !is kotlinx.coroutines.CancellationException && curKey == song.key)
-                    _phase.value = Phase.Failed(e.message ?: "Errore")
+                if (e !is kotlinx.coroutines.CancellationException && curKey == song.key) {
+                    _phase.value = Phase.Failed(friendly(e))
+                    report("apertura ${song.title}", e)
+                }
                 if (worker?.isActive != true) _busy.value = false
             }
         }
+    }
+
+    /** "Riprova" after a failure. */
+    fun retry(song: SongRef, positionMs: Long) {
+        curKey = null; curSep = null; curReady = null
+        open(song, positionMs)
+    }
+
+    private fun friendly(e: Throwable): String = when (e) {
+        is OutOfMemoryError -> "memoria del telefono piena"
+        is java.net.UnknownHostException, is java.net.SocketTimeoutException -> "niente connessione"
+        else -> e.message?.take(80) ?: "errore"
+    }
+
+    private fun report(what: String, e: Throwable) {
+        runCatching { dev.brahmkshatriya.echo.vibes.diag.ErrorReporter.report("karaoke", "HD: $what", e) }
     }
 
     /** Leaving the karaoke: returns where HD was (null if it was not playing). */
@@ -233,6 +253,7 @@ object KaraokeHD {
             while (isActive) {
                 val did = runCatching { step() }.getOrElse { e ->
                     if (e is kotlinx.coroutines.CancellationException) throw e
+                    report("preparazione in anticipo", e)
                     _background.value = null
                     bgSep = null
                     false
@@ -256,7 +277,12 @@ object KaraokeHD {
             val forward = (s.chunkOf(at) until s.chunks).firstOrNull { !s.done[it] }
             val c = forward ?: (0 until s.chunks).firstOrNull { !s.done[it] }
             if (c != null) {
-                runChunk(s, c)
+                try { runChunk(s, c) } catch (e: Throwable) {
+                    if (e is kotlinx.coroutines.CancellationException) throw e
+                    report("separazione ${s.song.title} (pezzo $c, motore ${sessionConfig})", e)
+                    if (curSep === s) { curSep = null; _phase.value = Phase.Failed(friendly(e)) }
+                    return true
+                }
                 if (curSep === s) _phase.value = if (s.complete) Phase.Ready else Phase.Separating(s.doneCount.toFloat() / s.chunks)
                 if (s.complete) finish(s)
                 return true
@@ -371,8 +397,9 @@ object KaraokeHD {
     }
 
     /** Engine configurations tried on this phone; the fastest one is remembered. */
-    private val configs = listOf("cpu4", "xnn4", "cpu6", "xnn6")
-    private val prefs by lazy { ctx.getSharedPreferences("karaoke_hd", Context.MODE_PRIVATE) }
+    // at most 4 threads and low priority: with 6 the music itself started to stutter
+    private val configs = listOf("cpu4", "xnn4", "cpu3", "xnn3")
+    private val prefs by lazy { ctx.getSharedPreferences("karaoke_hd2", Context.MODE_PRIVATE) }
     private var session: OrtSession? = null
     private var sessionConfig: String? = null
 
@@ -392,6 +419,8 @@ object KaraokeHD {
     }
 
     private fun runModel(input: FloatArray): FloatArray {
+        // ONNX Runtime's worker threads inherit this priority when the session is created
+        runCatching { android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_BACKGROUND) }
         val best = prefs.getString("best", null)
         val config = best ?: configs.firstOrNull { prefs.getFloat("t_$it", -1f) < 0f }
             ?: configs.minBy { prefs.getFloat("t_$it", Float.MAX_VALUE) }.also { prefs.edit { putString("best", it) } }
@@ -445,8 +474,11 @@ object KaraokeHD {
             .setBufferSizeInBytes(maxOf(minBuf * 2, 16384))
             .setTransferMode(AudioTrack.MODE_STREAM).build()
         track = t; playFrom = at; writePos = at; stopFlag = false
+        requestFocus()
         t.play()
         _active.value = true; _playing.value = true
+        // keeps the app alive (and shows play/pause in the notifications) with Vibes in the background
+        if (::ctx.isInitialized) KaraokeService.start(ctx)
         writer = Thread({
             val block = 2048
             val buf = ShortArray(block * 2)
@@ -473,8 +505,34 @@ object KaraokeHD {
         return true
     }
 
+    private var focusRequest: android.media.AudioFocusRequest? = null
+    @Volatile private var pausedByFocus = false
+
+    /** Other apps (YouTube, a call...) take the audio: pause like a normal player would. */
+    private fun requestFocus() {
+        if (!::ctx.isInitialized) return
+        val am = ctx.getSystemService(android.media.AudioManager::class.java)
+        val req = android.media.AudioFocusRequest.Builder(android.media.AudioManager.AUDIOFOCUS_GAIN)
+            .setAudioAttributes(AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_MEDIA).setContentType(AudioAttributes.CONTENT_TYPE_MUSIC).build())
+            .setOnAudioFocusChangeListener { change ->
+                when (change) {
+                    android.media.AudioManager.AUDIOFOCUS_LOSS,
+                    android.media.AudioManager.AUDIOFOCUS_LOSS_TRANSIENT -> if (_playing.value) { pausedByFocus = true; pause() }
+                    android.media.AudioManager.AUDIOFOCUS_GAIN -> if (pausedByFocus) { pausedByFocus = false; resume() }
+                }
+            }.build()
+        focusRequest = req
+        runCatching { am.requestAudioFocus(req) }
+    }
+
+    private fun abandonFocus() {
+        val req = focusRequest ?: return
+        runCatching { ctx.getSystemService(android.media.AudioManager::class.java).abandonAudioFocusRequest(req) }
+        focusRequest = null
+    }
+
     fun pause() { track?.pause(); _playing.value = false }
-    fun resume() { track?.play(); _playing.value = true }
+    fun resume() { if (track != null) { requestFocus(); track?.play(); _playing.value = true } }
     fun toggle() = if (_playing.value) pause() else resume()
     fun seekTo(ms: Long): Boolean = play(ms)
 
@@ -484,7 +542,12 @@ object KaraokeHD {
         track?.let { runCatching { it.pause(); it.flush(); it.release() } }
         track = null
         _active.value = false; _playing.value = false
+        pausedByFocus = false
+        abandonFocus()
     }
+
+    /** Title of the song shown in the karaoke notification. */
+    fun currentTitle(): String? = (curReady?.song ?: curSep?.song)?.let { "${it.title} · ${it.artist}" }
 
     // ------------------------------------------------------------------ audio decode / AAC cache
 

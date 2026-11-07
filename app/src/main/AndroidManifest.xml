@@ -368,7 +368,7 @@
         <service
             android:name="dev.brahmkshatriya.echo.vibes.karaoke.KaraokeService"
             android:exported="false"
-            android:foregroundServiceType="dataSync|mediaProcessing" />
+            android:foregroundServiceType="dataSync|mediaProcessing|mediaPlayback" />
 
         <meta-data
             android:name="com.google.android.gms.car.application"

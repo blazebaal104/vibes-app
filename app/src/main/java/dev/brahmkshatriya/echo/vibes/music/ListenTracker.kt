@@ -63,6 +63,11 @@ class ListenTracker(private val player: Player, context: Context) : Player.Liste
 
     private var transitionAt: Long? = null
 
+    override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
+        // paused by the user or by karaoke HD: whatever comes later is not a gap between songs
+        if (!playWhenReady) transitionAt = null
+    }
+
     override fun onPlaybackStateChanged(playbackState: Int) {
         if (playbackState == Player.STATE_READY && player.playWhenReady) checkGap()
     }
