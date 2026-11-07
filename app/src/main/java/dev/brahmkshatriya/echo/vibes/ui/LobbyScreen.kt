@@ -127,7 +127,7 @@ fun ListenLobbyScreen(id: String) {
     val now = lobbies.serverNow()
     val pos = if (state != null && now != null && state.queue.isNotEmpty())
         LobbySync.expected(state.index, state.anchorPos, state.anchorServer, state.playing, now, state.queue.map { it.duration }) else null
-    val song = pos?.let { state.queue.getOrNull(it.index) }
+    val song = pos?.let { state?.queue?.getOrNull(it.index) }
 
     GradientBackground(tint = Color(0xFF8E7BFF)) {
         LazyColumn(contentPadding = ScreenPadding) {
@@ -159,8 +159,8 @@ fun ListenLobbyScreen(id: String) {
                         val e = err
                         Text(
                             when {
-                                pos.posMs < 0 -> "Si parte tutti insieme tra ${(-pos.posMs / 100) / 10.0} s…"
-                                state.playing.not() -> "In pausa"
+                                pos != null && pos.posMs < 0 -> "Si parte tutti insieme tra ${(-pos.posMs / 100) / 10.0} s…"
+                                state?.playing != true -> "In pausa"
                                 e == null -> "Mi sincronizzo…"
                                 abs(e) <= 40 -> "✅ In sync con il gruppo (±${abs(e)} ms)"
                                 abs(e) <= 100 -> "🟡 Quasi in sync (${abs(e)} ms)"
