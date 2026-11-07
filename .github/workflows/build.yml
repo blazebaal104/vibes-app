@@ -45,6 +45,22 @@ jobs:
           ./gradlew :app:testReleaseUnitTest --tests "dev.brahmkshatriya.echo.vibes.*" --build-cache --parallel --no-configuration-cache 2>&1 | tee -a build.log
           ls app/build/test-results/testReleaseUnitTest/ || true
 
+      - name: Test details (messages and prints of every test)
+        if: always()
+        run: |
+          for f in app/build/test-results/testReleaseUnitTest/*.xml; do
+            python3 - "$f" <<'PY'
+          import sys, xml.etree.ElementTree as ET
+          r = ET.parse(sys.argv[1]).getroot()
+          for tc in r.iter("testcase"):
+              f = tc.find("failure")
+              print(("FAIL " if f is not None else "ok   ") + tc.get("classname").split(".")[-1] + " > " + tc.get("name"))
+              if f is not None: print("     " + (f.get("message") or "")[:400])
+          out = r.find("system-out")
+          if out is not None and out.text and out.text.strip(): print("\n".join("     | " + l for l in out.text.strip().splitlines()[:30]))
+          PY
+          done || true
+
       - name: Publish build errors
         if: failure()
         run: |
