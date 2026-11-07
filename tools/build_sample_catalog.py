@@ -64,8 +64,10 @@ for cat, queries in CATS.items():
                 if s["id"] in seen: continue
                 L = lic(s.get("license"))
                 if not L: continue
-                text = s.get("name", "") + " " + " ".join(s.get("tags", []))
-                if BANNED.search(text) or BANNED_EXTRA.search(s.get("name", "")): continue
+                # "Loop_Noise_03.wav": underscores glue words together and hide them from \b, so split them
+                raw_name = re.sub(r"[_\-.]+", " ", s.get("name", ""))
+                text = raw_name + " " + " ".join(s.get("tags", []))
+                if BANNED.search(text) or BANNED_EXTRA.search(raw_name): continue
                 if not MUSICAL.search(text): continue
                 if (s.get("num_ratings") or 0) >= 2 and (s.get("avg_rating") or 0) < 3: continue
                 prev = (s.get("previews") or {}).get("preview-hq-mp3")

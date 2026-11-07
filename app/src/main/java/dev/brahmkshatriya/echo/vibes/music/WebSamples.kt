@@ -43,6 +43,12 @@ class WebSamples(private val http: OkHttpClient) {
         private const val MAX_AGE = 24L * 3600_000
     }
 
+    /** Second line of defence (the catalog builder already filters): never show drum kits or noise. */
+    private val banned = Regex("(?i)\\b(808|kick|snare|hi-?hat|scream|noise|sfx)\\b")
+    private fun clean(c: Catalog) = c.copy(items = c.items.filter { s ->
+        !banned.containsMatchIn(s.name.replace('_', ' ')) && s.tags.none { banned.matches(it) }
+    })
+
     private var catalog: Catalog? = null
     /** Lower-case text of each item (name, tags, category, author), built once per catalog. */
     private var haystack: List<String> = emptyList()
@@ -71,9 +77,10 @@ class WebSamples(private val http: OkHttpClient) {
                     Supa.json.decodeFromString<Catalog>(text).also { f?.writeText(text) }
                 }
             }.getOrElse { local ?: throw it }
-            catalog = c
-            haystack = c.items.map { s -> (s.name + " " + s.tags.joinToString(" ") + " " + s.category + " " + s.user).lowercase() }
-            c
+            val c2 = clean(c)
+            catalog = c2
+            haystack = c2.items.map { s -> (s.name + " " + s.tags.joinToString(" ") + " " + s.category + " " + s.user).lowercase() }
+            c2
         }
     }
 
