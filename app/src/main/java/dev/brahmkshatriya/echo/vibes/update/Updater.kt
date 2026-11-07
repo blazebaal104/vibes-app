@@ -25,7 +25,15 @@ data class UpdateInfo(
     val apk: String,
     val size: Long = 0,
     val date: String? = null,
-)
+    /** Build for PCs (Android emulators like BlueStacks / LDPlayer run x86_64). */
+    @kotlinx.serialization.SerialName("apk_pc") val apkPc: String? = null,
+    @kotlinx.serialization.SerialName("size_pc") val sizePc: Long = 0,
+) {
+    /** True on an emulator on a computer: it needs the x86_64 build. */
+    val forPc: Boolean get() = apkPc != null && android.os.Build.SUPPORTED_ABIS.firstOrNull()?.startsWith("x86") == true
+    val url: String get() = if (forPc) apkPc!! else apk
+    val bytes: Long get() = if (forPc) sizePc else size
+}
 
 /**
  * In-app updates: every build of the repo publishes latest.json + the APK to Supabase Storage
@@ -67,7 +75,7 @@ class Updater(private val context: Context, private val http: OkHttpClient) {
         info
     }
 
-    fun show(info: UpdateInfo) { _phase.value = if (apkFile(info).length() == info.size && info.size > 0) Phase.Ready else Phase.Idle; _pending.value = info }
+    fun show(info: UpdateInfo) { _phase.value = if (apkFile(info).length() == info.bytes && info.bytes > 0) Phase.Ready else Phase.Idle; _pending.value = info }
 
     fun close() { _pending.value = null }
 
@@ -83,9 +91,9 @@ class Updater(private val context: Context, private val http: OkHttpClient) {
         val file = apkFile(info)
         runCatching {
             _phase.value = Phase.Downloading(0f)
-            http.newCall(Request.Builder().url(info.apk).build()).execute().use { r ->
+            http.newCall(Request.Builder().url(info.url).build()).execute().use { r ->
                 if (!r.isSuccessful) error("Download non riuscito (${r.code})")
-                val total = r.body.contentLength().takeIf { it > 0 } ?: info.size
+                val total = r.body.contentLength().takeIf { it > 0 } ?: info.bytes
                 val tmp = File(file.path + ".part")
                 r.body.byteStream().use { input ->
                     tmp.outputStream().use { out ->

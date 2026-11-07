@@ -77,6 +77,11 @@ jobs:
           APK=$(ls app/build/outputs/apk/release/*.apk | head -n 1)
           mkdir -p out
           cp "$APK" out/Vibes.apk
+          # PC build (x86_64) for Android emulators on Windows/Mac: same code, other native libs
+          ./gradlew :app:assembleRelease -PvibesPc=true --build-cache --parallel --no-configuration-cache -q
+          APK=$(ls app/build/outputs/apk/release/*.apk | head -n 1)
+          cp "$APK" out/Vibes-pc.apk
+          ls -la out
           echo "count=$(git rev-list --count HEAD)" >> "$GITHUB_OUTPUT"
 
       - uses: actions/upload-artifact@v4
@@ -90,7 +95,9 @@ jobs:
           tag_name: build-${{ steps.apk.outputs.count }}
           name: Vibes (build ${{ steps.apk.outputs.count }})
           body: APK di Vibes.
-          files: out/Vibes.apk
+          files: |
+            out/Vibes.apk
+            out/Vibes-pc.apk
           make_latest: true
 
       - name: Publish in-app update
@@ -109,12 +116,18 @@ jobs:
             APK_URL=$(echo "$R" | jq -r .apk); LATEST_URL=$(echo "$R" | jq -r .latest)
             curl -sS --fail-with-body -X PUT "$APK_URL" -H "Content-Type: application/vnd.android.package-archive" -H "x-upsert: true" --data-binary @out/Vibes.apk
             echo; echo "apk: uploaded"
+            PC_URL=$(echo "$R" | jq -r '.pc // empty')
+            if [ -n "$PC_URL" ]; then
+              curl -sS --fail-with-body -X PUT "$PC_URL" -H "Content-Type: application/vnd.android.package-archive" -H "x-upsert: true" --data-binary @out/Vibes-pc.apk
+              echo; echo "pc apk: uploaded"
+            fi
             TITLE=$(jq -r '.title // "Aggiornamento"' RELEASE_NOTES.json 2>/dev/null || echo "Aggiornamento")
             NOTES=$(jq -c '.notes // []' RELEASE_NOTES.json 2>/dev/null || echo "[]")
             SIZE=$(stat -c %s out/Vibes.apk)
             jq -n --argjson code "$N" --arg name "1.0.$N" --arg title "$TITLE" --argjson notes "$NOTES" \
               --arg apk "$PUB/Vibes-$N.apk" --argjson size "$SIZE" --arg date "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-              '{versionCode:$code, versionName:$name, title:$title, notes:$notes, apk:$apk, size:$size, date:$date}' > latest.json
+              --arg apkpc "$PUB/Vibes-pc-$N.apk" --argjson sizepc "$(stat -c %s out/Vibes-pc.apk)" \
+              '{versionCode:$code, versionName:$name, title:$title, notes:$notes, apk:$apk, size:$size, date:$date, apk_pc:$apkpc, size_pc:$sizepc}' > latest.json
             cat latest.json
             curl -sS --fail-with-body -X PUT "$LATEST_URL" -H "Content-Type: application/json" -H "x-upsert: true" --data-binary @latest.json
             echo; echo "latest.json: uploaded"

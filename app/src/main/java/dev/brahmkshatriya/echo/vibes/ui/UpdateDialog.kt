@@ -115,7 +115,7 @@ fun UpdateHost() {
                             modifier = Modifier.padding(top = 8.dp))
                         Text(u.title, style = MaterialTheme.typography.headlineMedium, color = Color.White)
                         Text("Versione ${u.versionName.ifBlank { u.versionCode.toString() }}" +
-                                (if (u.size > 0) " · ${"%.1f".format(u.size / 1_048_576f)} MB" else "") +
+                                (if (u.bytes > 0) " · ${"%.1f".format(u.bytes / 1_048_576f)} MB" else "") +
                                 " · tu hai la ${updater.installedName}",
                             style = MaterialTheme.typography.bodySmall, color = Color.White.copy(alpha = 0.85f))
                     }

@@ -1,5 +1,29 @@
 package dev.brahmkshatriya.echo.vibes.ui
 
+import androidx.compose.foundation.layout.height
+
+import androidx.compose.foundation.shape.CircleShape
+
+import androidx.compose.foundation.layout.statusBarsPadding
+
+import androidx.compose.foundation.layout.fillMaxHeight
+
+import androidx.compose.material.icons.rounded.Tune
+
+import androidx.compose.foundation.layout.widthIn
+
+import androidx.compose.foundation.focusable
+
+import androidx.compose.ui.focus.focusRequester
+
+import androidx.compose.ui.input.key.isCtrlPressed
+
+import androidx.compose.ui.input.key.key
+
+import androidx.compose.ui.input.key.type
+
+import androidx.compose.ui.input.key.onKeyEvent
+
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.Spacer
 import dev.chrisbanes.haze.hazeSource
@@ -154,10 +178,19 @@ fun MainScaffold(pendingLink: MutableStateFlow<Uri?>) {
     }
 
     val hazeState = remember { dev.chrisbanes.haze.HazeState() }
+    // PC (emulator) / tablet in landscape: side menu like Spotify desktop, content not stretched
+    val wide = androidx.compose.ui.platform.LocalConfiguration.current.screenWidthDp >= 840
+    val sideW = if (wide) 230.dp else 0.dp
+    val keyFocus = remember { androidx.compose.ui.focus.FocusRequester() }
+    LaunchedEffect(Unit) { runCatching { keyFocus.requestFocus() } }
     androidx.compose.runtime.CompositionLocalProvider(LocalHaze provides hazeState) {
-    Box(Modifier.fillMaxSize()) {
+    Box(Modifier.fillMaxSize()
+        // keyboard (PC): Space play/pause, Ctrl+arrows previous/next, Ctrl+F search, Esc back.
+        // onKeyEvent (not preview): text fields keep their spaces and arrows.
+        .onKeyEvent { ev -> if (ev.type != androidx.compose.ui.input.key.KeyEventType.KeyDown) false else pcShortcut(app, ev) }
+        .focusRequester(keyFocus).focusable()) {
         AnimatedContent(
-            modifier = Modifier.fillMaxSize().hazeSource(hazeState),
+            modifier = Modifier.fillMaxSize().padding(start = sideW).hazeSource(hazeState),
             targetState = ScreenKey(tabs.indexOf(nav.tab), nav.depth, nav.current),
             contentKey = { it.route },
             transitionSpec = {
@@ -181,7 +214,12 @@ fun MainScaffold(pendingLink: MutableStateFlow<Uri?>) {
                 }.apply { targetContentZIndex = b.depth.toFloat() }
             },
             label = "screen"
-        ) { key -> Screen(key.route) }
+        ) { key ->
+            if (wide) Box(Modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
+                Box(Modifier.widthIn(max = 980.dp).fillMaxHeight()) { Screen(key.route) }
+            } else Screen(key.route)
+        }
+        if (wide) SideMenu(Modifier.align(Alignment.TopStart).width(sideW).fillMaxHeight())
 
         // games are full screen: no mini player / tab bar covering their controls
         @OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
@@ -197,11 +235,11 @@ fun MainScaffold(pendingLink: MutableStateFlow<Uri?>) {
             enter = slideInVertically(tween(280)) { it } + fadeIn(tween(200)),
             exit = slideOutVertically(tween(240)) { it } + fadeOut(tween(160)),
         ) {
-            Column(Modifier.fillMaxWidth()) {
+            Column(Modifier.fillMaxWidth().padding(start = sideW)) {
                 AlongBanner()
                 StudioBar()
                 MiniPlayer()
-                BottomBar()
+                if (!wide) BottomBar() else Spacer(Modifier.navigationBarsPadding().height(8.dp))
             }
         }
 
@@ -209,7 +247,11 @@ fun MainScaffold(pendingLink: MutableStateFlow<Uri?>) {
             nav.playerOpen,
             enter = slideInVertically(tween(320)) { it } + fadeIn(),
             exit = slideOutVertically(tween(260)) { it } + fadeOut(),
-        ) { FullPlayer() }
+        ) {
+            if (wide) Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background), contentAlignment = Alignment.TopCenter) {
+                Box(Modifier.widthIn(max = 560.dp).fillMaxHeight()) { FullPlayer() }
+            } else FullPlayer()
+        }
 
         nav.share?.let { ShareSheet(it) { nav.share = null } }
         nav.addToPlaylist?.let { AddToPlaylistSheet(it) { nav.addToPlaylist = null } }
@@ -431,5 +473,60 @@ fun VibesLogo(modifier: Modifier = Modifier) {
                 )
             }
         }
+    }
+}
+
+
+/** Keyboard shortcuts on PC (BlueStacks / LDPlayer / tablets with a keyboard). */
+private fun pcShortcut(app: AppState, ev: androidx.compose.ui.input.key.KeyEvent): Boolean {
+    val k = ev.key
+    val K = androidx.compose.ui.input.key.Key
+    return when {
+        k == K.Spacebar || k == K.MediaPlayPause -> { app.engine.togglePlay(); true }
+        (ev.isCtrlPressed && k == K.DirectionRight) || k == K.MediaNext -> { app.engine.next(); true }
+        (ev.isCtrlPressed && k == K.DirectionLeft) || k == K.MediaPrevious -> { app.engine.previous(); true }
+        ev.isCtrlPressed && k == K.F -> { app.nav.selectTab(Route.Search); true }
+        ev.isCtrlPressed && k == K.L -> { app.nav.selectTab(Route.Library); true }
+        k == K.Escape -> { if (app.nav.playerOpen || app.nav.canGoBack) { app.nav.back(); true } else false }
+        else -> false
+    }
+}
+
+/** Left menu for wide screens (PC): logo, tabs with labels, shortcuts hint. */
+@Composable
+private fun SideMenu(modifier: Modifier) {
+    val app = LocalApp.current
+    val nav = app.nav
+    val unread by app.social.unread.collectAsState()
+    val requests by app.social.requests.collectAsState()
+    val badge = unread.values.sum() + requests.size
+    Column(modifier.background(Color.Black.copy(alpha = 0.35f)).statusBarsPadding().padding(12.dp)) {
+        Text("Vibes", style = MaterialTheme.typography.headlineMedium, fontWeight = androidx.compose.ui.text.font.FontWeight.ExtraBold,
+            modifier = Modifier.padding(start = 12.dp, top = 8.dp, bottom = 18.dp))
+        @Composable
+        fun Item(label: String, icon: ImageVector, route: Route, count: Int = 0) {
+            val sel = nav.tab == route
+            Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp))
+                .background(if (sel) Color.White.copy(alpha = 0.10f) else Color.Transparent)
+                .bouncy({ nav.selectTab(route) }).padding(horizontal = 12.dp, vertical = 11.dp),
+                verticalAlignment = Alignment.CenterVertically) {
+                Icon(icon, null, tint = if (sel) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant)
+                Spacer(Modifier.width(14.dp))
+                Text(label, style = MaterialTheme.typography.titleSmall, modifier = Modifier.weight(1f),
+                    color = if (sel) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant)
+                if (count > 0) Text("$count", style = MaterialTheme.typography.labelMedium, color = Color.White,
+                    modifier = Modifier.clip(CircleShape).background(Color(0xFFFF4FD8)).padding(horizontal = 7.dp, vertical = 2.dp))
+            }
+        }
+        Item("Home", Icons.Rounded.Home, Route.Home)
+        Item("Cerca", Icons.Rounded.Search, Route.Search)
+        Item("Libreria", Icons.Rounded.LibraryMusic, Route.Library)
+        Item("Studio", Icons.Rounded.Tune, Route.Studio)
+        Item("Amici", Icons.Rounded.Forum, Route.Friends, badge)
+        Item("Giochi", Icons.Rounded.SportsEsports, Route.Games)
+        Spacer(Modifier.weight(1f))
+        Text("Spazio: play/pausa\nCtrl ← →: brano prec./succ.\nCtrl F: cerca · Esc: indietro",
+            style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(12.dp))
     }
 }

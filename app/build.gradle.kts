@@ -101,7 +101,11 @@ android {
 
     defaultConfig {
         // phones only: keeps the AI engine's native code to ARM (x86 is emulators)
-        ndk { abiFilters += listOf("arm64-v8a", "armeabi-v7a") }
+        // phones: ARM only. PC build (-PvibesPc=true, for BlueStacks / LDPlayer): x86_64 + arm64
+        ndk {
+            abiFilters += if (project.findProperty("vibesPc") == "true") listOf("x86_64", "arm64-v8a")
+            else listOf("arm64-v8a", "armeabi-v7a")
+        }
         applicationId = "app.vibes.music"
         minSdk = 24
         targetSdk = 37
