@@ -44,6 +44,8 @@ class WebSamples(private val http: OkHttpClient) {
     }
 
     private var catalog: Catalog? = null
+    /** Lower-case text of each item (name, tags, category, author), built once per catalog. */
+    private var haystack: List<String> = emptyList()
     private val lock = Mutex()
     private var cacheFile: File? = null
 
@@ -70,6 +72,7 @@ class WebSamples(private val http: OkHttpClient) {
                 }
             }.getOrElse { local ?: throw it }
             catalog = c
+            haystack = c.items.map { s -> (s.name + " " + s.tags.joinToString(" ") + " " + s.category + " " + s.user).lowercase() }
             c
         }
     }
@@ -78,17 +81,14 @@ class WebSamples(private val http: OkHttpClient) {
     suspend fun search(query: String, category: String? = null, loopsOnly: Boolean? = null, bpm: IntRange? = null, key: String? = null): List<WebSample> {
         val c = load()
         val words = query.lowercase().split(Regex("\\s+")).filter { it.isNotBlank() }
-        return c.items.asSequence()
+        val hay = haystack
+        return c.items.indices.asSequence()
+            .filter { i -> words.isEmpty() || words.all { w -> hay[i].contains(w) } }
+            .map { c.items[it] }
             .filter { category == null || it.category == category }
             .filter { loopsOnly == null || it.loop == loopsOnly }
             .filter { bpm == null || it.bpm == null || it.bpm in bpm }
             .filter { key == null || it.key?.startsWith(key, true) == true }
-            .filter { s ->
-                words.isEmpty() || words.all { w ->
-                    s.name.lowercase().contains(w) || s.tags.any { it.lowercase().contains(w) } ||
-                            s.category.lowercase().contains(w) || s.user.lowercase().contains(w)
-                }
-            }
             .take(300)
             .map { s ->
                 WebSample(
