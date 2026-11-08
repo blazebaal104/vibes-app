@@ -1,0 +1,56 @@
+name: Vibes Windows UI test
+
+# Runs the desktop app (test jar from branch desktop-bin) on a virtual screen, follows the given steps
+# (see desktop/uitest/x.py) and publishes the screenshots + log to branch desktop-shots.
+on:
+  workflow_dispatch:
+    inputs:
+      steps:
+        description: "x.py steps"
+        required: true
+        default: "sleep 20 shot 01"
+
+permissions:
+  contents: write
+  id-token: write
+
+jobs:
+  ui:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with: { ref: desktop, path: src }
+      - uses: actions/checkout@v4
+        with: { ref: desktop-bin, path: bin }
+      - uses: actions/setup-java@v4
+        with: { distribution: temurin, java-version: 21 }
+      - name: Tools
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq xvfb imagemagick fonts-noto-color-emoji > /dev/null
+          pip install -q python-xlib
+      - name: Test account
+        run: |
+          TOKEN=$(curl -sS -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=vibes-release" | jq -r .value)
+          R=$(curl -sS --fail-with-body -X POST https://kxgswrwitsedppjzcokh.supabase.co/functions/v1/vibes-release -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" -d '{"testaccount":true}')
+          echo "VIBES_EMAIL=$(echo "$R" | jq -r .email)" >> $GITHUB_ENV
+          echo "::add-mask::$(echo "$R" | jq -r .password)"
+          echo "VIBES_PASSWORD=$(echo "$R" | jq -r .password)" >> $GITHUB_ENV
+      - name: Run app and steps
+        run: |
+          cat bin/vibes.jar.part-* > vibes.jar
+          mkdir -p shots appdata
+          export SHOTS=$PWD/shots APPDATA=$PWD/appdata DISPLAY=:99
+          Xvfb :99 -screen 0 1440x900x24 > /dev/null 2>&1 &
+          sleep 2
+          java -Xmx1g -jar vibes.jar > shots/app.log 2>&1 &
+          python3 src/desktop/uitest/x.py ${{ github.event.inputs.steps }} || echo "steps failed"
+          sleep 1
+          tail -200 shots/app.log
+      - name: Publish screenshots
+        if: always()
+        run: |
+          cd shots
+          git init -q && git checkout -q -b desktop-shots
+          git add . && git -c user.name=ci -c user.email=ci@vibes commit -qm "shots ${{ github.run_id }}"
+          git push -q -f "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" desktop-shots
