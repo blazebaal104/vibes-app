@@ -39,6 +39,14 @@ jobs:
           grep -E "^e: " build.log | sed 's|file:///home/runner/work/Vibes/Vibes/desktop/build/shared/||; s|file:///home/runner/work/Vibes/Vibes/desktop/src/main/kotlin/|DESKTOP/|' | sort -u | head -300 > desktop-errors.txt || true
           grep -E "What went wrong" -A12 build.log | head -60 >> desktop-errors.txt || true
           cat desktop-errors.txt
+      - name: Share test jar (git branch desktop-bin, split in parts)
+        run: |
+          mkdir -p /tmp/bin && cd /tmp/bin
+          cp $GITHUB_WORKSPACE/desktop/build/compose/jars/*.jar vibes.jar
+          split -b 45m vibes.jar vibes.jar.part- && rm vibes.jar
+          git init -q && git checkout -q -b desktop-bin
+          git add . && git -c user.name=ci -c user.email=ci@vibes commit -qm "test jar ${{ github.sha }}"
+          git push -q -f "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" desktop-bin
       - uses: actions/upload-artifact@v4
         with:
           name: vibes-linux-jar
