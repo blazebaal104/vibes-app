@@ -2,13 +2,10 @@ name: Vibes Windows UI test
 
 # Runs the desktop app (test jar from branch desktop-bin) on a virtual screen, follows the given steps
 # (see desktop/uitest/x.py) and publishes the screenshots + log to branch desktop-shots.
+# Triggered by pushing steps.txt to branch "uitest".
 on:
-  workflow_dispatch:
-    inputs:
-      steps:
-        description: "x.py steps"
-        required: true
-        default: "sleep 20 shot 01"
+  push:
+    branches: [ uitest ]
 
 permissions:
   contents: write
@@ -19,6 +16,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
+      - uses: actions/checkout@v4
+        with: { path: steps }
       - uses: actions/checkout@v4
         with: { ref: desktop, path: src }
       - uses: actions/checkout@v4
@@ -44,7 +43,7 @@ jobs:
           Xvfb :99 -screen 0 1440x900x24 > /dev/null 2>&1 &
           sleep 2
           java -Xmx1g -jar vibes.jar > shots/app.log 2>&1 &
-          python3 src/desktop/uitest/x.py ${{ github.event.inputs.steps }} || echo "steps failed"
+          python3 src/desktop/uitest/x.py $(cat steps/steps.txt) || echo "steps failed"
           sleep 1
           tail -200 shots/app.log
       - name: Publish screenshots
