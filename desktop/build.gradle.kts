@@ -123,7 +123,9 @@ compose.desktop {
                 iconFile.set(project.file("icon.ico"))
                 menu = true
                 shortcut = true
-                dirChooser = false
+                // a normal setup wizard (choose folder, "Fine"): without it the installer works
+                // silently and looks like it did nothing
+                dirChooser = true
                 perUserInstall = true
                 upgradeUuid = "6f0c8c52-6e3b-4c9b-9a5e-6a9a3b1d7e21"
                 menuGroup = "Vibes"

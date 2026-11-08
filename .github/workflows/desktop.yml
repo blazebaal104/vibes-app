@@ -75,6 +75,32 @@ jobs:
           ./gradlew -p desktop packageExe -PvibesCode=$N -PvibesVersion=1.0.$N --stacktrace 2>&1 | tee win.log
           find desktop/build/compose/binaries -name "*.exe" -exec ls -la {} \;
           mkdir -p out && cp $(find desktop/build/compose/binaries -name "*.exe" | head -1) out/Vibes-Setup.exe
+      - name: Smoke test on Windows (start the app, screenshot, log)
+        shell: pwsh
+        run: |
+          ./gradlew -p desktop createDistributable -q
+          $exe = Get-ChildItem -Recurse desktop/build/compose/binaries/main/app -Filter Vibes.exe | Select-Object -First 1
+          Write-Host "app: $($exe.FullName)"
+          $p = Start-Process -FilePath $exe.FullName -PassThru
+          Start-Sleep -Seconds 45
+          New-Item -ItemType Directory -Force shots | Out-Null
+          Add-Type -AssemblyName System.Windows.Forms, System.Drawing
+          $b = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
+          $bmp = New-Object System.Drawing.Bitmap $b.Width, $b.Height
+          $g = [System.Drawing.Graphics]::FromImage($bmp); $g.CopyFromScreen($b.Location, [System.Drawing.Point]::Empty, $b.Size)
+          $bmp.Save("shots/windows.png")
+          Write-Host "still running: $(-not $p.HasExited)"
+          Get-Content "$env:APPDATA/Vibes/vibes.log" -ErrorAction SilentlyContinue | Select-Object -First 80
+          Copy-Item "$env:APPDATA/Vibes/vibes.log" shots/ -ErrorAction SilentlyContinue
+          if (-not $p.HasExited) { Stop-Process -Id $p.Id -Force } else { exit 1 }
+      - name: Publish Windows screenshot
+        if: always()
+        shell: bash
+        run: |
+          cd shots || exit 0
+          git init -q && git checkout -q -b desktop-shots-win
+          git add . && git -c user.name=ci -c user.email=ci@vibes commit -qm "windows smoke"
+          git push -q -f "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" desktop-shots-win
       - name: Windows errors
         if: failure()
         shell: bash

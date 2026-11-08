@@ -41,7 +41,20 @@ import kotlinx.coroutines.swing.Swing
  * engine), in a desktop window: the wide layout (side menu like Spotify desktop) kicks in on its own.
  */
 fun main(args: Array<String>) {
-    System.setProperty("sun.awt.exception.handler", "")
+    // a log next to the user data (%APPDATA%\\Vibes\\vibes.log): the installed app has no console
+    if (System.console() == null && System.getenv("VIBES_UITEST") == null) runCatching {
+        val log = java.io.PrintStream(java.io.FileOutputStream(DesktopEnv.dataDir.resolve("vibes.log")), true, "UTF-8")
+        System.setOut(log); System.setErr(log)
+    }
+    println("Vibes ${dev.brahmkshatriya.echo.BuildConfig.VERSION_NAME} (${dev.brahmkshatriya.echo.BuildConfig.VERSION_CODE}) · ${System.getProperty("os.name")} · Java ${System.getProperty("java.version")}")
+    try { start(args) } catch (e: Throwable) {
+        e.printStackTrace()
+        javax.swing.JOptionPane.showMessageDialog(null, "Vibes non è riuscito ad aprirsi:\n${e.javaClass.simpleName}: ${e.message}\n\nDettagli in ${DesktopEnv.dataDir.resolve("vibes.log")}", "Vibes", javax.swing.JOptionPane.ERROR_MESSAGE)
+        kotlin.system.exitProcess(1)
+    }
+}
+
+private fun start(args: Array<String>) {
     val ctx = DesktopEnv.app
     VibesGraph.init(ctx)
     val loader = ExtensionLoader(ctx)
