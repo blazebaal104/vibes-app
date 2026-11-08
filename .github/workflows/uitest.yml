@@ -42,7 +42,7 @@ jobs:
           export SHOTS=$PWD/shots APPDATA=$PWD/appdata DISPLAY=:99
           Xvfb :99 -screen 0 1440x900x24 > /dev/null 2>&1 &
           sleep 2
-          java -Xmx1g -jar vibes.jar > shots/app.log 2>&1 &
+          VIBES_UITEST=1 java -Xmx1g -jar vibes.jar > shots/app.log 2>&1 &
           python3 src/desktop/uitest/x.py $(cat steps/steps.txt) || echo "steps failed"
           sleep 1
           tail -200 shots/app.log
