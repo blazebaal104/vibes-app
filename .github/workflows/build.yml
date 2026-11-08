@@ -117,9 +117,12 @@ jobs:
             curl -sS --fail-with-body -X PUT "$APK_URL" -H "Content-Type: application/vnd.android.package-archive" -H "x-upsert: true" --data-binary @out/Vibes.apk
             echo; echo "apk: uploaded"
             PC_URL=$(echo "$R" | jq -r '.pc // empty')
-            if [ -n "$PC_URL" ]; then
-              curl -sS --fail-with-body -X PUT "$PC_URL" -H "Content-Type: application/vnd.android.package-archive" -H "x-upsert: true" --data-binary @out/Vibes-pc.apk
-              echo; echo "pc apk: uploaded"
+            PC_OK=false
+            # the PC build must never block the phone update
+            if [ -n "$PC_URL" ] && curl -sS --fail-with-body -X PUT "$PC_URL" -H "Content-Type: application/vnd.android.package-archive" -H "x-upsert: true" --data-binary @out/Vibes-pc.apk; then
+              PC_OK=true; echo; echo "pc apk: uploaded"
+            else
+              echo; echo "pc apk: NOT uploaded (phone update still published)"
             fi
             TITLE=$(jq -r '.title // "Aggiornamento"' RELEASE_NOTES.json 2>/dev/null || echo "Aggiornamento")
             NOTES=$(jq -c '.notes // []' RELEASE_NOTES.json 2>/dev/null || echo "[]")
@@ -127,7 +130,8 @@ jobs:
             jq -n --argjson code "$N" --arg name "1.0.$N" --arg title "$TITLE" --argjson notes "$NOTES" \
               --arg apk "$PUB/Vibes-$N.apk" --argjson size "$SIZE" --arg date "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
               --arg apkpc "$PUB/Vibes-pc-$N.apk" --argjson sizepc "$(stat -c %s out/Vibes-pc.apk)" \
-              '{versionCode:$code, versionName:$name, title:$title, notes:$notes, apk:$apk, size:$size, date:$date, apk_pc:$apkpc, size_pc:$sizepc}' > latest.json
+              --argjson pcok "$PC_OK" \
+              '{versionCode:$code, versionName:$name, title:$title, notes:$notes, apk:$apk, size:$size, date:$date} + (if $pcok then {apk_pc:$apkpc, size_pc:$sizepc} else {} end)' > latest.json
             cat latest.json
             curl -sS --fail-with-body -X PUT "$LATEST_URL" -H "Content-Type: application/json" -H "x-upsert: true" --data-binary @latest.json
             echo; echo "latest.json: uploaded"

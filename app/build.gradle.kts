@@ -101,9 +101,10 @@ android {
 
     defaultConfig {
         // phones only: keeps the AI engine's native code to ARM (x86 is emulators)
-        // phones: ARM only. PC build (-PvibesPc=true, for BlueStacks / LDPlayer): x86_64 + arm64
+        // phones: ARM only. PC build (-PvibesPc=true, for BlueStacks / LDPlayer): x86_64 only, so it
+        // stays under the 50 MB upload limit (ARM emulators, e.g. on Apple Silicon, use the phone APK)
         ndk {
-            abiFilters += if (project.findProperty("vibesPc") == "true") listOf("x86_64", "arm64-v8a")
+            abiFilters += if (project.findProperty("vibesPc") == "true") listOf("x86_64")
             else listOf("arm64-v8a", "armeabi-v7a")
         }
         applicationId = "app.vibes.music"
