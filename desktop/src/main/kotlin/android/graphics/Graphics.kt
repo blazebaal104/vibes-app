@@ -76,11 +76,12 @@ class Bitmap(val image: BufferedImage) {
 
 object BitmapFactory {
     class Options { var inJustDecodeBounds = false; var inSampleSize = 1; var outWidth = 0; var outHeight = 0 }
-    @JvmStatic fun decodeStream(input: InputStream?): Bitmap? = input?.let { runCatching { ImageIO.read(it)?.let(::Bitmap) }.getOrNull() }
-    @JvmStatic fun decodeStream(input: InputStream?, pad: Rect?, opts: Options?): Bitmap? = decodeStream(input)?.also { b -> opts?.let { it.outWidth = b.width; it.outHeight = b.height } }
-    @JvmStatic fun decodeFile(path: String?): Bitmap? = path?.let { runCatching { ImageIO.read(java.io.File(it))?.let(::Bitmap) }.getOrNull() }
-    @JvmStatic fun decodeByteArray(b: ByteArray, off: Int, len: Int): Bitmap? = decodeStream(java.io.ByteArrayInputStream(b, off, len))
-    @JvmStatic fun decodeByteArray(b: ByteArray, off: Int, len: Int, opts: Options?): Bitmap? = decodeByteArray(b, off, len)
+    // Android returns a platform type (null on failure); here a bad image throws, callers wrap it in runCatching
+    @JvmStatic fun decodeStream(input: InputStream?): Bitmap = Bitmap(ImageIO.read(input ?: error("no input")) ?: throw IllegalArgumentException("Immagine non supportata"))
+    @JvmStatic fun decodeStream(input: InputStream?, pad: Rect?, opts: Options?): Bitmap = decodeStream(input).also { b -> opts?.let { it.outWidth = b.width; it.outHeight = b.height } }
+    @JvmStatic fun decodeFile(path: String?): Bitmap = Bitmap(ImageIO.read(java.io.File(path ?: error("no path"))) ?: throw IllegalArgumentException("Immagine non supportata"))
+    @JvmStatic fun decodeByteArray(b: ByteArray, off: Int, len: Int): Bitmap = decodeStream(java.io.ByteArrayInputStream(b, off, len))
+    @JvmStatic fun decodeByteArray(b: ByteArray, off: Int, len: Int, opts: Options?): Bitmap = decodeByteArray(b, off, len)
 }
 
 class Rect(var left: Int = 0, var top: Int = 0, var right: Int = 0, var bottom: Int = 0)

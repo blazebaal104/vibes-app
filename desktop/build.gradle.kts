@@ -101,6 +101,7 @@ dependencies {
     // audio: MP3 decoding (Deezer 128/320) + FLAC
     implementation("javazoom:jlayer:1.0.1")
     implementation("org.jflac:jflac-codec:1.5.2")
+    implementation("com.github.wendykierp:JTransforms:3.1") // FFT for the karaoke separator
     implementation("org.json:json:20240303") // Android ships org.json; the themes code uses it
     implementation("de.sfuhrm:jaad:0.8.7") // AAC / m4a (voice notes, uploads)
     testImplementation(kotlin("test"))

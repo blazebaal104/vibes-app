@@ -34,9 +34,10 @@ open class Context {
     }
 
     @Suppress("UNCHECKED_CAST")
-    open fun <T> getSystemService(cls: Class<T>): T? = when (cls) {
+    open fun <T> getSystemService(cls: Class<T>): T = when (cls) {
         ClipboardManager::class.java -> ClipboardManager as T
-        else -> null
+        android.app.DownloadManager::class.java -> android.app.DownloadManager() as T
+        else -> throw IllegalStateException("No service ${cls.simpleName} on PC")
     }
 
     open fun startActivity(intent: Intent) = DesktopEnv.handleIntent(intent)

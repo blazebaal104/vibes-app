@@ -207,7 +207,7 @@ class AacMp4Pcm(file: File) : ForwardPcm() {
         dec = net.sourceforge.jaad.aac.Decoder(track.decoderSpecificInfo)
         sampleRate = track.sampleRate
         channels = track.channelCount.coerceIn(1, 2)
-        durationMs = (track.duration * 1000).toLong().takeIf { it > 0 } ?: (movie.duration * 1000).toLong()
+        durationMs = (movie.duration * 1000).toLong()
     }
 
     private fun next(): Boolean {

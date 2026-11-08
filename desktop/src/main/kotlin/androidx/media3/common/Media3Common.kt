@@ -51,6 +51,14 @@ class MediaItem private constructor(
     val desktopTag: Any? = null,
 ) {
     class LocalConfiguration(val uri: Uri, val mimeType: String? = null, val tag: Any? = null)
+    class ClippingConfiguration(val startPositionMs: Long, val endPositionMs: Long) {
+        class Builder {
+            private var s = 0L; private var e = Long.MIN_VALUE
+            fun setStartPositionMs(v: Long) = apply { s = v }
+            fun setEndPositionMs(v: Long) = apply { e = v }
+            fun build() = ClippingConfiguration(s, e)
+        }
+    }
     val requestMetadata = RequestMetadata()
     class RequestMetadata { val mediaUri: Uri? = null; val extras: Bundle? = null }
 
@@ -70,6 +78,8 @@ class MediaItem private constructor(
         fun setTag(v: Any?) = apply { tag = v }
         fun setMimeType(v: String?) = apply { mime = v }
         fun setMediaMetadata(v: MediaMetadata) = apply { meta = v }
+        fun setClippingConfiguration(c: ClippingConfiguration) = apply { clip = c }
+        private var clip: ClippingConfiguration? = null
         fun setDesktopSource(v: (suspend () -> dev.brahmkshatriya.echo.vibes.desktop.audio.ByteSource)?) = apply { desktopSource = v }
         fun setDesktopTag(v: Any?) = apply { desktopTag = v }
         fun build() = MediaItem(id.ifEmpty { uri?.toString() ?: "item" }, uri?.let { LocalConfiguration(it, mime, tag) }, meta, desktopSource, desktopTag)

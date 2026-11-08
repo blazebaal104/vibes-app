@@ -46,7 +46,7 @@ class ClipData private constructor(val text: CharSequence) {
     }
     fun getItemAt(i: Int) = Item(text)
     val itemCount get() = 1
-    class Item(val text: CharSequence?)
+    class Item(val text: CharSequence?) { fun coerceToText(c: Context?): CharSequence = text ?: "" }
 }
 
 /** The Windows clipboard. */
