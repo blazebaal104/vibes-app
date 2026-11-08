@@ -169,7 +169,8 @@ jobs:
       - name: Windows build errors
         if: failure()
         shell: bash
-        run: grep -E "^e: |error:|What went wrong" -A6 win.log | head -150
+        run: |
+          grep -E "^e: |error:|What went wrong" -A6 win.log | head -150
       - name: Attach to the release
         shell: bash
         env:
