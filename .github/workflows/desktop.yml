@@ -1,0 +1,39 @@
+name: Vibes Windows
+
+on:
+  push:
+    branches: [ desktop ]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  id-token: write
+
+concurrency:
+  group: vibes-desktop-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  compile:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          cache-read-only: false
+      - name: Compile desktop app
+        run: |
+          chmod +x gradlew
+          set -o pipefail
+          ./gradlew -p desktop compileKotlin --stacktrace --continue 2>&1 | tee build.log
+      - name: Desktop compile errors
+        if: failure()
+        run: |
+          grep -E "^e: " build.log | sed 's|file:///home/runner/work/Vibes/Vibes/desktop/build/shared/||; s|file:///home/runner/work/Vibes/Vibes/desktop/src/main/kotlin/|DESKTOP/|' | sort -u | head -300 > desktop-errors.txt || true
+          grep -E "What went wrong" -A12 build.log | head -60 >> desktop-errors.txt || true
+          cat desktop-errors.txt
