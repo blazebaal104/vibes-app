@@ -80,6 +80,11 @@ class ExoPlayer private constructor(private val processors: List<AudioProcessor>
     }
 
     @Volatile private var cur: Playing? = null
+    // crossfade state (audio thread only)
+    private var fadeOut: Playing? = null
+    private var fadeTotal = 0L
+    private var fadeDone = 0L
+    private fun endFade() { fadeOut?.pcm?.close(); fadeOut = null; fadeTotal = 0; fadeDone = 0 }
     private val out = AudioOut()
 
     // ------------------------------------------------------------------ audio thread
@@ -130,6 +135,12 @@ class ExoPlayer private constructor(private val processors: List<AudioProcessor>
         while (!released) {
             try {
                 // ---- commands
+                if (dropPreloadRequested) { dropPreloadRequested = false; preloading = -1; preloaded?.pcm?.close(); preloaded = null }
+                if (stopRequested) {
+                    stopRequested = false
+                    out.flush(); closePlaying(); setState(Player.STATE_IDLE)
+                    continue
+                }
                 val seek = synchronized(lock) { val s = seekRequest; seekRequest = null; s }
                 val reload = synchronized(lock) { val r = reloadRequested; reloadRequested = false; r }
                 if (seek != null || reload) {
@@ -157,28 +168,35 @@ class ExoPlayer private constructor(private val processors: List<AudioProcessor>
                 val nxt = nextIndexOf(p.index)
                 if (nxt != null && remaining < 15_000 + crossfadeMs && preloaded == null && preloading != nxt) startPreload(nxt)
 
-                // ---- crossfade window
+                // ---- crossfade: when the last [fade] ms begin, the next song becomes the current one
+                // (the screen shows it, like Spotify) and the old one keeps playing while it fades out
                 val fade = crossfadeMs.takeIf { it > 0 && rep != Player.REPEAT_MODE_ONE } ?: 0
-                val inFade = fade > 0 && nxt != null && remaining <= fade && preloaded?.index == nxt
+                if (fadeOut == null && fade > 0 && nxt != null && remaining <= fade && preloaded?.index == nxt) {
+                    fadeTotal = (remaining / 1000.0 * AudioOut.RATE / speed).toLong().coerceAtLeast(1)
+                    fadeDone = 0
+                    fadeOut = p
+                    switchToPreloaded(p, closeOld = false)
+                    continue
+                }
 
                 // ---- decode one block of the current item at 44.1 kHz stereo
                 val got = p.resampler.read(p.pcm, decodeBuf, mix, frames, speed)
-                if (got <= 0) { onItemEnded(p); continue }
+                if (got <= 0) { endFade(); onItemEnded(p); continue }
                 p.contentMs += got * 1000.0 / AudioOut.RATE * speed
 
-                if (inFade) {
-                    val n = preloaded!!
-                    val g2 = n.resampler.read(n.pcm, decodeBuf, mixNext, got, speed)
-                    if (g2 > 0) n.contentMs += g2 * 1000.0 / AudioOut.RATE * speed
+                if (fadeDone < fadeTotal) {
+                    val o = fadeOut
+                    val g2 = o?.resampler?.read(o.pcm, decodeBuf, mixNext, got, speed) ?: 0
                     for (f in 0 until got) {
-                        val t = ((fade - (remaining - f * 1000.0 / AudioOut.RATE)) / fade).coerceIn(0.0, 1.0).toFloat()
+                        val t = ((fadeDone + f).toDouble() / fadeTotal).coerceIn(0.0, 1.0)
                         val a = kotlin.math.cos(t * Math.PI / 2).toFloat(); val b = kotlin.math.sin(t * Math.PI / 2).toFloat()
-                        val nx = f < g2
-                        mix[2 * f] = mix[2 * f] * a + (if (nx) mixNext[2 * f] * b else 0f)
-                        mix[2 * f + 1] = mix[2 * f + 1] * a + (if (nx) mixNext[2 * f + 1] * b else 0f)
+                        val old = f < g2
+                        mix[2 * f] = mix[2 * f] * b + (if (old) mixNext[2 * f] * a else 0f)
+                        mix[2 * f + 1] = mix[2 * f + 1] * b + (if (old) mixNext[2 * f + 1] * a else 0f)
                     }
-                    // the fade has reached its middle: the next song becomes the current one
-                    if (remaining - got * 1000.0 / AudioOut.RATE <= fade / 2.0) switchToPreloaded(p, crossfading = true)
+                    fadeDone += got
+                    if (g2 < got) { o?.pcm?.close(); fadeOut = null }
+                    if (fadeDone >= fadeTotal) endFade()
                 }
 
                 // ---- effects, volume, output
@@ -196,7 +214,7 @@ class ExoPlayer private constructor(private val processors: List<AudioProcessor>
                 setPlayingNow(true)
                 out.write(data, cur?.contentMs ?: p.contentMs, speed)
             } catch (e: InterruptedException) {
-                return
+                break
             } catch (e: Throwable) {
                 fail(e)
             }
@@ -214,12 +232,12 @@ class ExoPlayer private constructor(private val processors: List<AudioProcessor>
         }, "vibes-preload").apply { isDaemon = true; start() }
     }
 
-    private fun switchToPreloaded(old: Playing, crossfading: Boolean) {
+    private fun switchToPreloaded(old: Playing, closeOld: Boolean = true) {
         val n = preloaded ?: return
         // the old item keeps fading out inside the crossfade loop only while it is `cur`; once we
         // switch, the remainder of the fade is the new item at full volume (equal-power midpoint)
         preloaded = null; preloading = -1
-        old.pcm.close()
+        if (closeOld) old.pcm.close()
         cur = n
         out.markItemStart(n.contentMs, keepLatency = true)
         synchronized(lock) { index = n.index }
@@ -237,7 +255,7 @@ class ExoPlayer private constructor(private val processors: List<AudioProcessor>
             setState(Player.STATE_ENDED)
             return
         }
-        if (preloaded?.index == nxt) { switchToPreloaded(p, false); return }
+        if (preloaded?.index == nxt) { switchToPreloaded(p); return }
         // not preloaded yet (short song / slow network): open now
         preloading = -1; preloaded?.pcm?.close(); preloaded = null
         p.pcm.close()
@@ -251,6 +269,7 @@ class ExoPlayer private constructor(private val processors: List<AudioProcessor>
     }
 
     private fun closePlaying() {
+        endFade()
         cur?.pcm?.close(); cur = null
         preloading = -1; preloaded?.pcm?.close(); preloaded = null
     }
@@ -352,7 +371,10 @@ class ExoPlayer private constructor(private val processors: List<AudioProcessor>
         dispatch(Player.EVENT_PLAYBACK_PARAMETERS_CHANGED) { onPlaybackParametersChanged(PlaybackParameters(this@ExoPlayer.speed)) }
     }
 
-    private fun dropPreload() { preloading = -1; preloaded?.pcm?.close(); preloaded = null }
+    /** the audio thread drops the prepared next song (the queue changed); never closed from here */
+    @Volatile private var dropPreloadRequested = false
+    @Volatile private var stopRequested = false
+    private fun dropPreload() { preloading = -1; dropPreloadRequested = true; wake() }
 
     override fun getMediaItemAt(index: Int) = synchronized(lock) { items[index] }
     override fun hasNextMediaItem() = nextMediaItemIndex != androidx.media3.common.C.INDEX_UNSET
@@ -362,6 +384,7 @@ class ExoPlayer private constructor(private val processors: List<AudioProcessor>
     override fun pause() { playWhenReady = false }
 
     override fun prepare() {
+        if (state != Player.STATE_IDLE) return
         error = null
         synchronized(lock) { if (items.isNotEmpty() && cur == null && seekRequest == null) seekRequest = index to 0L }
         wake()
@@ -369,8 +392,7 @@ class ExoPlayer private constructor(private val processors: List<AudioProcessor>
 
     override fun stop() {
         playWhenReady = false
-        synchronized(lock) { seekRequest = null }
-        out.flush(); closePlaying(); setState(Player.STATE_IDLE)
+        synchronized(lock) { seekRequest = null; stopRequested = true; lock.notifyAll() }
     }
 
     override fun release() { released = true; stop(); thread.interrupt() }
@@ -417,6 +439,7 @@ class ExoPlayer private constructor(private val processors: List<AudioProcessor>
         }
         error = null
         dropPreload()
+        if (items.isNotEmpty()) setState(Player.STATE_BUFFERING)
         dispatch(Player.EVENT_TIMELINE_CHANGED, Player.EVENT_MEDIA_ITEM_TRANSITION) {
             onTimelineChanged(currentTimeline, Player.TIMELINE_CHANGE_REASON_PLAYLIST_CHANGED)
             onMediaItemTransition(first, Player.MEDIA_ITEM_TRANSITION_REASON_PLAYLIST_CHANGED)
