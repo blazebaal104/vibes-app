@@ -23,12 +23,12 @@ data class UpdateInfo(
     val date: String? = null,
     @SerialName("apk_pc") val apkPc: String? = null,
     @SerialName("size_pc") val sizePc: Long = 0,
-    /** Windows installer of the same build */
-    val exe: String? = null,
+    /** Windows installer of the same build, in parts (storage limit 50 MB per file) */
+    @SerialName("exe_parts") val exeParts: List<String> = emptyList(),
     @SerialName("size_exe") val sizeExe: Long = 0,
 ) {
     val forPc: Boolean get() = true
-    val url: String get() = exe ?: ""
+    val url: String get() = exeParts.firstOrNull() ?: ""
     val bytes: Long get() = sizeExe
 }
 
@@ -64,7 +64,7 @@ class Updater(private val context: Context, private val http: OkHttpClient) {
                 if (!r.isSuccessful) return@withContext null
                 Supa.json.decodeFromString(UpdateInfo.serializer(), r.body.string())
             }
-        if (info.exe == null || info.versionCode <= installedCode) return@withContext null
+        if (info.exeParts.isEmpty() || info.versionCode <= installedCode) return@withContext null
         if (!force && System.currentTimeMillis() < sp.getLong("snooze_${info.versionCode}", 0)) return@withContext null
         info
     }
@@ -82,23 +82,26 @@ class Updater(private val context: Context, private val http: OkHttpClient) {
         val file = exeFile(info)
         runCatching {
             _phase.value = Phase.Downloading(0f)
-            http.newCall(Request.Builder().url(info.url).build()).execute().use { r ->
-                if (!r.isSuccessful) error("Download non riuscito (${r.code})")
-                val total = r.body.contentLength().takeIf { it > 0 } ?: info.bytes
-                val tmp = File(file.path + ".part")
-                r.body.byteStream().use { input ->
-                    tmp.outputStream().use { out ->
-                        val buf = ByteArray(64 * 1024)
-                        var done = 0L; var lastEmit = 0L
-                        while (true) {
-                            val n = input.read(buf); if (n < 0) break
-                            out.write(buf, 0, n); done += n
-                            if (total > 0 && done - lastEmit > 256 * 1024) { lastEmit = done; _phase.value = Phase.Downloading(done.toFloat() / total) }
+            val tmp = File(file.path + ".part")
+            val total = info.bytes
+            var done = 0L; var lastEmit = 0L
+            tmp.outputStream().use { out ->
+                for (part in info.exeParts) {
+                    http.newCall(Request.Builder().url(part).build()).execute().use { r ->
+                        if (!r.isSuccessful) error("Download non riuscito (${r.code})")
+                        r.body.byteStream().use { input ->
+                            val buf = ByteArray(64 * 1024)
+                            while (true) {
+                                val n = input.read(buf); if (n < 0) break
+                                out.write(buf, 0, n); done += n
+                                if (total > 0 && done - lastEmit > 256 * 1024) { lastEmit = done; _phase.value = Phase.Downloading(done.toFloat() / total) }
+                            }
                         }
                     }
                 }
-                file.delete(); tmp.renameTo(file)
             }
+            if (total > 0 && tmp.length() != total) error("Download incompleto, riprova")
+            file.delete(); tmp.renameTo(file)
             file.parentFile?.listFiles()?.filter { it.name.startsWith("Vibes-") && it != file }?.forEach { it.delete() }
             _phase.value = Phase.Ready
         }.onFailure { _phase.value = Phase.Failed(it.message ?: "Download non riuscito") }
