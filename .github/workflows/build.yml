@@ -3,7 +3,7 @@ name: Build Vibes
 on:
   push:
     branches: [ main ]
-    paths-ignore: [ '.github/probe/**', '.github/workflows/probe.yml' ]
+    paths-ignore: [ '.github/probe/**', '.github/workflows/probe.yml', '.github/workflows/uitest.yml', '.github/workflows/desktop.yml', 'desktop/uitest/**' ]
   workflow_dispatch:
 
 permissions:
@@ -139,3 +139,71 @@ jobs:
           RC=${PIPESTATUS[0]}
           gh release upload build-$N update-log.txt --clobber || true
           exit $RC
+
+  # Vibes for Windows: same build number, installer published next to the APK (in 45 MB parts:
+  # the storage limit is 50 MB per file) and added to latest.json for in-app updates on PC.
+  windows:
+    needs: build
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          cache-read-only: false
+      - name: Build Windows installer
+        shell: bash
+        run: |
+          set -o pipefail
+          N=$(git rev-list --count HEAD)
+          echo "N=$N" >> $GITHUB_ENV
+          ./gradlew -p desktop packageExe -PvibesCode=$N -PvibesVersion=1.0.$N --stacktrace 2>&1 | tee win.log
+          mkdir -p out && cp "$(find desktop/build/compose/binaries -name '*.exe' | head -1)" out/Vibes-Setup.exe
+          ls -la out
+      - name: Windows build errors
+        if: failure()
+        shell: bash
+        run: grep -E "^e: |error:|What went wrong" -A6 win.log | head -150
+      - name: Attach to the release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload build-$N out/Vibes-Setup.exe --clobber || true
+      - name: Keep the installer in git (branch windows-exe) for direct sharing
+        shell: bash
+        run: |
+          mkdir -p /tmp/exe && cp out/Vibes-Setup.exe /tmp/exe/ && cd /tmp/exe
+          split -b 45m Vibes-Setup.exe Vibes-Setup.exe.part- && rm Vibes-Setup.exe
+          echo "$N" > VERSION
+          git init -q && git checkout -q -b windows-exe
+          git add . && git -c user.name=ci -c user.email=ci@vibes commit -qm "Vibes for Windows build $N"
+          git push -q -f "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" windows-exe
+      - name: Publish Windows update
+        shell: bash
+        run: |
+          set -e
+          FN=https://kxgswrwitsedppjzcokh.supabase.co/functions/v1/vibes-release
+          PUB=https://kxgswrwitsedppjzcokh.supabase.co/storage/v1/object/public/vibes-updates
+          cd out
+          split -b 45m -d -a 1 Vibes-Setup.exe part
+          K=$(ls part* | wc -l)
+          TOKEN=$(curl -sS -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=vibes-release" | jq -r .value)
+          R=$(curl -sS --fail-with-body -X POST "$FN" -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" -d "{\"version\":$N,\"windows\":$K}")
+          for i in $(seq 0 $((K-1))); do
+            URL=$(echo "$R" | jq -r ".parts[$i]")
+            curl -sS --fail-with-body -X PUT "$URL" -H "Content-Type: application/octet-stream" -H "x-upsert: true" --data-binary @part$i > /dev/null
+            echo "part $i uploaded"
+          done
+          curl -sS --fail-with-body "$PUB/latest.json?t=$(date +%s)" -o latest.json
+          if [ "$(jq -r .versionCode latest.json)" != "$N" ]; then echo "latest.json is for another build: not touching it"; exit 0; fi
+          PARTS=$(for i in $(seq 0 $((K-1))); do echo "$PUB/win/Vibes-win-$N.part$i"; done | jq -R . | jq -s -c .)
+          jq --argjson parts "$PARTS" --argjson size "$(stat -c %s Vibes-Setup.exe)" '. + {exe_parts: $parts, size_exe: $size}' latest.json > latest2.json
+          cat latest2.json
+          curl -sS --fail-with-body -X PUT "$(echo "$R" | jq -r .latest)" -H "Content-Type: application/json" -H "x-upsert: true" --data-binary @latest2.json
+          echo; echo "Windows update published"

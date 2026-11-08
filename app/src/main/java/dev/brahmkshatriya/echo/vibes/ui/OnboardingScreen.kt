@@ -21,6 +21,7 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
@@ -119,7 +120,8 @@ fun OnboardingScreen() {
     }
 
     Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color(0xFF3A1466), MaterialTheme.colorScheme.background)))) {
-        AnimatedContent(building, transitionSpec = { fadeIn() togetherWith fadeOut() }, label = "ob") { b ->
+        AnimatedContent(building, transitionSpec = { fadeIn() togetherWith fadeOut() }, label = "ob",
+            modifier = Modifier.align(Alignment.TopCenter).widthIn(max = 720.dp)) { b ->
             if (b) Column(Modifier.fillMaxSize().padding(32.dp), verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally) {
                 Text("🎧", fontSize = 72.sp)
                 Text("Preparo la tua musica", style = MaterialTheme.typography.headlineMedium, textAlign = TextAlign.Center, modifier = Modifier.padding(top = 12.dp))

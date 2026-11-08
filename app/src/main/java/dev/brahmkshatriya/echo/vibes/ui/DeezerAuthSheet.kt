@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -56,7 +57,8 @@ fun DeezerAuthHost() {
         }
     }
     val mandatory = logged == false || failing
-    val show = logged != null && (needed || mandatory) && app.nav.current !is Route.DeezerLogin
+    // UI tests on PC run with an account that has no Deezer: they set VIBES_UITEST to see the screens
+    val show = logged != null && (needed || mandatory) && app.nav.current !is Route.DeezerLogin && System.getenv("VIBES_UITEST") == null
     androidx.activity.compose.BackHandler(enabled = show && mandatory) { }
     fun go(signup: Boolean) {
         DeezerAuth.dismiss()
@@ -73,7 +75,7 @@ fun DeezerAuthHost() {
                     .clickable(remember { MutableInteractionSource() }, null) { if (!mandatory) DeezerAuth.dismiss() }
             )
             Column(
-                Modifier.align(Alignment.Center).padding(horizontal = 22.dp).fillMaxWidth()
+                Modifier.align(Alignment.Center).padding(horizontal = 22.dp).widthIn(max = 460.dp).fillMaxWidth()
                     .clip(RoundedCornerShape(28.dp))
                     .background(MaterialTheme.colorScheme.background)
                     .clickable(remember { MutableInteractionSource() }, null) { }
