@@ -302,6 +302,9 @@ fun ProfileScreen(userId: String?) {
     var other by remember { mutableStateOf<Profile?>(null) }
     var removing by remember { mutableStateOf(false) }
     var pickingSlot by remember { mutableStateOf<Int?>(null) }
+    var moderating by remember { mutableStateOf(false) }
+    val admins by app.social.admins.collectAsState()
+    val iAmAdmin = meProfile?.id?.let { it in admins } == true
     LaunchedEffect(userId) { if (!isMe && userId != null) other = runCatching { app.social.profile(userId) }.getOrNull() }
     val p = if (isMe) meProfile else other
     if (p == null) { Box(Modifier.fillMaxWidth().padding(80.dp), contentAlignment = Alignment.Center) { androidx.compose.material3.CircularProgressIndicator() }; return }
@@ -332,6 +335,9 @@ fun ProfileScreen(userId: String?) {
                     StoryAvatar(p, 128.dp, group?.let { !it.allSeen }, Modifier.bouncy({ if (group != null) nav.open(Route.Stories(p.id)) }))
                     Text(p.name, style = MaterialTheme.typography.headlineLarge, modifier = Modifier.padding(top = 14.dp))
                     Text("@${p.username}", style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    if (p.id in admins) AdminBadge(Modifier.padding(top = 4.dp))
+                    if (p.banned && (iAmAdmin || isMe)) Text("⛔ Account bannato", color = MaterialTheme.colorScheme.error,
+                        style = MaterialTheme.typography.labelLarge, modifier = Modifier.padding(top = 4.dp))
                     if (p.bio.isNotBlank()) Text(p.bio, style = MaterialTheme.typography.bodyMedium,
                         textAlign = androidx.compose.ui.text.style.TextAlign.Center, modifier = Modifier.padding(horizontal = 32.dp, vertical = 10.dp))
                     Row(Modifier.padding(top = 10.dp), horizontalArrangement = Arrangement.spacedBy(22.dp)) {
@@ -356,6 +362,7 @@ fun ProfileScreen(userId: String?) {
                             Pill("Messaggio", true, { nav.open(Route.Chat(p.id)) })
                             Pill("Sfida 🎮", false, { nav.open(Route.Games) })
                         }
+                        if (iAmAdmin) Pill("🛡️ Admin", false, { moderating = true })
                     }
                 }
             }
@@ -404,6 +411,7 @@ fun ProfileScreen(userId: String?) {
             } else if (p.privacy.records) p.records?.takeIf { it.mostMinutes > 0 }?.let { r -> item { RecordsCard(r, Modifier.padding(16.dp)) } }
         }
     }
+    if (moderating && !isMe) AdminDialog(p, onDismiss = { moderating = false }) { fresh -> if (fresh != null) other = fresh }
     if (removing) AlertDialog(
         onDismissRequest = { removing = false },
         title = { Text("Rimuovere ${p.name} dagli amici?") },

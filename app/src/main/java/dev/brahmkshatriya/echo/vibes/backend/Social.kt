@@ -90,12 +90,58 @@ class Social(context: Context, val supa: Supa) {
 
     // ------------------------------------------------------------------ lifecycle
 
+    /** Accounts with moderation powers (vibes_admins). */
+    val admins = kotlinx.coroutines.flow.MutableStateFlow<Set<String>>(emptySet())
+    val isAdmin: Boolean get() = uid != null && uid in admins.value
+
+    // ------------------------------------------------------------------ moderation (admins only; the
+    // database rules enforce it, these calls just fail for everybody else)
+
+    suspend fun adminPatch(userId: String, patch: kotlinx.serialization.json.JsonObject) {
+        supa.update("vibes_profiles", "id=eq.$userId", patch)
+        refreshPerson(userId)
+    }
+
+    /** Re-reads one profile after a moderation change so every screen shows the new data. */
+    suspend fun refreshPerson(userId: String): Profile? {
+        val p = profile(userId) ?: return null
+        _people.update { m -> if (userId in m) m + (userId to p) else m }
+        return p
+    }
+
+    suspend fun adminRemoveAvatar(userId: String) {
+        adminPatch(userId, buildJsonObject { put("avatar_url", kotlinx.serialization.json.JsonNull) })
+    }
+
+    suspend fun adminSetAvatar(userId: String, jpeg: ByteArray) {
+        val url = uploadPublicImage(jpeg, "admin_$userId")
+        adminPatch(userId, buildJsonObject { put("avatar_url", url) })
+    }
+
+    suspend fun adminBan(userId: String, reason: String) {
+        supa.function("vibes-admin", buildJsonObject { put("action", "ban"); put("user_id", userId); put("reason", reason) })
+        refreshPerson(userId)
+    }
+
+    suspend fun adminUnban(userId: String) {
+        supa.function("vibes-admin", buildJsonObject { put("action", "unban"); put("user_id", userId) })
+        refreshPerson(userId)
+    }
+
+    suspend fun adminDeleteStories(userId: String) = supa.delete("vibes_stories", "user_id=eq.$userId")
+    suspend fun adminDeleteUploads(userId: String) = supa.delete("vibes_uploads", "user_id=eq.$userId")
+
     suspend fun bootstrap() {
         val id = uid ?: return
         val rows = supa.select("vibes_profiles", "id=eq.$id&select=*")
         val p = rows.firstOrNull()?.let { json.decodeFromJsonElement<Profile>(it) }
         _me.value = p
         hasProfile.value = p != null
+        runCatching {
+            admins.value = supa.select("vibes_admins", "select=user_id").mapNotNull {
+                (it as? kotlinx.serialization.json.JsonObject)?.get("user_id")?.let { v -> (v as kotlinx.serialization.json.JsonPrimitive).content }
+            }.toSet()
+        }
         if (p != null) {
             supa.realtime.start()
             refreshFriends(); refreshRequests(); refreshChats()

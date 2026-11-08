@@ -120,6 +120,7 @@ class Supa(context: Context) {
         } ?: body.take(200)
         return when {
             raw.contains("Invalid login credentials", true) -> "Email o password sbagliate"
+            raw.contains("banned", true) -> "Questo account è stato bannato da un amministratore di Vibes"
             raw.contains("already registered", true) -> "Esiste già un account con questa email"
             raw.contains("Email not confirmed", true) -> "Conferma prima la tua email (controlla la posta)"
             raw.contains("Password should be", true) -> "La password deve avere almeno 6 caratteri"
@@ -253,6 +254,10 @@ class Supa(context: Context) {
     suspend fun delete(table: String, query: String) {
         execJson(authed("/rest/v1/$table?$query").delete().build())
     }
+
+    /** Calls an edge function as the signed-in user. */
+    suspend fun function(name: String, body: JsonObject): JsonElement? =
+        execJson(authed("/functions/v1/$name").post(body.toString().toRequestBody(JSON_TYPE)).build())
 
     suspend fun rpc(fn: String, args: JsonObject = JsonObject(emptyMap())): JsonElement? =
         execJson(authed("/rest/v1/rpc/$fn").post(args.toString().toRequestBody(JSON_TYPE)).build())

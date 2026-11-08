@@ -122,6 +122,7 @@ fun VibesApp(engine: MusicEngine, pendingLink: MutableStateFlow<Uri?>) {
         androidx.compose.runtime.CompositionLocalProvider(LocalApp provides state) {
             val session by state.supa.session.collectAsState()
             val hasProfile by state.social.hasProfile.collectAsState()
+            val meNow by state.social.me.collectAsState()
             LaunchedEffect(session?.userId) {
                 if (session == null) { state.social.clear(); return@LaunchedEffect }
                 // retry until the profile loads (offline at start-up, slow network...)
@@ -142,6 +143,7 @@ fun VibesApp(engine: MusicEngine, pendingLink: MutableStateFlow<Uri?>) {
                     session == null -> AuthScreen()
                     hasProfile == null -> LoadingScreen()
                     hasProfile == false -> ProfileSetupScreen()
+                    meNow?.banned == true -> BannedScreen(meNow?.banReason)
                     LocalSettings.current.needsOnboarding -> OnboardingScreen()
                     else -> MainScaffold(pendingLink)
                 }

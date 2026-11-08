@@ -74,6 +74,9 @@ data class Profile(
     val records: Records? = null,
     val privacy: Privacy = Privacy(),
     val live: LiveListen? = null,
+    /** Set by an admin: the account can't post and can't log in. */
+    val banned: Boolean = false,
+    @SerialName("ban_reason") val banReason: String? = null,
 ) {
     val name get() = displayName.ifBlank { username }
 
