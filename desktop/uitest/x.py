@@ -24,7 +24,7 @@ special = {' ': 'space', '@': 'at', '.': 'period', '-': 'minus', '_': 'underscor
 def typ(s):
     for ch in s:
         name = special.get(ch, ch)
-        shift = ch.isupper() or ch in '_!:'
+        shift = ch.isupper() or ch in '@_!:'
         key(name, ('Shift_L',) if shift else ())
         time.sleep(0.02)
 a = sys.argv[1:]
