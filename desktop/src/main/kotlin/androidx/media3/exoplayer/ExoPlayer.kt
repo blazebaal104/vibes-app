@@ -182,7 +182,7 @@ class ExoPlayer private constructor(private val processors: List<AudioProcessor>
                 }
 
                 // ---- effects, volume, output
-                val v = vol
+                val v = vol * 32767f
                 for (i in 0 until got * 2) pcmOut[i] = (mix[i] * v).toInt().coerceIn(-32768, 32767).toShort()
                 var data: ByteBuffer = bb.apply { clear(); asShortBuffer().put(pcmOut, 0, got * 2); limit(got * 4) }
                 for (proc in processors) {

@@ -191,51 +191,157 @@ class FlacPcm(src: ByteSource, startByte: Long) : ForwardPcm() {
 
 // ------------------------------------------------------------------ AAC (JAAD)
 
+/**
+ * AAC in an MP4/M4A container (phone voice notes, uploads). A small demuxer of our own (JAAD's MP4
+ * parser trips on the metadata boxes many encoders write) + JAAD's AAC decoder.
+ */
 class AacMp4Pcm(file: File) : ForwardPcm() {
     private val raf = java.io.RandomAccessFile(file, "r")
-    private val track: net.sourceforge.jaad.mp4.api.AudioTrack
-    private val dec: net.sourceforge.jaad.aac.Decoder
+    private val mp4 = Mp4Audio.parse(raf)
+    private val dec = net.sourceforge.jaad.aac.Decoder(mp4.asc)
     private val sb = net.sourceforge.jaad.aac.SampleBuffer().apply { setBigEndian(false) }
     override val sampleRate: Int
     override val channels: Int
-    override val durationMs: Long
+    override val durationMs: Long = mp4.durationMs
     private var buf = ShortArray(0); private var pos = 0; private var len = 0
+    private var next = 0
 
     init {
-        val movie = net.sourceforge.jaad.mp4.MP4Container(raf).movie
-        track = movie.getTracks(net.sourceforge.jaad.mp4.api.Type.AUDIO).first() as net.sourceforge.jaad.mp4.api.AudioTrack
-        dec = net.sourceforge.jaad.aac.Decoder(track.decoderSpecificInfo)
-        sampleRate = track.sampleRate
-        channels = track.channelCount.coerceIn(1, 2)
-        durationMs = (movie.duration * 1000).toLong()
+        // decode one frame to learn the real output format (HE-AAC doubles the rate)
+        var rate = mp4.sampleRate; var ch = mp4.channels.coerceIn(1, 2)
+        if (decodeInto()) { rate = sb.sampleRate; ch = sb.channels.coerceIn(1, 2) }
+        sampleRate = rate; channels = ch
+        next = 0; len = 0; pos = 0
     }
 
-    private fun next(): Boolean {
-        while (track.hasMoreFrames()) {
-            val f = runCatching { track.readNextFrame() }.getOrNull() ?: return false
-            if (runCatching { dec.decodeFrame(f.data, sb) }.isFailure) continue
-            val bb = ByteBuffer.wrap(sb.data).order(ByteOrder.LITTLE_ENDIAN).asShortBuffer()
-            val ch = sb.channels
-            val frames = bb.remaining() / ch
-            if (buf.size < frames * channels) buf = ShortArray(frames * channels)
-            for (i in 0 until frames) {
-                if (channels == 1) buf[i] = bb.get(i * ch)
-                else { buf[2 * i] = bb.get(i * ch); buf[2 * i + 1] = bb.get(i * ch + if (ch > 1) 1 else 0) }
-            }
-            pos = 0; len = frames * channels
-            if (len > 0) return true
+    private fun decodeInto(): Boolean {
+        while (next < mp4.offsets.size) {
+            val i = next++
+            val frame = ByteArray(mp4.sizes[i])
+            raf.seek(mp4.offsets[i]); raf.readFully(frame)
+            if (runCatching { dec.decodeFrame(frame, sb) }.isSuccess) return true
         }
         return false
     }
 
+    private fun fillNext(): Boolean {
+        if (!decodeInto()) return false
+        val bb = ByteBuffer.wrap(sb.data).order(ByteOrder.LITTLE_ENDIAN).asShortBuffer()
+        val ch = sb.channels.coerceAtLeast(1)
+        val frames = bb.remaining() / ch
+        if (buf.size < frames * channels) buf = ShortArray(frames * channels)
+        for (i in 0 until frames) {
+            if (channels == 1) buf[i] = bb.get(i * ch)
+            else { buf[2 * i] = bb.get(i * ch); buf[2 * i + 1] = bb.get(i * ch + if (ch > 1) 1 else 0) }
+        }
+        pos = 0; len = frames * channels
+        return true
+    }
+
     override fun decode(out: ShortArray): Int {
-        if (pos >= len && !next()) return -1
+        while (pos >= len) if (!fillNext()) return -1
         val n = minOf(out.size - out.size % channels, len - pos)
         System.arraycopy(buf, pos, out, 0, n); pos += n
         return n
     }
 
     override fun close() { runCatching { raf.close() } }
+}
+
+/** Minimal MP4 reader: the first audio track's AAC config and where each frame is in the file. */
+class Mp4Audio(val asc: ByteArray, val sampleRate: Int, val channels: Int, val durationMs: Long, val offsets: LongArray, val sizes: IntArray) {
+    companion object {
+        private val containers = setOf("moov", "trak", "mdia", "minf", "stbl", "edts", "dinf")
+
+        fun parse(f: java.io.RandomAccessFile): Mp4Audio {
+            var result: Mp4Audio? = null
+            fun boxes(start: Long, end: Long, visit: (type: String, body: Long, size: Long) -> Unit) {
+                var p = start
+                while (p + 8 <= end) {
+                    f.seek(p)
+                    var size = f.readInt().toLong() and 0xFFFFFFFFL
+                    val type = String(f.readFully(4), Charsets.ISO_8859_1)
+                    var header = 8L
+                    if (size == 1L) { size = f.readLong(); header = 16 }
+                    if (size == 0L) size = end - p
+                    if (size < header) break
+                    visit(type, p + header, size - header)
+                    p += size
+                }
+            }
+            fun trak(start: Long, end: Long): Mp4Audio? {
+                var handler = ""; var timescale = 0L; var duration = 0L
+                var asc: ByteArray? = null; var rate = 44100; var ch = 2
+                var sizes = IntArray(0); var fixedSize = 0; var count = 0
+                var chunkOffsets = LongArray(0)
+                val stsc = ArrayList<IntArray>()
+                fun walk(s: Long, e: Long) {
+                    boxes(s, e) { type, body, size ->
+                        when (type) {
+                            in containers -> walk(body, body + size)
+                            "hdlr" -> { f.seek(body + 8); handler = String(f.readFully(4), Charsets.ISO_8859_1) }
+                            "mdhd" -> {
+                                f.seek(body); val v = f.readUnsignedByte(); f.skipBytes(3)
+                                if (v == 1) { f.skipBytes(16); timescale = f.readInt().toLong() and 0xFFFFFFFFL; duration = f.readLong() }
+                                else { f.skipBytes(8); timescale = f.readInt().toLong() and 0xFFFFFFFFL; duration = f.readInt().toLong() and 0xFFFFFFFFL }
+                            }
+                            "stsd" -> boxes(body + 8, body + size) { et, eb, es ->
+                                if (et == "mp4a") {
+                                    f.seek(eb + 16); ch = f.readUnsignedShort(); f.skipBytes(6); rate = f.readInt() ushr 16
+                                    boxes(eb + 28, eb + es) { ct, cb, cs -> if (ct == "esds") asc = esds(f, cb, cs) }
+                                }
+                            }
+                            "stsz" -> {
+                                f.seek(body + 4); fixedSize = f.readInt(); count = f.readInt()
+                                sizes = if (fixedSize == 0) IntArray(count) { f.readInt() } else IntArray(count) { fixedSize }
+                            }
+                            "stco" -> { f.seek(body + 4); val n = f.readInt(); chunkOffsets = LongArray(n) { f.readInt().toLong() and 0xFFFFFFFFL } }
+                            "co64" -> { f.seek(body + 4); val n = f.readInt(); chunkOffsets = LongArray(n) { f.readLong() } }
+                            "stsc" -> { f.seek(body + 4); val n = f.readInt(); repeat(n) { stsc += intArrayOf(f.readInt(), f.readInt(), f.readInt()) } }
+                        }
+                    }
+                }
+                walk(start, end)
+                if (handler != "soun" || asc == null || sizes.isEmpty() || chunkOffsets.isEmpty()) return null
+                // sample -> file offset
+                val offsets = LongArray(sizes.size)
+                var sample = 0
+                for (c in chunkOffsets.indices) {
+                    val entry = stsc.lastOrNull { it[0] <= c + 1 } ?: break
+                    var off = chunkOffsets[c]
+                    repeat(entry[1]) {
+                        if (sample < sizes.size) { offsets[sample] = off; off += sizes[sample]; sample++ }
+                    }
+                }
+                val n = sample
+                return Mp4Audio(asc!!, rate, ch, if (timescale > 0) duration * 1000 / timescale else -1, offsets.copyOf(n), sizes.copyOf(n))
+            }
+            boxes(0, f.length()) { type, body, size ->
+                if (type == "moov") boxes(body, body + size) { t, b, s -> if (t == "trak" && result == null) result = trak(b, b + s) }
+            }
+            return result ?: throw java.io.IOException("Nessuna traccia audio AAC nel file")
+        }
+
+        /** AudioSpecificConfig from an esds box. */
+        private fun esds(f: java.io.RandomAccessFile, body: Long, size: Long): ByteArray? {
+            f.seek(body + 4)
+            val end = body + size
+            fun len(): Int { var l = 0; repeat(4) { val b = f.readUnsignedByte(); l = (l shl 7) or (b and 0x7F); if (b and 0x80 == 0) return l }; return l }
+            while (f.filePointer < end) {
+                val tag = f.readUnsignedByte(); val l = len()
+                when (tag) {
+                    0x03 -> { f.skipBytes(2); val flags = f.readUnsignedByte()
+                        if (flags and 0x80 != 0) f.skipBytes(2)
+                        if (flags and 0x40 != 0) f.skipBytes(f.readUnsignedByte())
+                        if (flags and 0x20 != 0) f.skipBytes(2) }
+                    0x04 -> f.skipBytes(13)
+                    0x05 -> return f.readFully(l)
+                    else -> f.skipBytes(l)
+                }
+            }
+            return null
+        }
+    }
 }
 
 class AdtsPcm(src: ByteSource) : ForwardPcm() {
