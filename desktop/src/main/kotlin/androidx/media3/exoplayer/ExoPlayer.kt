@@ -98,6 +98,7 @@ class ExoPlayer private constructor(private val processors: List<AudioProcessor>
         val item = synchronized(lock) { items[i] }
         val src = sourceOf(item)
         val pcm = AudioDecoders.open(src, posMs, tmpDir)
+        println("vibes-audio: open ${item.mediaId} @${posMs}ms -> ${pcm.javaClass.simpleName} ${pcm.sampleRate}Hz ${pcm.channels}ch ${pcm.durationMs}ms")
         return Playing(i, item, pcm)
     }
 
@@ -257,6 +258,7 @@ class ExoPlayer private constructor(private val processors: List<AudioProcessor>
     private fun fail(e: Throwable) {
         val pe = e as? PlaybackException ?: PlaybackException(e.message ?: e.javaClass.simpleName, e,
             if (e is java.io.IOException) PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_FAILED else PlaybackException.ERROR_CODE_DECODING_FAILED)
+        System.err.println("vibes-audio: error ${pe.message}"); e.printStackTrace()
         closePlaying(); out.pause()
         error = pe
         setPlayingNow(false)
