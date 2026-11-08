@@ -175,6 +175,15 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: gh release upload build-$N out/Vibes-Setup.exe --clobber || true
+      - name: Keep the installer in git (branch windows-exe) for direct sharing
+        shell: bash
+        run: |
+          mkdir -p /tmp/exe && cp out/Vibes-Setup.exe /tmp/exe/ && cd /tmp/exe
+          split -b 45m Vibes-Setup.exe Vibes-Setup.exe.part- && rm Vibes-Setup.exe
+          echo "$N" > VERSION
+          git init -q && git checkout -q -b windows-exe
+          git add . && git -c user.name=ci -c user.email=ci@vibes commit -qm "Vibes for Windows build $N"
+          git push -q -f "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" windows-exe
       - name: Publish Windows update
         shell: bash
         run: |
