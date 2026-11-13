@@ -21,7 +21,8 @@ jobs:
           ./gradlew :app:compileReleaseKotlin --build-cache --parallel --no-configuration-cache 2>&1 | tee build.log
       - name: Errors
         if: failure()
-        run: grep -E "^e: |What went wrong" -A3 build.log | head -150
+        run: |
+          grep -E "^e: |What went wrong" -A3 build.log | head -150
   desktop:
     runs-on: ubuntu-latest
     timeout-minutes: 45
@@ -38,4 +39,5 @@ jobs:
           ./gradlew -p desktop compileKotlin --no-configuration-cache 2>&1 | tee build.log
       - name: Errors
         if: failure()
-        run: grep -E "^e: |What went wrong" -A3 build.log | head -150
+        run: |
+          grep -E "^e: |What went wrong" -A3 build.log | head -150
