@@ -181,13 +181,17 @@ android {
     //
     // ⚠️ SIGNING KEY: release is signed with the DEBUG keystore, on purpose. See the signingConfig note on
     // the release block.
-    // Vibes: fixed signing key committed to the repo so every CI build installs over the previous one.
+    // Vibes: one fixed signing key so every CI build installs over the previous one. The key is NOT in
+    // the repository (it is public): the release build on main fetches it from the Vibes backend with
+    // its GitHub OIDC token and writes it to app/vibes.keystore (git-ignored), password in the env.
+    val vibesKeystore = file("vibes.keystore")
+    val vibesKeyPassword = System.getenv("VIBES_KEYSTORE_PASSWORD") ?: ""
     signingConfigs {
         create("vibes") {
-            storeFile = file("vibes.keystore")
-            storePassword = "***REMOVED***"
+            storeFile = vibesKeystore
+            storePassword = vibesKeyPassword
             keyAlias = "vibes"
-            keyPassword = "***REMOVED***"
+            keyPassword = vibesKeyPassword
         }
     }
 

@@ -33,6 +33,18 @@ jobs:
         with:
           cache-read-only: false
 
+      - name: Signing key (from the Vibes backend, never stored in the public repository)
+        run: |
+          set -e
+          TOKEN=$(curl -sS -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=vibes-release" | jq -r .value)
+          R=$(curl -sS --fail-with-body -X POST https://kxgswrwitsedppjzcokh.supabase.co/functions/v1/vibes-release \
+            -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" -d '{"keystore":true}')
+          echo "$R" | jq -r .keystore | base64 -d > app/vibes.keystore
+          PW=$(echo "$R" | jq -r .password)
+          echo "::add-mask::$PW"
+          echo "VIBES_KEYSTORE_PASSWORD=$PW" >> $GITHUB_ENV
+          test -s app/vibes.keystore
+
       - name: Build release APK
         run: |
           chmod +x gradlew
