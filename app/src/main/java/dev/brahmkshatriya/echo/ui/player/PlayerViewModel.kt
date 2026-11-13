@@ -633,6 +633,12 @@ class PlayerViewModel(
          * would give a random start AND throw away everything before it.
          */
         shuffleList: Boolean = false,
+        /**
+         * Vibes: the whole list is sent and the SERVICE cuts it at [index] (current + upcoming, as
+         * before), but remembers the songs before the tapped one. Turning shuffle on then shuffles
+         * the WHOLE playlist, not only the songs after the tapped one.
+         */
+        contextStart: Boolean = false,
     ) {
         // [TEMPORARY 2026-10-19] ColdStartPlayProbe - a track tap plays through prepare(), which
         // is not a controller play COMMAND, so it has to be recorded here or it reads as unsourced.
@@ -643,7 +649,8 @@ class PlayerViewModel(
             // so it lands at index 0 with nothing stranded above and a zero persisted index — matching
             // playItem and freshContextUpcoming. `index` locates the tapped track within `list`.
             val start = if (shuffleList) 0 else index.coerceIn(0, list.size - 1)
-            val upcoming = list.subList(start, list.size)
+            val keepContext = contextStart && !shuffleList && list.size > 1
+            val upcoming = if (keepContext) list else list.subList(start, list.size)
             val mediaItems = upcoming.map {
                 MediaItemUtils.build(
                     app,
@@ -662,13 +669,14 @@ class PlayerViewModel(
             // ⚠️ SENT BEFORE setMediaItems, AND THAT ORDER IS LOAD-BEARING: the
             // latch is consumed by the NEXT 3-arg setMediaItems, which is the line below. Same
             // controller, so FIFO; same mechanism the AA shuffle tile has used since July.
-            if (respectShuffle || shuffleList) controller.sendCustomCommand(
+            if (respectShuffle || shuffleList || keepContext) controller.sendCustomCommand(
                 tapShuffleCommand, Bundle().apply {
                     putBoolean("respect", respectShuffle)
                     putBoolean("freshList", shuffleList)
+                    putInt("contextStart", if (keepContext) start else -1)
                 }
             )
-            controller.setMediaItems(mediaItems, 0, upcoming.first().playedDuration ?: 0)
+            controller.setMediaItems(mediaItems, 0, list[start].playedDuration ?: 0)
             controller.prepare()
             // In-order queue set with no shuffle opinion (History's single-track seed) — sync the shuffle
             // flag/icon OFF on the service player WITHOUT changeQueue (pure primitive), so the icon can't
@@ -682,6 +690,15 @@ class PlayerViewModel(
             if (!respectShuffle) controller.sendCustomCommand(
                 syncShuffleFlagCommand, Bundle().apply { putBoolean("enabled", false) }
             )
+        }
+    }
+
+    /** Vibes: songs that continue a single shared/recommended song (instead of it looping). */
+    fun appendTracks(extId: String, tracks: List<Track>) {
+        if (tracks.isEmpty()) return
+        withBrowser { controller ->
+            val items = tracks.map { MediaItemUtils.build(app, downloadFlow.value, MediaState.Unloaded(extId, it), null) }
+            controller.addMediaItems(controller.mediaItemCount, items)
         }
     }
 

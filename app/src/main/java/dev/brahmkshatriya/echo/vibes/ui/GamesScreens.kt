@@ -343,10 +343,11 @@ private suspend fun createChallenge(game: String, friend: Profile, source: GameS
         if (tracks.size < 4) throw IllegalStateException("Non riesco a preparare i brani, controlla la connessione")
         buildJsonObject { put("tracks", Supa.json.encodeToJsonElement(trackList, tracks)) }
     } else {
-        val tracks = (0 until 8).mapNotNull { picker.pick(if (it < 4) Difficulty.EASY else Difficulty.MEDIUM) }
+        val level = dev.brahmkshatriya.echo.vibes.games.BlindLevel.recommended()
+        val (tracks, options) = dev.brahmkshatriya.echo.vibes.games.BlindQuiz.build(picker, level)
         if (tracks.size < 8) throw IllegalStateException("Non riesco a preparare i brani, controlla la connessione")
-        val options = tracks.map { t -> (picker.otherArtists(t.artist, 3) + t.artist).shuffled() }
         buildJsonObject {
+            put("level", level.name)
             put("tracks", Supa.json.encodeToJsonElement(trackList, tracks))
             put("options", Supa.json.encodeToJsonElement(ListSerializer(ListSerializer(String.serializer())), options))
         }
@@ -864,6 +865,44 @@ private fun GameOver(emoji: String, title: String, subtitle: String, onAgain: ((
 // =====================================================================================  Chi canta?
 
 @Composable
+private fun BlindLevelPicker(
+    selected: dev.brahmkshatriya.echo.vibes.games.BlindLevel,
+    onSelect: (dev.brahmkshatriya.echo.vibes.games.BlindLevel) -> Unit,
+    onPlay: () -> Unit,
+) {
+    val suggested = remember { dev.brahmkshatriya.echo.vibes.games.BlindLevel.recommended() }
+    Column(Modifier.fillMaxSize().padding(20.dp), verticalArrangement = Arrangement.Center) {
+        Text("Scegli il livello", style = MaterialTheme.typography.headlineSmall)
+        Text("Quello consigliato dipende da quanta musica hai ascoltato questa settimana.",
+            style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(top = 4.dp, bottom = 16.dp))
+        dev.brahmkshatriya.echo.vibes.games.BlindLevel.entries.forEach { lv ->
+            val on = lv == selected
+            Row(
+                Modifier.padding(vertical = 5.dp).fillMaxWidth().clip(RoundedCornerShape(16.dp))
+                    .background(if (on) MaterialTheme.colorScheme.primary.copy(alpha = 0.25f) else LocalVibes.current.cardHigh)
+                    .bouncy({ onSelect(lv) }).padding(16.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(lv.emoji, fontSize = 28.sp)
+                Spacer(Modifier.width(14.dp))
+                Column(Modifier.weight(1f)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(lv.label, style = MaterialTheme.typography.titleMedium)
+                        if (lv == suggested) Text("  · consigliato", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
+                    }
+                    Text("${lv.hint} · ${lv.seconds} s a domanda", style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                if (on) Icon(Icons.Rounded.CheckCircle, null, tint = MaterialTheme.colorScheme.primary)
+            }
+        }
+        Spacer(Modifier.height(18.dp))
+        BigButton("Gioca", onPlay, Modifier.fillMaxWidth())
+    }
+}
+
+@Composable
 fun BlindTestScreen(lobbyId: String?) {
     val app = LocalApp.current
     val nav = app.nav
@@ -887,10 +926,16 @@ fun BlindTestScreen(lobbyId: String?) {
     val otherName = friends.firstOrNull { it.id == otherId }?.name ?: "il tuo amico"
     val otherScore = lobby?.state?.str("s_$otherId")?.toIntOrNull() ?: 0
     val otherDone = lobby?.state?.str("done_$otherId") == "true"
+    // level: chosen before a solo game (the suggested one is preselected); a challenge uses the one it was made with
+    var level by remember { mutableStateOf<dev.brahmkshatriya.echo.vibes.games.BlindLevel?>(null) }
+    var choosing by remember { mutableStateOf(dev.brahmkshatriya.echo.vibes.games.BlindLevel.recommended()) }
+    val playLevel = if (multi) dev.brahmkshatriya.echo.vibes.games.BlindLevel.of(lobby?.state?.str("level")) else level
+    val seconds = (playLevel ?: dev.brahmkshatriya.echo.vibes.games.BlindLevel.EASY).seconds
 
     // load questions
-    LaunchedEffect(lobby?.id, multi) {
+    LaunchedEffect(lobby?.id, multi, level) {
         if (tracks.isNotEmpty()) return@LaunchedEffect
+        if (!multi && level == null) return@LaunchedEffect
         if (multi) {
             val l = lobby ?: return@LaunchedEffect
             tracks = l.tracks()
@@ -898,9 +943,8 @@ fun BlindTestScreen(lobbyId: String?) {
                 runCatching { Supa.json.decodeFromJsonElement(ListSerializer(ListSerializer(String.serializer())), it) }.getOrNull()
             }.orEmpty()
         } else {
-            val picker = VibesGraph.picker
-            val t = (0 until 8).mapNotNull { picker.pick(if (it < 4) Difficulty.EASY else Difficulty.MEDIUM) }
-            options = t.map { (picker.otherArtists(it.artist, 3) + it.artist).shuffled() }
+            val (t, o) = dev.brahmkshatriya.echo.vibes.games.BlindQuiz.build(VibesGraph.picker, level!!)
+            options = o
             tracks = t
         }
     }
@@ -921,9 +965,9 @@ fun BlindTestScreen(lobbyId: String?) {
         val t = tracks.getOrNull(index) ?: return@LaunchedEffect
         answered = null
         clip.load(t.preview)
-        clip.playClip(10_000)
+        clip.playClip(seconds * 1000L)
         timer.snapTo(1f)
-        timer.animateTo(0f, tween(10_000, easing = LinearEasing))
+        timer.animateTo(0f, tween(seconds * 1000, easing = LinearEasing))
         if (answered == null) answered = ""   // time's up
     }
     LaunchedEffect(answered) {
@@ -945,6 +989,7 @@ fun BlindTestScreen(lobbyId: String?) {
                 style = MaterialTheme.typography.titleSmall, modifier = Modifier.align(Alignment.CenterHorizontally))
             val t = tracks.getOrNull(index)
             when {
+                !multi && level == null -> BlindLevelPicker(choosing, { choosing = it }) { level = choosing }
                 finished -> {
                     val title = if (!multi) "$score punti" else when {
                         !otherDone -> "Aspettiamo $otherName…"
@@ -954,7 +999,7 @@ fun BlindTestScreen(lobbyId: String?) {
                     }
                     GameOver(if (!multi || score >= otherScore) "🏆" else "🎧", title,
                         if (multi) "Tu $score · $otherName $otherScore" else "Quanti artisti hai riconosciuto in 8 brani.",
-                        if (!multi) ({ score = 0; index = 0; finished = false; tracks = emptyList() }) else null,
+                        if (!multi) ({ score = 0; index = 0; finished = false; tracks = emptyList(); level = null }) else null,
                         submit = if (!multi || otherDone) "blind" to score * 100 else null)
                     if (score > 0 && (!multi || (otherDone && score > otherScore)) && LocalSettings.current.confetti) Confetti()
                 }
@@ -993,7 +1038,7 @@ fun BlindTestScreen(lobbyId: String?) {
                                 .bouncy({
                                     if (answered != null) return@bouncy
                                     answered = opt
-                                    if (isRight) score += (100 + (900 * timer.value).toInt())
+                                    if (isRight) score += ((100 + (900 * timer.value).toInt()) * (playLevel?.points ?: 1f)).toInt()
                                     if (multi) report(false)
                                 }),
                             contentAlignment = Alignment.Center

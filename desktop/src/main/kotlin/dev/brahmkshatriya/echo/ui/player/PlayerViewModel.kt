@@ -171,7 +171,7 @@ class PlayerViewModel(private val context: Context, private val loader: Extensio
 
     // ------------------------------------------------------------------ API used by MusicEngine / UI
 
-    fun setQueue(id: String, list: List<Track>, index: Int, context: EchoMediaItem?, respectShuffle: Boolean = false, shuffleList: Boolean = false) {
+    fun setQueue(id: String, list: List<Track>, index: Int, context: EchoMediaItem?, respectShuffle: Boolean = false, shuffleList: Boolean = false, contextStart: Boolean = false) {
         if (list.isEmpty()) return
         val start = if (shuffleList) 0 else index.coerceIn(0, list.size - 1)
         consecutiveErrors = 0
@@ -197,6 +197,8 @@ class PlayerViewModel(private val context: Context, private val loader: Extensio
         if (exo.mediaItemCount == 0) { exo.setMediaItems(items, 0, 0); exo.prepare(); exo.play(); return }
         if (next) exo.addMediaItems(exo.currentMediaItemIndex + 1, items) else exo.addMediaItems(items)
     }
+    /** Vibes: songs that continue a single shared/recommended song (instead of looping it). */
+    fun appendTracks(extId: String, tracks: List<Track>) { if (tracks.isNotEmpty()) addToQueue(extId, tracks, next = false) }
     fun removeQueueItem(i: Int) = exo.removeMediaItem(i)
     fun moveQueueItem(from: Int, to: Int) = exo.moveMediaItem(from, to)
 }

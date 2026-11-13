@@ -26,6 +26,7 @@ object VibesGraph {
     val social by lazy { Social(app, supa) }
     val lobbies by lazy { dev.brahmkshatriya.echo.vibes.listen.ListenLobbies(supa, app) }
     val library by lazy { VibesLibrary(app) }
+    val collab by lazy { dev.brahmkshatriya.echo.vibes.backend.CollabPlaylists(supa, library) }
     val deezer by lazy { DeezerPublic(supa.http) }
     val recommender by lazy { dev.brahmkshatriya.echo.vibes.music.Recommender(deezer, library) }
     val importer by lazy { dev.brahmkshatriya.echo.vibes.music.Importer(deezer, { library }, supa.http) }

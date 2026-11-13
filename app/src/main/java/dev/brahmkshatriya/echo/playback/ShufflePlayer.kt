@@ -149,6 +149,19 @@ class ShufflePlayer(
         pendingTapRespectShuffle = respect
     }
 
+    // ── Vibes: the whole playlist behind the queue ─────────────────────────────────────────
+    // Gladix keeps only current + upcoming in the timeline, so a song tapped in the middle of a
+    // playlist dropped every song before it, and turning shuffle on afterwards could only ever pick
+    // the songs AFTER the tapped one ("ho premuto il 5, in casuale partono solo dal 6 al 10").
+    // The caller now sends the WHOLE list plus the tapped index: the queue is still cut at that index
+    // (nothing else changes), but the full list is kept here so that shuffle can draw from all of it.
+    private var pendingContextStart = -1
+    private var contextAll: List<MediaItem> = emptyList()
+
+    fun notifyContextStart(index: Int) {
+        pendingContextStart = index
+    }
+
     /**
      * The persisted un-shuffled order, as mediaIds, for the queue about to be restored.
      *
@@ -215,8 +228,24 @@ class ShufflePlayer(
     override fun setShuffleModeEnabled(enabled: Boolean) {
         if (enabled) original = getQueue()
         isShuffled = enabled
-        changeQueue(if (enabled) original.shuffled() else original)
+        val current = currentMediaItem
+        if (enabled && current != null && contextAll.isNotEmpty())
+            // every song of the playlist except the one playing, not only the ones after it
+            changeQueue(listOf(current) + shufflePool(getQueue(), current).shuffled())
+        else changeQueue(if (enabled) original.shuffled() else original)
         player.shuffleModeEnabled = enabled
+    }
+
+    /**
+     * Everything that may come after [current] in shuffle: the queue (minus current) plus the songs
+     * of the playlist that are not in it any more (before the tapped one, or already played).
+     */
+    private fun shufflePool(queue: List<MediaItem>, current: MediaItem): List<MediaItem> {
+        val inQueue = queue.mapTo(HashSet()) { it.mediaId }
+        val rest = queue.filter { it.mediaId != current.mediaId }
+        val extra = contextAll.filter { it.mediaId !in inQueue && it.mediaId != current.mediaId }
+            .distinctBy { it.mediaId }
+        return rest + extra
     }
 
     // CrossfadePlayer must override setAudioAttributes() to broadcast to both internal players.
@@ -492,6 +521,15 @@ class ShufflePlayer(
         pendingFreshListShuffle = false
         val restoredIds = pendingOriginalIds
         pendingOriginalIds = null
+        val ctxStart = pendingContextStart
+        pendingContextStart = -1
+        val withContext = ctxStart >= 0 && tileOriginal == null && !freshList && ctxStart < mediaItems.size
+        contextAll = if (withContext) mediaItems.toList() else emptyList()
+        @Suppress("NAME_SHADOWING")
+        val mediaItems: MutableList<MediaItem> =
+            if (withContext) mediaItems.subList(ctxStart, mediaItems.size).toMutableList() else mediaItems
+        @Suppress("NAME_SHADOWING")
+        val startIndex = if (withContext) 0 else startIndex
         val index = startIndex.coerceAtMost(mediaItems.size - 1)
         // ⚠⚠ THE ONE PLACE A TAP'S SHUFFLE DECISION IS MADE, AND IT IS MADE HERE
         // BECAUSE THIS IS THE ONLY POINT THAT IS BOTH ON THE PLAYER THREAD AND ATOMIC WITH THE APPLY.
@@ -515,7 +553,7 @@ class ShufflePlayer(
             !tapShuffled -> mediaItems
             else -> (
                 listOf(mediaItems[headIndex]) +
-                    mediaItems.filterIndexed { i, _ -> i != headIndex }.shuffled()
+                    shufflePool(mediaItems, mediaItems[headIndex]).shuffled()
                 ).toMutableList()
         }
         original = tileOriginal ?: mediaItems
@@ -542,6 +580,7 @@ class ShufflePlayer(
     }
 
     override fun clearMediaItems() {
+        contextAll = emptyList()
         original = emptyList()
         backStack.clear()
         markQueueReplaced()

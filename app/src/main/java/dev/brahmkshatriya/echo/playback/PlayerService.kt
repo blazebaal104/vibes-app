@@ -1332,7 +1332,7 @@ class PlayerService : MediaLibraryService() {
             settings: SharedPreferences,
         ): SimpleCache {
             val cacheDir = File(app.cacheDir, "exo-player")
-            val cacheSize = settings.getInt(CACHE_SIZE, 250)
+            val cacheSize = settings.getInt(CACHE_SIZE, 1024) // Vibes: 1 GB, replays cost no data
             val evictor = LeastRecentlyUsedCacheEvictor(cacheSize * 1024 * 1024L)
             return try {
                 SimpleCache(cacheDir, evictor, StandaloneDatabaseProvider(app))

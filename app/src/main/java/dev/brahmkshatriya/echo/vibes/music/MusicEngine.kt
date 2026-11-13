@@ -31,6 +31,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 /**
@@ -229,26 +230,50 @@ class MusicEngine(
         if (tracks.isEmpty()) return
         if (extId == DEEZER && !DeezerAuth.canPlay()) return
         runCatching { if (dev.brahmkshatriya.echo.vibes.VibesGraph.studio.isActive) dev.brahmkshatriya.echo.vibes.VibesGraph.studio.stop() }
-        val start = tracks[index.coerceIn(0, tracks.size - 1)]
-        player.setQueue(extId, tracks, index, context ?: if (tracks.size == 1) trackRadioPlaceholder(start) else null)
+        if (tracks.size == 1) { playSingle(extId, tracks.first(), context); return }
+        session = null
+        player.setQueue(extId, tracks, index, context, contextStart = true)
         player.setPlaying(true)
     }
 
     fun play(song: SongRef) = play(song.ext, listOf(song.toTrack()))
 
-    fun playAll(songs: List<SongRef>, index: Int = 0, shuffle: Boolean = false, ctx: VibesPlaylist? = null) {
-        if (songs.isEmpty()) return
-        if (songs.any { it.ext == DEEZER } && !DeezerAuth.canPlay()) return
-        runCatching { if (dev.brahmkshatriya.echo.vibes.VibesGraph.studio.isActive) dev.brahmkshatriya.echo.vibes.VibesGraph.studio.stop() }
-        dev.brahmkshatriya.echo.vibes.VibesGraph.playContext = ctx?.let {
-            PlayContext(it.id, it.name, it.cover ?: it.songs.firstOrNull()?.cover, it.songs.map { s -> s.key }.toSet())
-        }
-        val ext = songs[index.coerceIn(0, songs.size - 1)].ext
-        val list = if (shuffle) songs.shuffled() else songs
-        val start = if (shuffle) 0 else index.coerceIn(0, list.size - 1)
-        session = Session(list, start, ctx, shuffle)
-        player.setQueue(ext, list.map { it.toTrack() }, start, null)
+    // ------------------------------------------------------------------ one song -> "radio"
+
+    private val scope = kotlinx.coroutines.MainScope()
+    @Volatile private var singleToken = 0
+
+    /**
+     * One song on its own (a song a friend sent, a story, a recent): it plays, and then Vibes goes on
+     * with similar songs, like Spotify's autoplay. Before, the queue held that one song only and
+     * skipping or reaching its end started it again.
+     */
+    private fun playSingle(extId: String, track: Track, context: EchoMediaItem?) {
+        session = null
+        val token = ++singleToken
+        player.setQueue(extId, listOf(track), 0, context?.takeIf { it !is Track })
         player.setPlaying(true)
+        val song = SongRef.from(extId, track)
+        scope.launch {
+            val more = runCatching { similarTo(song) }.getOrDefault(emptyList())
+            if (token != singleToken || more.isEmpty()) return@launch
+            // only if the user is still on that song (they didn't start something else meanwhile)
+            if (currentKey() != song.key) return@launch
+            player.appendTracks(DEEZER, more.map { it.toTrack() })
+        }
+    }
+
+    /** Songs like [song]: Deezer's artist radio (similar artists), without the song itself. */
+    suspend fun similarTo(song: SongRef, max: Int = 30): List<SongRef> = withContext(Dispatchers.IO) {
+        val dz = dev.brahmkshatriya.echo.vibes.VibesGraph.deezer
+        val id = dz.deezerId(song) ?: return@withContext emptyList()
+        val artistId = dz.track(id.toString())?.artistId?.takeIf { it > 0 } ?: return@withContext emptyList()
+        val radio = dz.artistRadio(artistId).ifEmpty {
+            dz.related(artistId).take(6).flatMap { (a, _) -> runCatching { dz.artistTop(a, 5) }.getOrDefault(emptyList()) }.shuffled()
+        }
+        val title = song.title.trim().lowercase()
+        radio.filter { it.id != id && it.title.trim().lowercase() != title }
+            .distinctBy { it.id }.take(max).map { it.toSongRef() }
     }
 
     /**
@@ -279,7 +304,7 @@ class MusicEngine(
         if (s != null && key != null && position() <= 3_000 && s.start > 0 && s.list.getOrNull(s.start)?.key == key) {
             val idx = s.start - 1
             session = s.copy(start = idx)
-            player.setQueue(s.list[idx].ext, s.list.map { it.toTrack() }, idx, null)
+            player.setQueue(s.list[idx].ext, s.list.map { it.toTrack() }, idx, null, contextStart = true)
             player.setPlaying(true)
             return
         }

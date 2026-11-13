@@ -161,6 +161,13 @@ class TrackPicker(private val deezer: DeezerPublic, private val library: VibesLi
         }
     }
 
+    /** Artists that sound like [artist] (Deezer's related artists): wrong answers that are hard to rule out. */
+    suspend fun similarArtists(artistId: Long, artist: String, n: Int): List<String> = withContext(Dispatchers.IO) {
+        if (artistId <= 0) return@withContext emptyList()
+        runCatching { deezer.related(artistId) }.getOrDefault(emptyList()).map { it.second }
+            .filter { it.isNotBlank() && !it.equals(artist, true) }.distinct().shuffled().take(n)
+    }
+
     /** Distinct artists for multiple-choice options. */
     suspend fun otherArtists(except: String, n: Int): List<String> = mutex.withLock {
         withContext(Dispatchers.IO) { runCatching { build() } }
@@ -366,4 +373,54 @@ class EngineClip(private val engine: dev.brahmkshatriya.echo.vibes.music.MusicEn
     fun stop() { job?.cancel(); player.pause(); setPlaying(false) }
 
     fun release() { stop(); prefetch?.cancel(); player.release(); dir.listFiles()?.forEach { it.delete() } }
+}
+
+/** "Chi canta?" levels. Harder = less famous songs AND wrong answers that sound alike, less time. */
+enum class BlindLevel(val label: String, val emoji: String, val seconds: Int, val points: Float, val hint: String) {
+    EASY("Facile", "🙂", 10, 1f, "Grandi successi e artisti molto diversi tra loro"),
+    MEDIUM("Intermedio", "😎", 8, 1.5f, "Brani meno ovvi, risposte dello stesso genere"),
+    HARD("Difficile", "🔥", 6, 2f, "Pezzi poco noti e quattro artisti che si somigliano");
+
+    companion object {
+        fun of(name: String?) = entries.firstOrNull { it.name == name } ?: MEDIUM
+
+        /**
+         * Suggested level from how much you listened in the last 7 days: under 1.5 h easy, under
+         * 10 h intermediate, more = difficult. You can still change it before playing.
+         */
+        fun recommended(): BlindLevel {
+            val since = System.currentTimeMillis() - 7L * 24 * 3600_000
+            val minutes = runCatching {
+                dev.brahmkshatriya.echo.vibes.VibesGraph.listens.listens.value.filter { it.at >= since }.sumOf { it.ms } / 60_000
+            }.getOrDefault(0L)
+            return when {
+                minutes < 90 -> EASY
+                minutes < 600 -> MEDIUM
+                else -> HARD
+            }
+        }
+    }
+}
+
+/** Builds the 8 questions of "Chi canta?" for a level: songs + the 4 artists to choose from. */
+object BlindQuiz {
+    suspend fun build(picker: TrackPicker, level: BlindLevel): Pair<List<GameTrack>, List<List<String>>> {
+        val diffs = when (level) {
+            BlindLevel.EASY -> List(4) { Difficulty.EASY } + List(4) { Difficulty.MEDIUM }
+            BlindLevel.MEDIUM -> List(4) { Difficulty.MEDIUM } + List(4) { Difficulty.HARD }
+            BlindLevel.HARD -> List(4) { Difficulty.HARD } + List(4) { Difficulty.IMPOSSIBLE }
+        }
+        val tracks = diffs.mapNotNull { picker.pick(it) }
+        val options = tracks.map { t ->
+            val similar = when (level) {
+                BlindLevel.EASY -> 0
+                BlindLevel.MEDIUM -> 2
+                BlindLevel.HARD -> 3
+            }
+            val alike = if (similar > 0) picker.similarArtists(t.artistId, t.artist, similar) else emptyList()
+            val rest = picker.otherArtists(t.artist, 3 - alike.size + 2).filter { it !in alike }.take(3 - alike.size)
+            (alike + rest + t.artist).shuffled()
+        }
+        return tracks to options
+    }
 }

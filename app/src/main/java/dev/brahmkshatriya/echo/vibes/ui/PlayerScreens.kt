@@ -76,6 +76,7 @@ import coil3.compose.AsyncImage
 import dev.brahmkshatriya.echo.playback.MediaItemUtils.extensionId
 import dev.brahmkshatriya.echo.vibes.backend.SongRef
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 @Composable
 fun currentSong(): Pair<SongRef, Boolean>? {
@@ -174,7 +175,7 @@ fun FullPlayer() {
     ) {
         // blurred artwork backdrop + theme gradient
         if (song.cover != null && Build.VERSION.SDK_INT >= 31) AsyncImage(
-            song.cover, null, contentScale = ContentScale.Crop,
+            sizedCover(song.cover, 250), null, contentScale = ContentScale.Crop,
             modifier = Modifier.fillMaxSize().blur(70.dp).scale(1.3f), alpha = 0.55f
         )
         Box(Modifier.fillMaxSize().background(Brush.verticalGradient(
@@ -204,8 +205,13 @@ fun FullPlayer() {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
                     Text(song.title, style = MaterialTheme.typography.headlineSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    val artistScope = androidx.compose.runtime.rememberCoroutineScope()
                     Text(song.artist, style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        maxLines = 1, overflow = TextOverflow.Ellipsis,
+                        // like Spotify: the artist's name opens their page
+                        modifier = Modifier.clip(RoundedCornerShape(6.dp)).clickable {
+                            artistScope.launch { openArtistOf(app, song) }
+                        })
                 }
                 val heart by animateFloatAsState(if (isLiked) 1.15f else 1f, spring(dampingRatio = 0.35f), label = "heart")
                 IconButton(onClick = { app.library.toggleLike(song) }) {
@@ -295,4 +301,20 @@ fun FullPlayer() {
         }
         }
     }
+}
+
+
+/** Opens the page of the (first) artist of [song]: the Deezer id from the track if there is one, else by name. */
+suspend fun openArtistOf(app: AppState, song: SongRef) {
+    val name = song.artist.split(", ").firstOrNull { it.isNotBlank() } ?: return
+    val fromTrack = runCatching {
+        app.engine.player.playerState.current.value?.track?.takeIf { it.id == song.id }
+            ?.artists?.firstOrNull()?.id?.toLongOrNull()
+    }.getOrNull()
+    val id = fromTrack ?: runCatching {
+        val dz = dev.brahmkshatriya.echo.vibes.VibesGraph.deezer
+        dz.searchArtists(name, 3).let { l -> l.firstOrNull { it.name.equals(name, true) } ?: l.firstOrNull() }?.id
+    }.getOrNull() ?: run { app.nav.toast("Artista non trovato"); return }
+    app.nav.playerOpen = false
+    app.nav.open(Route.DzArtist(id, name))
 }

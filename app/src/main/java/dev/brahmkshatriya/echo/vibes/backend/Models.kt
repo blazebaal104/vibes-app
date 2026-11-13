@@ -63,6 +63,8 @@ data class Profile(
     @SerialName("avatar_color") val avatarColor: String = "#B84DFF",
     @SerialName("avatar_emoji") val avatarEmoji: String = "🎧",
     @SerialName("avatar_url") val avatarUrl: String? = null,
+    /** Profile background photo (shown blurred behind the profile, to everyone). */
+    @SerialName("banner_url") val bannerUrl: String? = null,
     @SerialName("invite_code") val inviteCode: String = "",
     val top4: List<SongRef> = emptyList(),
     @SerialName("now_playing") val nowPlaying: SongRef? = null,

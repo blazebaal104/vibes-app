@@ -31,6 +31,32 @@ class ListenAlong(private val engine: MusicEngine) {
     private var switchedAt = 0L
 
     private val browser get() = engine.player.browser.value
+
+    /**
+     * Pause pressed by the user anywhere (mini player, notification, lock screen, headphones): stop
+     * following and stay paused right there; play then simply resumes from that point. To catch up
+     * with the friend again you go back to their profile. Our own pauses/plays (mirroring the friend)
+     * are marked with [own] so they don't count as the user's.
+     */
+    private var ownUntil = 0L
+    private fun own() { ownUntil = android.os.SystemClock.elapsedRealtime() + 1500 }
+    private var listening: androidx.media3.common.Player? = null
+    private val listener = object : androidx.media3.common.Player.Listener {
+        override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
+            if (playWhenReady || _session.value == null) return
+            if (android.os.SystemClock.elapsedRealtime() < ownUntil) return
+            // a phone call or another app taking the audio is not "the user paused"
+            if (reason != androidx.media3.common.Player.PLAY_WHEN_READY_CHANGE_REASON_USER_REQUEST &&
+                reason != androidx.media3.common.Player.PLAY_WHEN_READY_CHANGE_REASON_AUDIO_BECOMING_NOISY) return
+            stop()
+        }
+    }
+    private fun attach() {
+        val b = browser ?: return
+        if (listening === b) return
+        listening?.removeListener(listener)
+        b.addListener(listener); listening = b
+    }
     private fun currentKey(): String? = engine.player.playerState.current.value?.let { "${it.mediaItem.extensionId}:${it.track.id}" }
 
     fun start(friend: Profile) {
@@ -45,9 +71,10 @@ class ListenAlong(private val engine: MusicEngine) {
                 if (live == null) {
                     if (goneSince == 0L) goneSince = System.currentTimeMillis()
                     if (System.currentTimeMillis() - goneSince > 120_000) { stop(); return@launch }
-                    browser?.pause()
+                    if (browser?.playWhenReady == true) { own(); browser?.pause() }
                 } else {
                     goneSince = 0
+                    attach()
                     sync(live)
                 }
                 delay(1200)
@@ -63,6 +90,7 @@ class ListenAlong(private val engine: MusicEngine) {
             live.queue.none { it.key == mine }) { stop(); return }
         val target = live.positionNow() + 300 // network delay of the poll
         if (mine != live.song.key) {
+            own()
             // they moved to the song that is next in OUR queue (we mirror theirs): just skip, it's
             // already preloaded, so it starts instantly
             val nextIdx = b.currentMediaItemIndex + 1
@@ -91,15 +119,16 @@ class ListenAlong(private val engine: MusicEngine) {
         expectedKey = live.song.key
         if (live.playing) {
             // small drift is fine (a seek costs a re-buffer): only correct a real gap
-            if (abs(b.currentPosition - target) > 1800) b.seekTo(target + if (b.bufferedPosition < target) startLatency / 2 else 0)
-            if (!b.isPlaying) b.play()
+            if (abs(b.currentPosition - target) > 1800) { own(); b.seekTo(target + if (b.bufferedPosition < target) startLatency / 2 else 0) }
+            if (!b.playWhenReady) { own(); b.play() }
         } else {
-            if (b.isPlaying) b.pause()
-            if (abs(b.currentPosition - live.position) > 1500) b.seekTo(live.position)
+            if (b.playWhenReady) { own(); b.pause() }
+            if (abs(b.currentPosition - live.position) > 1500) { own(); b.seekTo(live.position) }
         }
     }
 
     fun stop() {
+        listening?.removeListener(listener); listening = null
         job?.cancel(); job = null
         _session.value = null
         expectedKey = null

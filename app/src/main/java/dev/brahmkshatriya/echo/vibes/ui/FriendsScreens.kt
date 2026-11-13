@@ -318,7 +318,7 @@ fun ProfileScreen(userId: String?) {
     }
     val group = storyGroups.firstOrNull { it.user.id == p.id }
 
-    GradientBackground(tint = parseColor(p.avatarColor)) {
+    GradientBackground(tint = parseColor(p.avatarColor), image = p.bannerUrl) {
         LazyColumn(contentPadding = ScreenPadding) {
             item {
                 Row(Modifier.statusBarsPadding().padding(4.dp).fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
@@ -495,7 +495,22 @@ fun EditProfileScreen() {
             uploading = false
         }
     }
-    GradientBackground(tint = parseColor(color)) {
+    var bannerUploading by remember { mutableStateOf(false) }
+    val bannerPicker = androidx.activity.compose.rememberLauncherForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia()
+    ) { uri ->
+        uri ?: return@rememberLauncherForActivityResult
+        bannerUploading = true
+        scope.launch {
+            runCatching {
+                val jpeg = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { scaledJpeg(context, uri, 1280) }
+                app.social.uploadBanner(jpeg)
+            }.onSuccess { nav.toast("Sfondo aggiornato") }
+                .onFailure { nav.toast("Caricamento non riuscito: ${it.message}") }
+            bannerUploading = false
+        }
+    }
+    GradientBackground(tint = parseColor(color), image = p.bannerUrl) {
         LazyColumn(Modifier.imePadding(), contentPadding = ScreenPadding) {
             item {
                 Row(Modifier.statusBarsPadding().padding(4.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -517,6 +532,25 @@ fun EditProfileScreen() {
                     Row(Modifier.padding(top = 10.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         Pill("Cambia foto", false, { photoPicker.launch(androidx.activity.result.PickVisualMediaRequest(androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia.ImageOnly)) })
                         if (p.avatarUrl != null) Pill("Usa emoji", false, { scope.launch { runCatching { app.social.removeAvatar() } } })
+                    }
+                    Spacer(Modifier.height(18.dp))
+                    // profile background: what everyone sees behind your profile
+                    Text("Sfondo del profilo", style = MaterialTheme.typography.titleMedium, modifier = Modifier.fillMaxWidth())
+                    Text("Lo vedono tutti quando aprono il tuo profilo, sfocato come vetro.", style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp))
+                    Box(
+                        Modifier.fillMaxWidth().height(120.dp).clip(RoundedCornerShape(18.dp))
+                            .background(parseColor(color).copy(alpha = 0.35f))
+                            .bouncy({ bannerPicker.launch(androidx.activity.result.PickVisualMediaRequest(androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia.ImageOnly)) }),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        if (p.bannerUrl != null) coil3.compose.AsyncImage(p.bannerUrl, null, contentScale = androidx.compose.ui.layout.ContentScale.Crop, modifier = Modifier.fillMaxSize())
+                        if (bannerUploading) androidx.compose.material3.CircularProgressIndicator()
+                        else if (p.bannerUrl == null) Text("🖼️  Scegli una foto", style = MaterialTheme.typography.titleSmall)
+                    }
+                    Row(Modifier.padding(top = 10.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Pill(if (p.bannerUrl == null) "Scegli sfondo" else "Cambia sfondo", false, { bannerPicker.launch(androidx.activity.result.PickVisualMediaRequest(androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia.ImageOnly)) })
+                        if (p.bannerUrl != null) Pill("Togli sfondo", false, { scope.launch { runCatching { app.social.removeBanner() } } })
                     }
                     Spacer(Modifier.height(16.dp))
                     AvatarPicker(emoji, color, { emoji = it }, { color = it })
@@ -541,6 +575,26 @@ fun EditProfileScreen() {
 }
 
 /** Reads an image, crops it to a centred square, scales to [size] px and encodes JPEG. */
+/** A photo scaled so its longer side is at most [maxSide] (profile backgrounds: any shape). */
+fun scaledJpeg(context: android.content.Context, uri: android.net.Uri, maxSide: Int): ByteArray {
+    val bytes = context.contentResolver.openInputStream(uri)!!.use { it.readBytes() }
+    var bmp = android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+    val rotation = runCatching {
+        when (android.media.ExifInterface(java.io.ByteArrayInputStream(bytes))
+            .getAttributeInt(android.media.ExifInterface.TAG_ORIENTATION, android.media.ExifInterface.ORIENTATION_NORMAL)) {
+            android.media.ExifInterface.ORIENTATION_ROTATE_90 -> 90
+            android.media.ExifInterface.ORIENTATION_ROTATE_180 -> 180
+            android.media.ExifInterface.ORIENTATION_ROTATE_270 -> 270
+            else -> 0
+        }
+    }.getOrDefault(0)
+    if (rotation != 0) bmp = android.graphics.Bitmap.createBitmap(bmp, 0, 0, bmp.width, bmp.height,
+        android.graphics.Matrix().apply { postRotate(rotation.toFloat()) }, true)
+    val k = minOf(1f, maxSide.toFloat() / maxOf(bmp.width, bmp.height))
+    val scaled = if (k < 1f) android.graphics.Bitmap.createScaledBitmap(bmp, (bmp.width * k).toInt(), (bmp.height * k).toInt(), true) else bmp
+    return java.io.ByteArrayOutputStream().use { out -> scaled.compress(android.graphics.Bitmap.CompressFormat.JPEG, 85, out); out.toByteArray() }
+}
+
 fun squareJpeg(context: android.content.Context, uri: android.net.Uri, size: Int): ByteArray {
     val bytes = context.contentResolver.openInputStream(uri)!!.use { it.readBytes() }
     var bmp = android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size)

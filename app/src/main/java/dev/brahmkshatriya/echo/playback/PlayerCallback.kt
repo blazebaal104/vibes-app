@@ -467,6 +467,8 @@ class PlayerCallback(
                     // Same command, second mode - see ShufflePlayer.notifyFreshListShuffle. Primed
                     // here for the same reason: the decision stays on the player thread.
                     if (args.getBoolean("freshList")) shuffled.notifyFreshListShuffle()
+                    // Vibes: the full playlist was sent; play from this index, remember the rest
+                    args.getInt("contextStart", -1).takeIf { it >= 0 }?.let { shuffled.notifyContextStart(it) }
                 }
                 Futures.immediateFuture(SessionResult(RESULT_SUCCESS))
             }

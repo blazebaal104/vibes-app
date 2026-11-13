@@ -138,8 +138,14 @@ fun ShareSheet(item: ShareItem, onDismiss: () -> Unit) {
                                 when (item) {
                                     is ShareItem.Song -> selected.forEach { app.social.sendSong(it, item.song, note) }
                                     is ShareItem.Playlist -> {
+                                        // shared with friends = a playlist you edit together from now on
+                                        val collab = dev.brahmkshatriya.echo.vibes.VibesGraph.collab
+                                        val cid = collab.ensure(item.playlist)
                                         val snap = app.social.publishPlaylist(SharedPlaylist(name = item.playlist.name, tracks = item.playlist.songs))
-                                        selected.forEach { app.social.sendPlaylist(it, snap, note) }
+                                        selected.forEach {
+                                            collab.invite(cid, it)
+                                            app.social.sendPlaylist(it, snap, note, cid)
+                                        }
                                     }
                                 }
                             }

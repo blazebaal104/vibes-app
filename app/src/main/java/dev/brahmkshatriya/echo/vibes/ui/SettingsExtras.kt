@@ -259,8 +259,8 @@ fun LazyListScope.vibesSettings() {
     item {
         val context = LocalContext.current
         val sp = remember { context.getSettings() }
-        var size by remember { mutableFloatStateOf(sp.getInt("cache_size", 250).toFloat()) }
-        SliderRow("Spazio per la cache", "${size.toInt()} MB", size, 200f..1000f, steps = 15,
+        var size by remember { mutableFloatStateOf(sp.getInt("cache_size", 1024).toFloat()) }
+        SliderRow("Spazio per la cache", "${size.toInt()} MB", size, 200f..2000f, steps = 17,
             subtitle = "I brani già ascoltati ripartono subito e senza consumare dati",
             onChange = { size = it }, onDone = { sp.edit { putInt("cache_size", size.toInt()) } })
     }

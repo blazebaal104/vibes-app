@@ -26,18 +26,22 @@ class ListenTracker(private val player: Player, context: Context) : Player.Liste
     private var acc = 0L
     private var startedAt = 0L
     private var playingSince: Long? = null
+    /** Real length of the current song (from the player), for the "a third of the song" rule. */
+    private var dur = 0L
+    private fun noteDuration() { player.duration.takeIf { it > 0 }?.let { dur = it } }
 
     private fun now() = System.currentTimeMillis()
 
     private fun begin(mi: MediaItem?) {
-        item = mi; acc = 0; startedAt = now()
+        item = mi; acc = 0; startedAt = now(); dur = 0
         playingSince = if (player.isPlaying) now() else null
     }
 
     fun flush() {
         val mi = item ?: return
         val ms = acc + (playingSince?.let { now() - it } ?: 0L)
-        item = null; acc = 0; playingSince = null
+        val length = dur
+        item = null; acc = 0; playingSince = null; dur = 0
         if (VibesGraph.prefs.privateSession) return
         runCatching {
             val track = mi.track
@@ -50,8 +54,13 @@ class ListenTracker(private val player: Player, context: Context) : Player.Liste
                 ectx is Album -> Triple(ectx.title, "al:" + ectx.id, ectx.cover.url())
                 else -> Triple(null, null, null)
             }
-            VibesGraph.listens.add(Listen(song, startedAt, ms, name, id, cover))
-            VibesGraph.onListened()
+            val l = Listen(song, startedAt, ms, name, id, cover)
+            // a play counts only after a third of the song: tapping a song (or spamming it while
+            // offline) is not "listening" to it
+            if (VibesGraph.listens.add(l, length)) {
+                VibesGraph.library.countPlay(song)
+                VibesGraph.onListened()
+            }
         }
     }
 
@@ -69,6 +78,7 @@ class ListenTracker(private val player: Player, context: Context) : Player.Liste
     }
 
     override fun onPlaybackStateChanged(playbackState: Int) {
+        if (playbackState == Player.STATE_READY) noteDuration()
         if (playbackState == Player.STATE_READY && player.playWhenReady) checkGap()
     }
 
@@ -98,7 +108,7 @@ class ListenTracker(private val player: Player, context: Context) : Player.Liste
     override fun onIsPlayingChanged(isPlaying: Boolean) {
         if (isPlaying) { DeezerAuth.ok(); checkGap() }
         if (item == null) { if (isPlaying) begin(player.currentMediaItem); return }
-        if (isPlaying) { if (playingSince == null) playingSince = now() }
+        if (isPlaying) { noteDuration(); if (playingSince == null) playingSince = now() }
         else { playingSince?.let { acc += now() - it }; playingSince = null }
     }
 }

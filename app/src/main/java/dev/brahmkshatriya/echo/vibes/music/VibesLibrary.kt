@@ -26,6 +26,9 @@ data class VibesPlaylist(
     val from: String? = null,
     /** Cover image (imported playlists keep their original artwork). */
     val cover: String? = null,
+    /** Shared with friends: id of the server copy every member edits (see CollabPlaylists). */
+    val collabId: String? = null,
+    val collabVersion: Long = 0,
 )
 
 @Serializable
@@ -47,6 +50,20 @@ data class FollowedArtist(val id: Long, val name: String, val picture: String? =
  * recently played songs. Play counts feed the minigames' difficulty.
  */
 class VibesLibrary(context: Context) {
+    /** A change to a shared playlist, sent to the server so every member gets it. */
+    sealed interface CollabOp {
+        data class Add(val song: SongRef) : CollabOp
+        data class Remove(val key: String) : CollabOp
+        data class Songs(val songs: List<SongRef>) : CollabOp
+        data class Meta(val name: String? = null, val emoji: String? = null, val color: String? = null,
+                        val setCover: Boolean = false, val cover: String? = null) : CollabOp
+        data object Leave : CollabOp
+    }
+
+    /** Set by CollabPlaylists. */
+    @Volatile var onCollabOp: ((String, CollabOp) -> Unit)? = null
+    private fun shared(id: String, op: CollabOp) { playlist(id)?.collabId?.let { c -> onCollabOp?.invoke(c, op) } }
+
     private val file = File(context.filesDir, "vibes_library.json")
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val json = Supa.json
@@ -98,31 +115,87 @@ class VibesLibrary(context: Context) {
         return p
     }
 
-    fun renamePlaylist(id: String, name: String, emoji: String, color: String) = change { s ->
-        s.copy(playlists = s.playlists.map { if (it.id == id) it.copy(name = name, emoji = emoji, color = color) else it })
+    fun renamePlaylist(id: String, name: String, emoji: String, color: String) {
+        change { s -> s.copy(playlists = s.playlists.map { if (it.id == id) it.copy(name = name, emoji = emoji, color = color) else it }) }
+        shared(id, CollabOp.Meta(name = name, emoji = emoji, color = color))
     }
 
-    fun setPlaylistCover(id: String, cover: String?) = change { s ->
-        s.copy(playlists = s.playlists.map { if (it.id == id) it.copy(cover = cover) else it })
+    fun setPlaylistCover(id: String, cover: String?) {
+        change { s -> s.copy(playlists = s.playlists.map { if (it.id == id) it.copy(cover = cover) else it }) }
+        shared(id, CollabOp.Meta(setCover = true, cover = cover))
     }
 
-    fun deletePlaylist(id: String) = change { s -> s.copy(playlists = s.playlists.filter { it.id != id }) }
-
-    fun addToPlaylist(id: String, song: SongRef) = change { s ->
-        s.copy(playlists = s.playlists.map { p ->
-            if (p.id == id && p.songs.none { it.key == song.key }) p.copy(songs = p.songs + song) else p
-        })
+    fun deletePlaylist(id: String) {
+        shared(id, CollabOp.Leave)
+        change { s -> s.copy(playlists = s.playlists.filter { it.id != id }) }
     }
 
-    fun removeFromPlaylist(id: String, key: String) = change { s ->
-        s.copy(playlists = s.playlists.map { p -> if (p.id == id) p.copy(songs = p.songs.filter { it.key != key }) else p })
+    fun addToPlaylist(id: String, song: SongRef) {
+        if (playlist(id)?.songs?.any { it.key == song.key } == true) return
+        change { s ->
+            s.copy(playlists = s.playlists.map { p ->
+                if (p.id == id && p.songs.none { it.key == song.key }) p.copy(songs = p.songs + song) else p
+            })
+        }
+        shared(id, CollabOp.Add(song))
     }
 
-    fun moveInPlaylist(id: String, from: Int, to: Int) = change { s ->
-        s.copy(playlists = s.playlists.map { p ->
-            if (p.id != id || from !in p.songs.indices || to !in p.songs.indices) p
-            else p.copy(songs = p.songs.toMutableList().apply { add(to, removeAt(from)) })
-        })
+    fun removeFromPlaylist(id: String, key: String) {
+        change { s -> s.copy(playlists = s.playlists.map { p -> if (p.id == id) p.copy(songs = p.songs.filter { it.key != key }) else p }) }
+        shared(id, CollabOp.Remove(key))
+    }
+
+    fun moveInPlaylist(id: String, from: Int, to: Int) {
+        change { s ->
+            s.copy(playlists = s.playlists.map { p ->
+                if (p.id != id || from !in p.songs.indices || to !in p.songs.indices) p
+                else p.copy(songs = p.songs.toMutableList().apply { add(to, removeAt(from)) })
+            })
+        }
+        playlist(id)?.let { shared(id, CollabOp.Songs(it.songs)) }
+    }
+
+    // ---------------------------------------------------------------- shared playlists (server side copy)
+
+    /** [localId] was just shared: it is now the collaborative playlist [c]. */
+    fun linkCollab(localId: String, c: dev.brahmkshatriya.echo.vibes.backend.CollabPlaylist) = change { s ->
+        s.copy(playlists = s.playlists.map { if (it.id == localId) it.copy(collabId = c.id, collabVersion = c.version) else it })
+    }
+
+    /** A newer version from the server (a friend changed it): update my copy, without sending it back. */
+    fun applyRemote(c: dev.brahmkshatriya.echo.vibes.backend.CollabPlaylist) {
+        val local = _playlists.value.firstOrNull { it.collabId == c.id } ?: return
+        if (c.version <= local.collabVersion) return
+        change { s ->
+            s.copy(playlists = s.playlists.map {
+                if (it.collabId != c.id) it
+                else it.copy(name = c.name, emoji = c.emoji, color = c.color, cover = c.cover ?: it.cover?.takeIf { u -> !u.startsWith("http") },
+                    songs = c.songs, collabVersion = c.version)
+            })
+        }
+    }
+
+    /**
+     * Saving a playlist a friend shared. Already in the library (as the shared one, or as the same
+     * playlist: same name and same songs) -> that one becomes the shared version, no duplicate.
+     */
+    fun adoptCollab(c: dev.brahmkshatriya.echo.vibes.backend.CollabPlaylist, from: String?): VibesPlaylist {
+        _playlists.value.firstOrNull { it.collabId == c.id }?.let { applyRemote(c); return playlist(it.id) ?: it }
+        val keys = c.songs.map { it.key }.toSet()
+        val same = _playlists.value.firstOrNull {
+            it.name.trim().equals(c.name.trim(), true) && it.songs.map { s -> s.key }.toSet() == keys
+        }
+        // it was shared before in another group: it now follows this one
+        same?.collabId?.let { old -> onCollabOp?.invoke(old, CollabOp.Leave) }
+        val adopted = (same ?: VibesPlaylist(name = c.name)).copy(
+            name = c.name, emoji = c.emoji, color = c.color, cover = c.cover ?: same?.cover, songs = c.songs,
+            collabId = c.id, collabVersion = c.version, from = same?.from ?: from,
+        )
+        change { s ->
+            if (same != null) s.copy(playlists = s.playlists.map { if (it.id == same.id) adopted else it })
+            else s.copy(playlists = listOf(adopted) + s.playlists)
+        }
+        return adopted
     }
 
     fun playlist(id: String) = _playlists.value.firstOrNull { it.id == id }
@@ -135,11 +208,14 @@ class VibesLibrary(context: Context) {
     }
 
     // listening
+    /** A song started: it goes to "recently played" (not a play yet, see [countPlay]). */
     fun recordPlay(song: SongRef) = change { s ->
-        s.copy(
-            plays = s.plays + (song.key to ((s.plays[song.key] ?: 0) + 1)),
-            recent = (listOf(song) + s.recent.filter { it.key != song.key }).take(50),
-        )
+        s.copy(recent = (listOf(song) + s.recent.filter { it.key != song.key }).take(50))
+    }
+
+    /** A song was really listened to (a third of it): +1 play. */
+    fun countPlay(song: SongRef) = change { s ->
+        s.copy(plays = s.plays + (song.key to ((s.plays[song.key] ?: 0) + 1)))
     }
 
     fun playCount(key: String) = state.value.plays[key] ?: 0

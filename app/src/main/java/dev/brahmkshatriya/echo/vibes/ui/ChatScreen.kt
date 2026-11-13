@@ -364,14 +364,14 @@ private fun Bubble(m: Message, mine: Boolean, myId: String?) {
                 "playlist" -> {
                     Row(
                         Modifier.clip(RoundedCornerShape(14.dp)).background(Color.Black.copy(alpha = 0.18f))
-                            .bouncy({ m.payload?.str("playlist_id")?.let { nav.open(Route.SharedPlaylist(it)) } }).padding(8.dp),
+                            .bouncy({ m.payload?.str("playlist_id")?.let { nav.open(Route.SharedPlaylist(it, m.payload?.str("collab_id"))) } }).padding(8.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Cover(m.payload?.str("cover"), Modifier.size(56.dp))
                         Spacer(Modifier.width(10.dp))
                         Column {
                             Text("📀 " + (m.payload?.str("name") ?: "Playlist"), color = fg, style = MaterialTheme.typography.titleSmall)
-                            Text("${m.payload?.long("count") ?: 0} brani · tocca per aprire", color = fg.copy(alpha = 0.75f), style = MaterialTheme.typography.bodySmall)
+                            Text("${m.payload?.long("count") ?: 0} brani · " + (if (m.payload?.str("collab_id") != null) "condivisa, tocca per salvarla" else "tocca per aprire"), color = fg.copy(alpha = 0.75f), style = MaterialTheme.typography.bodySmall)
                         }
                     }
                     if (m.body.isNotBlank()) Text(m.body, color = fg, modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp))

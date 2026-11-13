@@ -103,8 +103,22 @@ fun Cover(url: String?, modifier: Modifier = Modifier, shape: Shape = RoundedCor
             Icons.Rounded.MusicNote, null,
             tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(28.dp)
         )
-        else AsyncImage(model = url, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
+        else androidx.compose.foundation.layout.BoxWithConstraints(Modifier.fillMaxSize()) {
+            // ask Deezer's CDN for a cover the size it is drawn at (a list row needs a 250 px image,
+            // not the 1000 px one: ~15 KB instead of ~200 KB)
+            val px = constraints.maxWidth.takeIf { it in 1 until 100_000 } ?: 1000
+            AsyncImage(model = sizedCover(url, px), contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
+        }
     }
+}
+
+private val dzSize = Regex("/(\\d{2,4})x(\\d{2,4})-")
+
+/** Deezer CDN covers come in any square size: pick the smallest standard one that is sharp at [px]. */
+fun sizedCover(url: String, px: Int): String {
+    if (!url.contains("dzcdn.net/images/")) return url
+    val target = listOf(120, 250, 500, 1000).firstOrNull { it >= px } ?: 1000
+    return url.replace(dzSize, "/${target}x${target}-")
 }
 
 @Composable
@@ -237,17 +251,25 @@ fun BigButton(
 }
 
 @Composable
-fun GradientBackground(modifier: Modifier = Modifier, tint: Color? = null, content: @Composable BoxScope.() -> Unit) {
+fun GradientBackground(modifier: Modifier = Modifier, tint: Color? = null, image: String? = null, content: @Composable BoxScope.() -> Unit) {
     val v = LocalVibes.current
     val prefs = LocalSettings.current
     val bg = if (prefs.background == "amoled") Color.Black else MaterialTheme.colorScheme.background
     Box(modifier.fillMaxSize().background(bg)) {
-        if (prefs.background == "image") BackgroundImage(prefs.backgroundDim, prefs.backgroundBlur)
+        if (image != null) {
+            // a profile's own background photo: blurred and dimmed, with the colour wash on top (glass look)
+            val blurs = android.os.Build.VERSION.SDK_INT >= 31
+            AsyncImage(
+                image, null, contentScale = ContentScale.Crop,
+                modifier = Modifier.matchParentSize().then(if (blurs) Modifier.blur(28.dp) else Modifier),
+            )
+            Box(Modifier.matchParentSize().background(Color.Black.copy(alpha = if (blurs) 0.38f else 0.55f)))
+        } else if (prefs.background == "image") BackgroundImage(prefs.backgroundDim, prefs.backgroundBlur)
         if (prefs.background != "solid" && prefs.background != "amoled" || tint != null) Box(
             Modifier.matchParentSize().background(
                 Brush.verticalGradient(
-                    0f to (tint ?: v.bgTop).copy(alpha = if (prefs.background == "image") 0.55f else 0.95f),
-                    0.45f to (tint ?: v.bgTop).copy(alpha = if (prefs.background == "image") 0.12f else 0.25f),
+                    0f to (tint ?: v.bgTop).copy(alpha = if (image != null) 0.45f else if (prefs.background == "image") 0.55f else 0.95f),
+                    0.45f to (tint ?: v.bgTop).copy(alpha = if (image != null || prefs.background == "image") 0.12f else 0.25f),
                     1f to Color.Transparent,
                 )
             )

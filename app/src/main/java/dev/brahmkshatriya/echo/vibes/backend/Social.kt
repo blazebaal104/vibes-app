@@ -187,6 +187,22 @@ class Social(context: Context, val supa: Supa) {
         return "${Supa.URL}/storage/v1/object/public/vibes-avatars/$path"
     }
 
+    /** Profile background photo: everyone opening your profile sees it (blurred, like glass). */
+    suspend fun uploadBanner(jpeg: ByteArray) {
+        val id = uid ?: return
+        val path = "$id/banner_${System.currentTimeMillis()}.jpg"
+        supa.upload("vibes-avatars", path, jpeg, "image/jpeg")
+        val url = "${Supa.URL}/storage/v1/object/public/vibes-avatars/$path"
+        supa.update("vibes_profiles", "id=eq.$id", buildJsonObject { put("banner_url", url) })
+        _me.update { it?.copy(bannerUrl = url) }
+    }
+
+    suspend fun removeBanner() {
+        val id = uid ?: return
+        supa.update("vibes_profiles", "id=eq.$id", buildJsonObject { put("banner_url", kotlinx.serialization.json.JsonNull) })
+        _me.update { it?.copy(bannerUrl = null) }
+    }
+
     suspend fun removeAvatar() {
         val id = uid ?: return
         supa.update("vibes_profiles", "id=eq.$id", buildJsonObject { put("avatar_url", kotlinx.serialization.json.JsonNull) })
@@ -642,10 +658,11 @@ class Social(context: Context, val supa: Supa) {
         return json.decodeFromJsonElement(supa.insert("vibes_shared_playlists", row).first())
     }
 
-    suspend fun sendPlaylist(to: String, playlist: SharedPlaylist, note: String = ""): Message {
+    suspend fun sendPlaylist(to: String, playlist: SharedPlaylist, note: String = "", collabId: String? = null): Message {
         val saved = if (playlist.id.isNotBlank()) playlist else publishPlaylist(playlist)
         val payload = buildJsonObject {
             put("playlist_id", saved.id); put("name", saved.name); put("count", saved.tracks.size)
+            collabId?.let { put("collab_id", it) }
             saved.tracks.firstOrNull()?.cover?.let { put("cover", it) }
         }
         return send(to, "playlist", note, payload)

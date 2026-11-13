@@ -130,6 +130,10 @@ class DeezerPublic(private val http: OkHttpClient) {
     suspend fun artistTop(artistId: Long, limit: Int = 10): List<GameTrack> =
         list(get("https://api.deezer.com/artist/$artistId/top?limit=$limit"))
 
+    /** Deezer's radio of an artist: songs by that artist and similar ones (public, no login). */
+    suspend fun artistRadio(artistId: Long, limit: Int = 40): List<GameTrack> =
+        list(get("https://api.deezer.com/artist/$artistId/radio?limit=$limit"))
+
     suspend fun related(artistId: Long): List<Pair<Long, String>> =
         get("https://api.deezer.com/artist/$artistId/related?limit=20")?.get("data")?.jsonArray
             ?.mapNotNull { e ->

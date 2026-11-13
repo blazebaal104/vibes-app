@@ -59,14 +59,18 @@ class ListenLog(context: Context, private val deezer: DeezerPublic) {
     private val _listens = MutableStateFlow(data.listens)
     val listens = _listens.asStateFlow()
 
-    /** A song counts as "listened" after 30 s (or half of it if shorter), like most services. */
-    fun add(l: Listen) {
-        val dur = l.song.duration ?: 0L
-        val min = if (dur in 1..59_999) dur / 2 else 30_000L
-        if (l.ms < min) return
+    /**
+     * A song counts as "listened" (plays, top songs, minutes) only after a THIRD of it has really
+     * played. [length] is the song's real length from the player; if unknown, the song's own
+     * duration, else 1 minute (a third of a typical 3-minute song). Returns whether it counted.
+     */
+    fun add(l: Listen, length: Long = 0L): Boolean {
+        val dur = length.takeIf { it > 0 } ?: l.song.duration?.takeIf { it > 0 } ?: 180_000L
+        if (l.ms < dur / 3) return false
         data = data.copy(listens = (data.listens + l).takeLast(25_000))
         _listens.value = data.listens
         save()
+        return true
     }
 
     fun clear() {

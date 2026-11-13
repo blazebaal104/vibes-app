@@ -3,6 +3,7 @@ package dev.brahmkshatriya.echo.vibes.listen
 import android.content.Context
 import android.os.SystemClock
 import androidx.core.content.edit
+import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
 import dev.brahmkshatriya.echo.playback.MediaItemUtils.extensionId
 import dev.brahmkshatriya.echo.playback.MediaItemUtils.track
@@ -244,7 +245,7 @@ class ListenLobbies(private val supa: Supa, private val context: Context) {
         val now = serverNow() ?: return
         val p = current(now) ?: return
         if (s.playing) {
-            engine?.player?.setPlaying(false) // the host stops at once
+            own(); engine?.player?.setPlaying(false) // the host stops at once
             val at = hostPosition() ?: p.posMs
             writeState(s.copy(index = p.index, anchorPos = at.coerceAtLeast(0), anchorServer = now, playing = false))
         } else {
@@ -278,7 +279,10 @@ class ListenLobbies(private val supa: Supa, private val context: Context) {
 
     // ------------------------------------------------------------------ follow the group
 
-    private suspend fun refresh() {
+    private var refreshes = 0L
+
+    /** Lobby state every call (250 ms); the member list only every ~2 s (it rarely changes: less data). */
+    private suspend fun refresh(members: Boolean = true) {
         val id = _lobby.value?.id ?: return
         runCatching {
             supa.select("vibes_listen_lobbies", "id=eq.$id&select=*").firstOrNull()?.let {
@@ -287,7 +291,7 @@ class ListenLobbies(private val supa: Supa, private val context: Context) {
                 val cur = _lobby.value
                 _lobby.value = if (cur != null && cur.state.seq > l.state.seq) l.copy(state = cur.state) else l
             }
-            _members.value = supa.select("vibes_listen_members", "lobby_id=eq.$id&select=lobby_id,user_id,seen_at&order=joined_at.asc")
+            if (members || refreshes++ % 8 == 0L) _members.value = supa.select("vibes_listen_members", "lobby_id=eq.$id&select=lobby_id,user_id,seen_at&order=joined_at.asc")
                 .map { json.decodeFromJsonElement<LobbyMember>(it) }
         }
     }
@@ -309,7 +313,7 @@ class ListenLobbies(private val supa: Supa, private val context: Context) {
         poll = scope.launch {
             var tick = 0
             while (isActive) {
-                refresh()
+                refresh(members = false)
                 if (tick++ % 15 == 0) uid?.let { me ->
                     runCatching { supa.update("vibes_listen_members", "lobby_id=eq.$lobbyId&user_id=eq.$me", buildJsonObject { put("seen_at", java.time.Instant.now().toString()) }) }
                 }
@@ -320,13 +324,61 @@ class ListenLobbies(private val supa: Supa, private val context: Context) {
         loop = scope.launch { followLoop() }
     }
 
-    private fun stopLoops() { loop?.cancel(); poll?.cancel(); loop = null; poll = null }
+    private fun stopLoops() { detach(); loop?.cancel(); poll?.cancel(); loop = null; poll = null }
 
     private fun restorePlayer() {
         val e = engine ?: return
         runCatching { e.player.browser.value?.setPlaybackSpeed(1f) }
         savedFade?.let { f -> context.getSettings().edit { putInt("true_crossfade_seconds", f) } }
         savedFade = null
+    }
+
+    // ------------------------------------------------------------------ controls from outside the lobby screen
+    // Play/pause/skip from the mini player, the notification, the lock screen or headphones.
+    // The king (host): they drive the group exactly like the buttons in the lobby.
+    // A member: pausing (or skipping) means "I want to stop listening": they leave the lobby.
+    // Commands the lobby itself sends to the player are marked with [own] so they are not mistaken
+    // for the user's.
+    private var ownUntil = 0L
+    private fun own() { ownUntil = SystemClock.elapsedRealtime() + 1200 }
+    private fun isOwn() = SystemClock.elapsedRealtime() < ownUntil
+    private var listening: Player? = null
+    private val listener = object : Player.Listener {
+        override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
+            val l = _lobby.value ?: return
+            if (isOwn()) return
+            if (reason != Player.PLAY_WHEN_READY_CHANGE_REASON_USER_REQUEST &&
+                reason != Player.PLAY_WHEN_READY_CHANGE_REASON_AUDIO_BECOMING_NOISY) return
+            // UNDISPATCHED: the new state is applied locally right now, before the follow loop's next
+            // tick could "correct" the player back
+            if (isHost) scope.launch(start = kotlinx.coroutines.CoroutineStart.UNDISPATCHED) {
+                if (playWhenReady != l.state.playing) togglePlay()
+            } else if (!playWhenReady) leave()
+        }
+
+        override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
+            if (_lobby.value == null || isOwn() || reason != Player.MEDIA_ITEM_TRANSITION_REASON_SEEK) return
+            val key = mediaItem?.let { runCatching { "${it.extensionId}:${it.track.id}" }.getOrNull() } ?: return
+            if (isHost) scope.launch(start = kotlinx.coroutines.CoroutineStart.UNDISPATCHED) { jumpTo(key) } else leave()
+        }
+    }
+
+    private fun attach() {
+        val b = engine?.player?.browser?.value ?: return
+        if (listening === b) return
+        listening?.removeListener(listener)
+        b.addListener(listener); listening = b
+    }
+
+    private fun detach() { listening?.removeListener(listener); listening = null }
+
+    /** Host skipped (next/previous) from outside the lobby: the whole group goes to that song. */
+    private suspend fun jumpTo(key: String) {
+        if (!isHost) return
+        val s = _lobby.value?.state ?: return
+        val now = serverNow() ?: return
+        val i = s.queue.indexOfFirst { it.key == key }.takeIf { it >= 0 } ?: return
+        writeState(s.copy(index = i, anchorPos = 0, anchorServer = now + 1500, playing = true))
     }
 
     private fun currentKey(e: MusicEngine): String? =
@@ -357,17 +409,18 @@ class ListenLobbies(private val supa: Supa, private val context: Context) {
             val now = serverNow() ?: continue
             if (s.queue.isEmpty()) continue
             val browser = e.player.browser.value ?: continue
+            attach()
             val host = l.host == uid
             val nowCal = now + if (host) 0 else calibrationMs
             val p = LobbySync.expected(s.index, s.anchorPos, s.anchorServer, s.playing, maxOf(nowCal, s.anchorServer), s.queue.map { it.duration })
-            if (p.ended) { if (browser.isPlaying) e.player.setPlaying(false); _syncError.value = null; continue }
+            if (p.ended) { if (browser.isPlaying) own(); e.player.setPlaying(false); _syncError.value = null; continue }
             val want = s.queue[p.index]
 
             // the right song loaded (with the rest of the queue, so the next one preloads)
             if (currentKey(e) != want.key) {
                 if (SystemClock.elapsedRealtime() - lastLoadAt > 2500) {
-                    e.player.setQueue(want.ext, s.queue.drop(p.index).map { it.toTrack() }, 0, null)
-                    e.player.setPlaying(false)
+                    own(); e.player.setQueue(want.ext, s.queue.drop(p.index).map { it.toTrack() }, 0, null)
+                    own(); e.player.setPlaying(false)
                     lastLoadAt = SystemClock.elapsedRealtime()
                     startedSeq = -1
                 }
@@ -381,8 +434,8 @@ class ListenLobbies(private val supa: Supa, private val context: Context) {
 
             // paused group: everyone stopped on the host's exact position
             if (!s.playing) {
-                if (browser.isPlaying) e.player.setPlaying(false)
-                if (kotlin.math.abs(e.position() - s.anchorPos) > 30) e.seekTo(s.anchorPos)
+                if (browser.isPlaying) own(); e.player.setPlaying(false)
+                if (kotlin.math.abs(e.position() - s.anchorPos) > 30) own(); e.seekTo(s.anchorPos)
                 startedSeq = s.seq
                 _syncError.value = null
                 continue
@@ -391,11 +444,11 @@ class ListenLobbies(private val supa: Supa, private val context: Context) {
             val wait = s.anchorServer - nowCal
             // scheduled start: wait paused on the start position, press play right on time
             if (wait > 0 && s.seq != startedSeq) {
-                if (browser.isPlaying) e.player.setPlaying(false)
-                if (kotlin.math.abs(e.position() - p.posMs) > 30) e.seekTo(p.posMs)
+                if (browser.isPlaying) own(); e.player.setPlaying(false)
+                if (kotlin.math.abs(e.position() - p.posMs) > 30) own(); e.seekTo(p.posMs)
                 if (wait <= startLatency + 60 && browser.playbackState == Player.STATE_READY) {
                     delay((wait - startLatency).coerceAtLeast(0))
-                    e.player.setPlaying(true)
+                    own(); e.player.setPlaying(true)
                     startedAt = SystemClock.elapsedRealtime(); startedSeq = s.seq
                 }
                 continue
@@ -404,8 +457,8 @@ class ListenLobbies(private val supa: Supa, private val context: Context) {
             if (s.seq != startedSeq || !browser.isPlaying) {
                 if (browser.playbackState == Player.STATE_READY || browser.playbackState == Player.STATE_IDLE) {
                     if (!browser.isPlaying) {
-                        e.seekTo(p.posMs + startLatency + seekLatency)
-                        e.player.setPlaying(true)
+                        own(); e.seekTo(p.posMs + startLatency + seekLatency)
+                        own(); e.player.setPlaying(true)
                     }
                     startedAt = SystemClock.elapsedRealtime(); startedSeq = s.seq
                 }
@@ -442,7 +495,7 @@ class ListenLobbies(private val supa: Supa, private val context: Context) {
                     corrected = true
                 }
                 else -> {
-                    e.seekTo(p.posMs + seekLatency)
+                    own(); e.seekTo(p.posMs + seekLatency)
                     startedAt = SystemClock.elapsedRealtime()
                     corrected = true
                     scope.launch {

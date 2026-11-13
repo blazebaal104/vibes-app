@@ -308,7 +308,7 @@ fun PlaylistScreen(id: String) {
         LazyColumn(contentPadding = ScreenPadding) {
             item {
                 CollectionHeader(
-                    p.name, "${p.songs.size} brani" + (p.from?.let { " · da $it" } ?: ""),
+                    p.name, "${p.songs.size} brani" + (if (p.collabId != null) " · 👥 condivisa" else "") + (p.from?.let { " · da $it" } ?: ""),
                     art = { PlaylistArt(p, Modifier.size(220.dp)) },
                     onPlay = { app.engine.playAll(p.songs, ctx = p) }, onShuffle = { app.engine.playAll(p.songs, shuffle = true, ctx = p) },
                     actions = {
@@ -437,42 +437,66 @@ fun MediaScreen(item: EchoMediaItem) {
 }
 
 @Composable
-fun SharedPlaylistScreen(id: String) {
+fun SharedPlaylistScreen(id: String, collabId: String? = null) {
     val app = LocalApp.current
     val nav = app.nav
+    val scope = rememberCoroutineScope()
     var p by remember { mutableStateOf<SharedPlaylist?>(null) }
+    var collab by remember { mutableStateOf<dev.brahmkshatriya.echo.vibes.backend.CollabPlaylist?>(null) }
     var owner by remember { mutableStateOf<String?>(null) }
     var failed by remember { mutableStateOf(false) }
-    LaunchedEffect(id) {
+    var saving by remember { mutableStateOf(false) }
+    val playlists by app.library.playlists.collectAsState()
+    val mine = collabId?.let { c -> playlists.firstOrNull { it.collabId == c } }
+    LaunchedEffect(id, collabId) {
+        // the live shared version first (what the group has now), the snapshot in the message as fallback
+        collabId?.let { c -> collab = runCatching { dev.brahmkshatriya.echo.vibes.VibesGraph.collab.get(c) }.getOrNull() }
         runCatching { app.social.sharedPlaylist(id) }.onSuccess { sp ->
-            p = sp; failed = sp == null
+            p = sp; failed = sp == null && collab == null
             sp?.let { owner = runCatching { app.social.profile(it.ownerId)?.name }.getOrNull() }
-        }.onFailure { failed = true }
+        }.onFailure { failed = collab == null }
     }
-    val pl = p
-    if (pl == null) {
+    val c = collab
+    val name = c?.name ?: p?.name
+    val tracks = c?.songs ?: p?.tracks
+    if (name == null || tracks == null) {
         if (failed) EmptyState("😕", "Playlist non trovata", "Il link potrebbe essere scaduto.")
         else Box(Modifier.fillMaxWidth().padding(80.dp), contentAlignment = Alignment.Center) { androidx.compose.material3.CircularProgressIndicator() }
         return
     }
-    val asLocal = VibesPlaylist(name = pl.name, songs = pl.tracks)
+    val asLocal = VibesPlaylist(name = name, songs = tracks, emoji = c?.emoji ?: "🎵", color = c?.color ?: "#B84DFF", cover = c?.cover)
     GradientBackground {
         LazyColumn(contentPadding = ScreenPadding) {
             item {
                 CollectionHeader(
-                    pl.name, "${pl.tracks.size} brani" + (owner?.let { " · condivisa da $it" } ?: ""),
+                    name, "${tracks.size} brani" + (owner?.let { " · condivisa da $it" } ?: ""),
                     art = { PlaylistArt(asLocal, Modifier.size(220.dp)) },
-                    onPlay = { app.engine.playAll(pl.tracks) }, onShuffle = { app.engine.playAll(pl.tracks, shuffle = true) },
+                    onPlay = { app.engine.playAll(tracks) }, onShuffle = { app.engine.playAll(tracks, shuffle = true) },
                 )
             }
             item {
-                BigButton("Salva nella mia libreria", {
-                    val saved = app.library.createPlaylist(pl.name, "🎁", avatarColors.random(), pl.tracks, from = owner ?: "un amico")
-                    nav.toast("Playlist salvata 🎉"); nav.open(Route.Playlist(saved.id))
-                }, Modifier.fillMaxWidth().padding(16.dp))
+                if (mine != null) BigButton("Apri nella tua libreria", { nav.open(Route.Playlist(mine.id)) }, Modifier.fillMaxWidth().padding(16.dp))
+                else BigButton(if (c != null) "Salva playlist condivisa" else "Salva nella mia libreria", {
+                    if (c != null) {
+                        saving = true
+                        scope.launch {
+                            runCatching { dev.brahmkshatriya.echo.vibes.VibesGraph.collab.join(c.id, owner ?: "un amico") }
+                                .onSuccess { nav.toast("Playlist condivisa salvata 🎉"); nav.open(Route.Playlist(it.id)) }
+                                .onFailure { nav.toast(it.message ?: "Salvataggio non riuscito") }
+                            saving = false
+                        }
+                    } else {
+                        val saved = app.library.createPlaylist(name, "🎁", avatarColors.random(), tracks, from = owner ?: "un amico")
+                        nav.toast("Playlist salvata 🎉"); nav.open(Route.Playlist(saved.id))
+                    }
+                }, Modifier.fillMaxWidth().padding(16.dp), loading = saving)
+                if (c != null && mine == null) Text(
+                    "È una playlist condivisa: quando tu o i tuoi amici aggiungete un brano o cambiate nome o copertina, si aggiorna per tutti.",
+                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(horizontal = 20.dp))
             }
-            itemsIndexed(pl.tracks, key = { i, s -> "$i${s.key}" }) { i, s ->
-                SongRow(s, onClick = { app.engine.playAll(pl.tracks, i) }, modifier = Modifier.enter(i))
+            itemsIndexed(tracks, key = { i, s -> "$i${s.key}" }) { i, s ->
+                SongRow(s, onClick = { app.engine.playAll(tracks, i) }, modifier = Modifier.enter(i))
             }
         }
     }

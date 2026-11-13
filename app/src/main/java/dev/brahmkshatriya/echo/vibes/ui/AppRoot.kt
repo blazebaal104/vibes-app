@@ -129,8 +129,14 @@ fun VibesApp(engine: MusicEngine, pendingLink: MutableStateFlow<Uri?>) {
                 while (runCatching { state.social.bootstrap() }.isFailure) delay(3000)
                 // friends see this week's stats + records
                 dev.brahmkshatriya.echo.vibes.VibesGraph.onListened(force = true)
+                // shared playlists: catch up with what friends changed while the app was closed
+                runCatching { dev.brahmkshatriya.echo.vibes.VibesGraph.collab.refresh() }
                 // keep friends' live "now playing" fresh in lists
-                while (true) { delay(30_000); runCatching { state.social.refreshFriends() } }
+                var tick = 0
+                while (true) {
+                    delay(30_000); runCatching { state.social.refreshFriends() }
+                    if (++tick % 4 == 0) runCatching { dev.brahmkshatriya.echo.vibes.VibesGraph.collab.refresh() }
+                }
             }
             // Surface sets LocalContentColor, so every Text without an explicit colour is readable
             // on the theme background (white on dark themes, dark on light ones).
@@ -309,7 +315,7 @@ fun Screen(route: Route) {
         Route.AddFriend -> AddFriendScreen()
         Route.Settings -> SettingsScreen()
         Route.DeezerLogin -> DeezerLoginScreen()
-        is Route.SharedPlaylist -> SharedPlaylistScreen(route.id)
+        is Route.SharedPlaylist -> SharedPlaylistScreen(route.id, route.collab)
         is Route.Guess -> GuessGameScreen(route.lobbyId, route.source)
         Route.Stats -> StatsScreen()
         Route.Studio -> StudioScreen()

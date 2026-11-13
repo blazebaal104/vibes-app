@@ -211,7 +211,7 @@ class MainApplication : Application(), KoinStartup, SingletonImageLoader.Factory
             .diskCache {
                 DiskCache.Builder()
                     .directory(cacheDir.resolve("image-cache"))
-                    .maxSizeBytes(1024 * 1024 * 100) // 100MB
+                    .maxSizeBytes(1024 * 1024 * 300L) // 300MB: covers seen once are never downloaded again
                     .build()
             }
             .allowHardware(false)

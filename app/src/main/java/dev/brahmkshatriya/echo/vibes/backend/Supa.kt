@@ -312,7 +312,7 @@ class Supa(context: Context) {
         val connected = MutableStateFlow(false)
 
         /** One channel per table, each filtered server-side to rows that concern me. */
-        private fun topics(uid: String) = listOf(
+        private fun topics(uid: String): List<Pair<String, String?>> = listOf(
             "vibes_messages" to "receiver_id=eq.$uid",
             "vibes_messages" to "sender_id=eq.$uid",
             "vibes_game_lobbies" to "guest_id=eq.$uid",
@@ -322,6 +322,8 @@ class Supa(context: Context) {
             "vibes_follows" to "followee_id=eq.$uid",
             "vibes_follows" to "follower_id=eq.$uid",
             "vibes_listen_invites" to "to_user=eq.$uid",
+            // shared playlists: no filter possible ("I'm a member"), the server only sends rows I can read
+            "vibes_collab_playlists" to null,
         )
 
         fun start() {
@@ -353,7 +355,7 @@ class Supa(context: Context) {
                                 put("postgres_changes", buildJsonArray {
                                     add(buildJsonObject {
                                         put("event", "*"); put("schema", "public")
-                                        put("table", table); put("filter", filter)
+                                        put("table", table); filter?.let { put("filter", it) }
                                     })
                                 })
                             })
