@@ -276,6 +276,24 @@ class MusicEngine(
             .distinctBy { it.id }.take(max).map { it.toSongRef() }
     }
 
+    fun playAll(songs: List<SongRef>, index: Int = 0, shuffle: Boolean = false, ctx: VibesPlaylist? = null) {
+        if (songs.isEmpty()) return
+        if (songs.any { it.ext == DEEZER } && !DeezerAuth.canPlay()) return
+        runCatching { if (dev.brahmkshatriya.echo.vibes.VibesGraph.studio.isActive) dev.brahmkshatriya.echo.vibes.VibesGraph.studio.stop() }
+        dev.brahmkshatriya.echo.vibes.VibesGraph.playContext = ctx?.let {
+            PlayContext(it.id, it.name, it.cover ?: it.songs.firstOrNull()?.cover, it.songs.map { s -> s.key }.toSet())
+        }
+        val ext = songs[index.coerceIn(0, songs.size - 1)].ext
+        val list = if (shuffle) songs.shuffled() else songs
+        val start = if (shuffle) 0 else index.coerceIn(0, list.size - 1)
+        if (list.size == 1) { playSingle(ext, list.first().toTrack(), null); return }
+        session = Session(list, start, ctx, shuffle)
+        // the whole playlist goes to the player (it still starts at the tapped song), so that shuffle
+        // can pick any song of it, not only the ones after the tapped one
+        player.setQueue(ext, list.map { it.toTrack() }, start, null, contextStart = true)
+        player.setPlaying(true)
+    }
+
     /**
      * What was last started with [playAll]. The player queue only keeps the tapped song and the
      * ones after it (the earlier ones are dropped), and "previous" only knows songs actually played
