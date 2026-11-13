@@ -22,6 +22,9 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -100,7 +103,8 @@ fun UpdateHost() {
             val u = info ?: return@Box
             val accent = MaterialTheme.colorScheme.primary
             Column(
-                Modifier.align(Alignment.Center).padding(horizontal = 22.dp).fillMaxWidth()
+                Modifier.align(Alignment.Center).statusBarsPadding().navigationBarsPadding()
+                    .padding(horizontal = 22.dp, vertical = 16.dp).fillMaxWidth()
                     .clip(RoundedCornerShape(28.dp)).background(MaterialTheme.colorScheme.background)
             ) {
                 Box(
@@ -120,7 +124,9 @@ fun UpdateHost() {
                             style = MaterialTheme.typography.bodySmall, color = Color.White.copy(alpha = 0.85f))
                     }
                 }
-                Column(Modifier.padding(horizontal = 20.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                // the notes scroll; the install button below always stays visible
+                Column(Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState())
+                    .padding(horizontal = 20.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text("Cosa c'è di nuovo", style = MaterialTheme.typography.titleMedium)
                     u.notes.forEachIndexed { i, n ->
                         Row(Modifier.enter(i), verticalAlignment = Alignment.Top) {
