@@ -205,6 +205,14 @@ interface Player {
     }
 
     companion object {
+        const val COMMAND_PLAY_PAUSE = 1
+        const val COMMAND_STOP = 3
+        const val COMMAND_SEEK_IN_CURRENT_MEDIA_ITEM = 5
+        const val COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM = 6
+        const val COMMAND_SEEK_TO_PREVIOUS = 7
+        const val COMMAND_SEEK_TO_NEXT_MEDIA_ITEM = 8
+        const val COMMAND_SEEK_TO_NEXT = 9
+        const val COMMAND_SEEK_TO_MEDIA_ITEM = 10
         const val STATE_IDLE = 1
         const val STATE_BUFFERING = 2
         const val STATE_READY = 3

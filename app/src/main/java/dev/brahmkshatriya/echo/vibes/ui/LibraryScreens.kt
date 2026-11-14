@@ -509,7 +509,9 @@ fun AddToPlaylistSheet(song: SongRef, onDismiss: () -> Unit) {
     val playlists by app.library.playlists.collectAsState()
     var creating by remember { mutableStateOf(false) }
     ModalBottomSheet(onDismissRequest = onDismiss, containerColor = MaterialTheme.colorScheme.background) {
-        Column(Modifier.navigationBarsPadding().padding(bottom = 16.dp)) {
+        // a list that scrolls: with many playlists every one must be reachable
+        androidx.compose.foundation.lazy.LazyColumn(Modifier.fillMaxWidth(), contentPadding = androidx.compose.foundation.layout.PaddingValues(bottom = 16.dp)) {
+          item {
             Text("Aggiungi a playlist", style = MaterialTheme.typography.titleLarge, modifier = Modifier.padding(16.dp))
             LibraryRow("Nuova playlist", "Crea e aggiungi",
                 art = { Box(Modifier.size(56.dp).clip(RoundedCornerShape(6.dp)).background(LocalVibes.current.cardHigh), contentAlignment = Alignment.Center) { Icon(Icons.Rounded.Add, null) } }
@@ -517,11 +519,13 @@ fun AddToPlaylistSheet(song: SongRef, onDismiss: () -> Unit) {
             LibraryRow("Brani che ti piacciono", if (app.library.isLiked(song.key)) "Già salvato" else "Aggiungi ai preferiti",
                 art = { Box(Modifier.size(56.dp).clip(RoundedCornerShape(6.dp)).background(Color(0xFF4A1FB8)), contentAlignment = Alignment.Center) { Icon(Icons.Rounded.Favorite, null, tint = Color.White) } }
             ) { if (!app.library.isLiked(song.key)) app.library.toggleLike(song); app.nav.toast("Aggiunto ai preferiti"); onDismiss() }
-            playlists.forEach { p ->
+          }
+            items(playlists.size) { i -> val p = playlists[i]
                 LibraryRow(p.name, "${p.songs.size} brani", art = { PlaylistArt(p, Modifier.size(56.dp), RoundedCornerShape(6.dp)) }) {
                     app.library.addToPlaylist(p.id, song); app.nav.toast("Aggiunto a ${p.name}"); onDismiss()
                 }
             }
+            item { Spacer(Modifier.navigationBarsPadding()) }
         }
     }
     if (creating) PlaylistDialog(null, { creating = false }) { n, e, c ->

@@ -127,6 +127,7 @@ class PlayerCallback(
      * default. Package name only - see ColdStartPlayProbe for the whole data rule, and delete this
      * override with it.
      */
+    @OptIn(UnstableApi::class)
     @Suppress("DEPRECATION", "OVERRIDE_DEPRECATION")
     override fun onPlayerCommandRequest(
         session: MediaSession,
@@ -173,6 +174,10 @@ class PlayerCallback(
         // changes no playWhenReady, so today a STOP leaves a focus-resume authorisation armed -
         // the 1141 shape with a controller instead of a finger. A STOP is the user saying stop,
         // so it revokes the authorisation exactly as a pause press does.
+        // Vibes listening lobby: notification / lock screen / headphones act as the king, for everyone
+        val outside = session.isMediaNotificationController(controller) || controller.packageName != app.context.packageName
+        if (outside && dev.brahmkshatriya.echo.vibes.listen.LobbyGate.handler?.invoke(playerCommand) == true)
+            return SessionResult.RESULT_ERROR_NOT_SUPPORTED
         if (playerCommand == Player.COMMAND_STOP && !consumeNotificationDismissal()) {
             onTransportIntent()
             session.player.pause()

@@ -363,14 +363,37 @@ class ListenLobbies(private val supa: Supa, private val context: Context) {
         }
     }
 
+    /** Outside controls (see [LobbyGate]): the king drives the group; members can only stop listening. */
+    private fun gate(cmd: Int): Boolean {
+        val l = _lobby.value ?: return false
+        return when (cmd) {
+            Player.COMMAND_PLAY_PAUSE, Player.COMMAND_STOP ->
+                if (isHost) go { if (cmd == Player.COMMAND_PLAY_PAUSE || l.state.playing) togglePlay() }
+                else if (l.state.playing) { leave(); false } // a member pausing leaves, then the music stops
+                else true
+            Player.COMMAND_SEEK_TO_NEXT, Player.COMMAND_SEEK_TO_NEXT_MEDIA_ITEM ->
+                if (isHost) go { skip(1) } else true
+            Player.COMMAND_SEEK_TO_PREVIOUS, Player.COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM ->
+                if (isHost) go { skip(-1) } else true
+            Player.COMMAND_SEEK_IN_CURRENT_MEDIA_ITEM, Player.COMMAND_SEEK_TO_MEDIA_ITEM -> !isHost
+            else -> false
+        }
+    }
+
+    private fun go(f: suspend () -> Unit): Boolean {
+        scope.launch(start = kotlinx.coroutines.CoroutineStart.UNDISPATCHED) { f() }
+        return true
+    }
+
     private fun attach() {
+        LobbyGate.handler = ::gate
         val b = engine?.player?.browser?.value ?: return
         if (listening === b) return
         listening?.removeListener(listener)
         b.addListener(listener); listening = b
     }
 
-    private fun detach() { listening?.removeListener(listener); listening = null }
+    private fun detach() { LobbyGate.handler = null; listening?.removeListener(listener); listening = null }
 
     /** Host skipped (next/previous) from outside the lobby: the whole group goes to that song. */
     private suspend fun jumpTo(key: String) {
@@ -413,7 +436,7 @@ class ListenLobbies(private val supa: Supa, private val context: Context) {
             val host = l.host == uid
             val nowCal = now + if (host) 0 else calibrationMs
             val p = LobbySync.expected(s.index, s.anchorPos, s.anchorServer, s.playing, maxOf(nowCal, s.anchorServer), s.queue.map { it.duration })
-            if (p.ended) { if (browser.isPlaying) own(); e.player.setPlaying(false); _syncError.value = null; continue }
+            if (p.ended) { if (browser.playWhenReady) { own(); e.player.setPlaying(false) }; _syncError.value = null; continue }
             val want = s.queue[p.index]
 
             // the right song loaded (with the rest of the queue, so the next one preloads)
@@ -434,8 +457,8 @@ class ListenLobbies(private val supa: Supa, private val context: Context) {
 
             // paused group: everyone stopped on the host's exact position
             if (!s.playing) {
-                if (browser.isPlaying) own(); e.player.setPlaying(false)
-                if (kotlin.math.abs(e.position() - s.anchorPos) > 30) own(); e.seekTo(s.anchorPos)
+                if (browser.playWhenReady) { own(); e.player.setPlaying(false) }
+                if (kotlin.math.abs(e.position() - s.anchorPos) > 30) { own(); e.seekTo(s.anchorPos) }
                 startedSeq = s.seq
                 _syncError.value = null
                 continue
@@ -444,8 +467,8 @@ class ListenLobbies(private val supa: Supa, private val context: Context) {
             val wait = s.anchorServer - nowCal
             // scheduled start: wait paused on the start position, press play right on time
             if (wait > 0 && s.seq != startedSeq) {
-                if (browser.isPlaying) own(); e.player.setPlaying(false)
-                if (kotlin.math.abs(e.position() - p.posMs) > 30) own(); e.seekTo(p.posMs)
+                if (browser.playWhenReady) { own(); e.player.setPlaying(false) }
+                if (kotlin.math.abs(e.position() - p.posMs) > 30) { own(); e.seekTo(p.posMs) }
                 if (wait <= startLatency + 60 && browser.playbackState == Player.STATE_READY) {
                     delay((wait - startLatency).coerceAtLeast(0))
                     own(); e.player.setPlaying(true)

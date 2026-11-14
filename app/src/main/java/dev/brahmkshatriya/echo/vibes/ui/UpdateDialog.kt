@@ -68,7 +68,11 @@ fun UpdateHost() {
     var checks by remember { mutableStateOf(0) }
     LifecycleResumeEffect(Unit) { checks++; onPauseOrDispose { } }
     LaunchedEffect(checks) {
-        if (updater.pending.value == null) runCatching { updater.check(force = true) }.getOrNull()?.let { updater.show(it) }
+        runCatching { updater.check(force = true) }.getOrNull()?.let { new ->
+            // also when a panel is already open: a newer version replaces the one shown
+            val cur = updater.pending.value
+            if (cur == null || new.versionCode > cur.versionCode) updater.show(new)
+        }
     }
     val info by updater.pending.collectAsState()
     val phase by updater.phase.collectAsState()
