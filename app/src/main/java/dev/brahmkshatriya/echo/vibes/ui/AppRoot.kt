@@ -148,10 +148,13 @@ fun VibesApp(engine: MusicEngine, pendingLink: MutableStateFlow<Uri?>) {
                 runCatching { dev.brahmkshatriya.echo.vibes.VibesGraph.collab.refresh() }
                 // albums saved the old way (copied into a playlist) become saved albums again
                 runCatching { state.library.migrateAlbums(state.deezer) }
+                // the library of the account: what was made on the other devices arrives here
+                runCatching { dev.brahmkshatriya.echo.vibes.VibesGraph.librarySync.sync() }
                 // keep friends' live "now playing" fresh in lists
                 var tick = 0
                 while (true) {
                     delay(30_000); runCatching { state.social.refreshFriends() }
+                    runCatching { dev.brahmkshatriya.echo.vibes.VibesGraph.librarySync.sync() }
                     if (++tick % 4 == 0) runCatching { dev.brahmkshatriya.echo.vibes.VibesGraph.collab.refresh() }
                 }
             }

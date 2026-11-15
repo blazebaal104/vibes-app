@@ -44,6 +44,22 @@ private data class LibraryFile(
     /** Last time each library item was opened or played ("pl:<id>", "al:<id>", "ar:<id>"): the "Recenti" order. */
     val opened: Map<String, Long> = emptyMap(),
     val albumsMigrated: Boolean = false,
+    /** Sync with the account: when each item was last added/changed ("pl:<id>", "like:<key>", "al:<id>", "ar:<id>", "fo:<id>"). */
+    val stamps: Map<String, Long> = emptyMap(),
+    /** Sync: when items were removed (so a removal on one device removes it everywhere). */
+    val removed: Map<String, Long> = emptyMap(),
+)
+
+/** The part of the library shared by all the user's devices (phone, PC) through their account. */
+@Serializable
+data class LibrarySyncDoc(
+    val playlists: List<VibesPlaylist> = emptyList(),
+    val liked: List<SongRef> = emptyList(),
+    val albums: List<SavedAlbum> = emptyList(),
+    val folders: List<LibraryFolder> = emptyList(),
+    val artists: List<FollowedArtist> = emptyList(),
+    val stamps: Map<String, Long> = emptyMap(),
+    val removed: Map<String, Long> = emptyMap(),
 )
 
 /** An album saved to the library. It is not a playlist: it can't be edited, it is the album as released. */
@@ -159,8 +175,37 @@ class VibesLibrary(context: Context) {
         json.decodeFromString(LibraryFile.serializer(), file.readText())
     }.getOrDefault(LibraryFile())
 
-    private fun change(block: (LibraryFile) -> LibraryFile) {
-        state.update(block)
+    /** Set by LibrarySync: the user changed something that other devices should get. */
+    @Volatile var onSyncedChange: (() -> Unit)? = null
+
+    /** Marks what changed between [a] and [b] (added/edited = stamp, gone = removed) for the sync. */
+    private fun stampDiff(a: LibraryFile, b: LibraryFile): LibraryFile {
+        val now = System.currentTimeMillis()
+        val stamps = b.stamps.toMutableMap(); val removed = b.removed.toMutableMap()
+        fun <T> diff(prefix: String, old: List<T>, new: List<T>, key: (T) -> String, norm: (T) -> Any? = { it }) {
+            val o = old.associateBy(key); val n = new.associateBy(key)
+            n.forEach { (k, v) -> val before = o[k]; if (before == null || norm(before) != norm(v)) { stamps["$prefix$k"] = now; removed.remove("$prefix$k") } }
+            o.keys.filter { it !in n }.forEach { removed["$prefix$it"] = now }
+        }
+        diff("pl:", a.playlists, b.playlists, { it.id }, { it.copy(songs = it.songs.map { s -> s.copy(data = null) }) })
+        diff("like:", a.liked, b.liked, { it.key }, { it.key })
+        diff("al:", a.albums, b.albums, { it.id.toString() })
+        diff("ar:", a.artists, b.artists, { it.id.toString() }, { it.copy(lastSeen = "") })
+        diff("fo:", a.folders, b.folders, { it.id })
+        return b.copy(stamps = stamps, removed = removed)
+    }
+
+    private fun synced(a: LibraryFile, b: LibraryFile) =
+        a.playlists != b.playlists || a.liked != b.liked || a.albums != b.albums || a.folders != b.folders ||
+            a.artists.map { it.copy(lastSeen = "") } != b.artists.map { it.copy(lastSeen = "") }
+
+    private fun change(stamp: Boolean = true, block: (LibraryFile) -> LibraryFile) {
+        var shared = false
+        state.update { old ->
+            val new = block(old)
+            if (stamp && synced(old, new)) { shared = true; stampDiff(old, new) } else new
+        }
+        if (shared) onSyncedChange?.invoke()
         val s = state.value
         _playlists.value = s.playlists; _liked.value = s.liked
         _recent.value = s.recent; _searches.value = s.searches; _artists.value = s.artists
@@ -268,6 +313,28 @@ class VibesLibrary(context: Context) {
     }
 
     fun playlist(id: String) = _playlists.value.firstOrNull { it.id == id }
+
+    // ---------------------------------------------------------------- account sync
+
+    /** What goes to the account (without the heavy per-song playback data). */
+    fun syncDoc(): LibrarySyncDoc = state.value.let { s ->
+        LibrarySyncDoc(
+            s.playlists.map { p -> p.copy(songs = p.songs.map { it.copy(data = null) }) },
+            s.liked.map { it.copy(data = null) }, s.albums, s.folders, s.artists, s.stamps, s.removed,
+        )
+    }
+
+    /** The merged library from the account: replaces the synced part, keeps this device's song data. */
+    fun applySync(d: LibrarySyncDoc) = change(stamp = false) { s ->
+        val local = (s.playlists.flatMap { it.songs } + s.liked + s.recent).filter { it.data != null }.associateBy { it.key }
+        fun SongRef.withData() = if (data == null) local[key] ?: this else this
+        s.copy(
+            playlists = d.playlists.map { p -> p.copy(songs = p.songs.map { it.withData() }) },
+            liked = d.liked.map { it.withData() }, albums = d.albums, folders = d.folders,
+            artists = d.artists.map { a -> s.artists.firstOrNull { it.id == a.id }?.let { a.copy(lastSeen = maxOf(a.lastSeen, it.lastSeen)) } ?: a },
+            stamps = d.stamps, removed = d.removed,
+        )
+    }
 
     // likes
     fun isLiked(key: String) = _liked.value.any { it.key == key }
