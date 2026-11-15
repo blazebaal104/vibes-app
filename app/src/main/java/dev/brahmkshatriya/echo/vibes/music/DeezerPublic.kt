@@ -33,13 +33,16 @@ class DeezerPublic(private val http: OkHttpClient) {
         /** Deezer popularity, 0..~1,000,000 */
         val rank: Int,
         val album: String = "",
+        /** Seconds (0 = unknown). */
+        val duration: Int = 0,
+        val albumId: Long = 0,
     ) {
         /** Full display title as Deezer writes it, e.g. "goosebumps - Travis Scott". */
         val fullTitle get() = "$title – $artist"
 
         fun toSongRef() = SongRef(
             ext = MusicEngine.DEEZER, id = id.toString(), title = title, artist = artist,
-            cover = cover, album = album.ifBlank { null },
+            cover = cover, album = album.ifBlank { null }, duration = duration.takeIf { it > 0 }?.let { it * 1000L },
         )
     }
 
@@ -65,6 +68,8 @@ class DeezerPublic(private val http: OkHttpClient) {
             preview = preview,
             rank = this["rank"]?.jsonPrimitive?.intOrNull ?: 0,
             album = album?.get("title")?.jsonPrimitive?.contentOrNull ?: "",
+            duration = this["duration"]?.jsonPrimitive?.intOrNull ?: 0,
+            albumId = album?.get("id")?.jsonPrimitive?.longOrNull ?: 0,
         )
     }
 
@@ -181,7 +186,45 @@ class DeezerPublic(private val http: OkHttpClient) {
         return out.take(max)
     }
 
-    data class AlbumInfo(val title: String, val cover: String?, val tracks: List<GameTrack>)
+    data class AlbumInfo(
+        val title: String, val cover: String?, val tracks: List<GameTrack>,
+        val id: Long = 0, val artist: String = "", val artistId: Long = 0, val date: String = "",
+        val type: String = "album", val label: String = "", val fans: Int = 0, val durationSec: Int = 0,
+    )
+
+    /** What the PC "now playing" panel shows: album, release, credits. */
+    data class TrackDetails(
+        val id: Long, val title: String, val artist: String, val artistId: Long,
+        val albumId: Long, val album: String, val cover: String?, val releaseDate: String,
+        val bpm: Float, val durationSec: Int, val rank: Int,
+        /** name to role ("Main", "Featured", ...) */
+        val contributors: List<Pair<String, String>>,
+    )
+
+    suspend fun trackDetails(id: Long): TrackDetails? {
+        val o = get("https://api.deezer.com/track/$id") ?: return null
+        if (o["error"] != null) return null
+        val album = o["album"]?.jsonObject
+        val artist = o["artist"]?.jsonObject
+        return TrackDetails(
+            id = id,
+            title = o["title"]?.jsonPrimitive?.contentOrNull ?: "",
+            artist = artist?.get("name")?.jsonPrimitive?.contentOrNull ?: "",
+            artistId = artist?.get("id")?.jsonPrimitive?.longOrNull ?: 0,
+            albumId = album?.get("id")?.jsonPrimitive?.longOrNull ?: 0,
+            album = album?.get("title")?.jsonPrimitive?.contentOrNull ?: "",
+            cover = album?.get("cover_xl")?.jsonPrimitive?.contentOrNull,
+            releaseDate = o["release_date"]?.jsonPrimitive?.contentOrNull ?: "",
+            bpm = o["bpm"]?.jsonPrimitive?.contentOrNull?.toFloatOrNull() ?: 0f,
+            durationSec = o["duration"]?.jsonPrimitive?.intOrNull ?: 0,
+            rank = o["rank"]?.jsonPrimitive?.intOrNull ?: 0,
+            contributors = o["contributors"]?.jsonArray?.mapNotNull { e ->
+                val c = e as? JsonObject ?: return@mapNotNull null
+                val n = c["name"]?.jsonPrimitive?.contentOrNull ?: return@mapNotNull null
+                n to (c["role"]?.jsonPrimitive?.contentOrNull ?: "")
+            }.orEmpty(),
+        )
+    }
 
     data class AlbumBrief(val id: Long, val title: String, val cover: String?, val date: String, val type: String, val artist: String = "")
 
@@ -232,7 +275,17 @@ class DeezerPublic(private val http: OkHttpClient) {
         val tracks = o["tracks"]?.jsonObject?.get("data")?.jsonArray?.mapNotNull { e ->
             (e as? JsonObject)?.toGameTrack()?.let { if (it.cover == null) it.copy(cover = cover) else it }
         }.orEmpty()
-        return AlbumInfo(title, cover, tracks)
+        val artist = o["artist"]?.jsonObject
+        return AlbumInfo(
+            title, cover, tracks, id = id,
+            artist = artist?.get("name")?.jsonPrimitive?.contentOrNull ?: tracks.firstOrNull()?.artist.orEmpty(),
+            artistId = artist?.get("id")?.jsonPrimitive?.longOrNull ?: 0,
+            date = o["release_date"]?.jsonPrimitive?.contentOrNull ?: "",
+            type = o["record_type"]?.jsonPrimitive?.contentOrNull ?: "album",
+            label = o["label"]?.jsonPrimitive?.contentOrNull ?: "",
+            fans = o["fans"]?.jsonPrimitive?.intOrNull ?: 0,
+            durationSec = o["duration"]?.jsonPrimitive?.intOrNull ?: 0,
+        )
     }
 
     /** Resolves short links (link.deezer.com, spotify.link…) to the final URL. */

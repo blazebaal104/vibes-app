@@ -20,6 +20,8 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.CheckCircle
+import androidx.compose.material.icons.rounded.AddCircleOutline
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Shuffle
@@ -176,7 +178,8 @@ fun DzAlbumScreen(id: Long) {
     LaunchedEffect(id) { album = runCatching { VibesGraph.deezer.album(id) }.getOrNull(); if (album == null) failed = true }
     val playing = nowPlayingKey()
     val a = album
-    val songs = a?.tracks.orEmpty().map { it.toSongRef() }
+    val songs = a?.tracks.orEmpty().map { it.toSongRef().copy(album = a?.title) }
+    LaunchedEffect(id, a != null) { if (a != null) app.library.touch("al:$id") }
     GradientBackground {
         LazyColumn(contentPadding = ScreenPadding) {
             item {
@@ -186,10 +189,17 @@ fun DzAlbumScreen(id: Long) {
                     onPlay = { app.engine.playAll(songs) },
                     onShuffle = { app.engine.playAll(songs, shuffle = true) },
                     actions = {
-                        if (songs.isNotEmpty()) IconButton(onClick = {
-                            val p = app.library.createPlaylist(a!!.title, "💿", avatarColors.random(), songs, cover = a.cover)
-                            nav.toast("Salvato in Vibes"); nav.open(Route.Playlist(p.id))
-                        }) { Icon(Icons.Rounded.Add, "Salva in Vibes") }
+                        // an album is saved as itself (in the library, not editable), never copied into a playlist
+                        val albums by app.library.albums.collectAsState()
+                        val saved = albums.any { it.id == id }
+                        if (a != null) IconButton(onClick = {
+                            if (saved) { app.library.removeAlbum(id); nav.toast("Tolto dalla libreria") }
+                            else {
+                                app.library.saveAlbum(dev.brahmkshatriya.echo.vibes.music.SavedAlbum(id, a.title, a.artist.ifBlank { songs.firstOrNull()?.artist.orEmpty() }, a.cover, a.artistId))
+                                nav.toast("Album salvato nella libreria")
+                            }
+                        }) { Icon(if (saved) Icons.Rounded.CheckCircle else Icons.Rounded.AddCircleOutline, if (saved) "Togli dalla libreria" else "Salva nella libreria",
+                            tint = if (saved) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface) }
                     }
                 )
             }

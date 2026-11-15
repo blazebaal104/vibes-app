@@ -39,7 +39,23 @@ private data class LibraryFile(
     val recent: List<SongRef> = emptyList(),
     val searches: List<String> = emptyList(),
     val artists: List<FollowedArtist> = emptyList(),
+    val albums: List<SavedAlbum> = emptyList(),
+    val folders: List<LibraryFolder> = emptyList(),
+    /** Last time each library item was opened or played ("pl:<id>", "al:<id>", "ar:<id>"): the "Recenti" order. */
+    val opened: Map<String, Long> = emptyMap(),
+    val albumsMigrated: Boolean = false,
 )
+
+/** An album saved to the library. It is not a playlist: it can't be edited, it is the album as released. */
+@Serializable
+data class SavedAlbum(
+    val id: Long, val title: String, val artist: String = "", val cover: String? = null,
+    val artistId: Long = 0, val savedAt: Long = System.currentTimeMillis(),
+)
+
+/** A folder in the library: groups playlists ("pl:<id>" keys). */
+@Serializable
+data class LibraryFolder(val id: String = UUID.randomUUID().toString(), val name: String, val items: List<String> = emptyList())
 
 /** An artist the user follows: Vibes tells them when something new comes out. */
 @Serializable
@@ -82,6 +98,58 @@ class VibesLibrary(context: Context) {
     private val _artists = MutableStateFlow(state.value.artists)
     val artists = _artists.asStateFlow()
 
+    private val _albums = MutableStateFlow(state.value.albums)
+    val albums = _albums.asStateFlow()
+    private val _folders = MutableStateFlow(state.value.folders)
+    val folders = _folders.asStateFlow()
+    private val _opened = MutableStateFlow(state.value.opened)
+    val opened = _opened.asStateFlow()
+
+    // saved albums (read-only)
+    fun isAlbumSaved(id: Long) = _albums.value.any { it.id == id }
+    fun saveAlbum(a: SavedAlbum) = change { s -> s.copy(albums = listOf(a) + s.albums.filter { it.id != a.id }) }
+    fun removeAlbum(id: Long) = change { s -> s.copy(albums = s.albums.filter { it.id != id }) }
+
+    // folders
+    fun createFolder(name: String): LibraryFolder {
+        val f = LibraryFolder(name = name.trim().ifEmpty { "Nuova cartella" })
+        change { s -> s.copy(folders = s.folders + f) }
+        return f
+    }
+    fun renameFolder(id: String, name: String) = change { s -> s.copy(folders = s.folders.map { if (it.id == id) it.copy(name = name) else it }) }
+    fun deleteFolder(id: String) = change { s -> s.copy(folders = s.folders.filter { it.id != id }) }
+    /** Moves a playlist into [folderId] (null = out of every folder). */
+    fun moveToFolder(key: String, folderId: String?) = change { s ->
+        s.copy(folders = s.folders.map { f ->
+            val without = f.items - key
+            if (f.id == folderId) f.copy(items = without + key) else f.copy(items = without)
+        })
+    }
+
+    /** Remembers that a library item was just opened/played (sort "Recenti"). */
+    fun touch(key: String) {
+        if ((System.currentTimeMillis() - (_opened.value[key] ?: 0)) < 5_000) return
+        change { s -> s.copy(opened = (s.opened + (key to System.currentTimeMillis())).entries.sortedByDescending { it.value }.take(300).associate { it.key to it.value }) }
+    }
+
+    /**
+     * Albums used to be saved as a copy in a playlist ("💿"). Once, turn those back into saved albums
+     * when they are still exactly the album (no songs added by hand).
+     */
+    suspend fun migrateAlbums(deezer: DeezerPublic) {
+        if (state.value.albumsMigrated) return
+        val candidates = _playlists.value.filter { it.emoji == "💿" && it.collabId == null && it.from == null && it.songs.isNotEmpty() }
+        for (p in candidates) runCatching {
+            val artist = p.songs.first().artist.split(", ").first()
+            val hit = deezer.searchAlbums("$artist ${p.name}", 10).firstOrNull { it.title.equals(p.name, true) } ?: return@runCatching
+            val tracks = deezer.album(hit.id)?.tracks.orEmpty().map { it.id.toString() }.toSet()
+            if (tracks.isEmpty() || p.songs.any { it.id !in tracks }) return@runCatching
+            saveAlbum(SavedAlbum(hit.id, hit.title, hit.artist.ifBlank { artist }, hit.cover ?: p.cover, savedAt = p.createdAt))
+            change { s -> s.copy(playlists = s.playlists.filter { it.id != p.id }) }
+        }
+        change { it.copy(albumsMigrated = true) }
+    }
+
     fun isFollowingArtist(id: Long) = _artists.value.any { it.id == id }
     fun followArtist(a: FollowedArtist) = change { s -> s.copy(artists = s.artists.filter { it.id != a.id } + a) }
     fun unfollowArtist(id: Long) = change { s -> s.copy(artists = s.artists.filter { it.id != id }) }
@@ -96,6 +164,7 @@ class VibesLibrary(context: Context) {
         val s = state.value
         _playlists.value = s.playlists; _liked.value = s.liked
         _recent.value = s.recent; _searches.value = s.searches; _artists.value = s.artists
+        _albums.value = s.albums; _folders.value = s.folders; _opened.value = s.opened
         scope.launch {
             runCatching {
                 val tmp = File(file.parentFile, file.name + ".tmp")
@@ -127,7 +196,7 @@ class VibesLibrary(context: Context) {
 
     fun deletePlaylist(id: String) {
         shared(id, CollabOp.Leave)
-        change { s -> s.copy(playlists = s.playlists.filter { it.id != id }) }
+        change { s -> s.copy(playlists = s.playlists.filter { it.id != id }, folders = s.folders.map { it.copy(items = it.items - "pl:$id") }) }
     }
 
     fun addToPlaylist(id: String, song: SongRef) {

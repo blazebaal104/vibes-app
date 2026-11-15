@@ -178,11 +178,7 @@ private fun GameSetupSheet(onDismiss: () -> Unit, action: String, onStart: (Game
         artists = runCatching { VibesGraph.deezer.searchArtists(query) }.getOrDefault(emptyList())
     }
     val accent = when (tab) { 1 -> Color(0xFFFF2E97); 2 -> Color(0xFF35D0F5); else -> GameColors.Easy }
-    androidx.compose.material3.ModalBottomSheet(
-        onDismissRequest = onDismiss,
-        containerColor = LocalVibes.current.card,
-        sheetState = androidx.compose.material3.rememberModalBottomSheetState(skipPartiallyExpanded = true),
-    ) {
+    VibesSheet(onDismiss, LocalVibes.current.card) {
         Column(Modifier.fillMaxWidth().imePadding().padding(horizontal = 18.dp).padding(bottom = 18.dp)) {
             Text("Con quali brani giochi?", style = MaterialTheme.typography.headlineSmall)
             Text("La difficoltà si adatta: le hit sono facili, i pezzi meno noti difficili.",

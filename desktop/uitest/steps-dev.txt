@@ -1,0 +1,12 @@
+sleep 30 login sleep 25 shot 01-home
+click 44 98 sleep 2 shot 02-collapsed click 44 98 sleep 1
+move 415 690 sleep 3 shot 03-hover
+click 150 414 sleep 5 shot 04-album
+rclick 600 560 sleep 1 shot 05-menu key Escape sleep 1
+click 150 474 sleep 4 shot 06-playlist
+click 1178 850 sleep 2 shot 07-queue
+ctrl k type sfera sleep 6 shot 08-search
+click 475 34 sleep 4 shot 09-games
+sleep 10 click 1082 850 sleep 5 shot 10-nowplaying
+click 1114 850 sleep 5 shot 11-lyrics
+click 1402 850 sleep 4 shot 12-fullscreen key Escape sleep 2 shot 13-after

@@ -44,4 +44,4 @@ while a:
     elif c == 'sleep': time.sleep(float(a.pop(0)))
     elif c == 'shot': subprocess.run(['import', '-window', 'root', os.path.join(os.environ.get('SHOTS', '.'), a.pop(0) + '.png')])
     elif c == 'login':
-        click(720, 444); typ(os.environ['VIBES_EMAIL']); click(720, 520); typ(os.environ['VIBES_PASSWORD']); click(720, 596)
+        click(720, 404); typ(os.environ["VIBES_EMAIL"]); click(720, 480); typ(os.environ["VIBES_PASSWORD"]); click(720, 556)

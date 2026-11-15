@@ -110,6 +110,21 @@ class AppState(
 
 val LocalApp = androidx.compose.runtime.staticCompositionLocalOf<AppState> { error("no app state") }
 
+/** What the platform changes in the shared UI. The PC app sets it up before the first frame. */
+object PlatformUI {
+    /** PC: its own window layout (library panel, now playing panel, player bar) in place of the phone's. */
+    var desktopScaffold: (@Composable (MutableStateFlow<Uri?>) -> Unit)? = null
+    val isDesktop get() = desktopScaffold != null
+    /** PC: the screens draw on the window's own (animated) background instead of their own. */
+    var transparentScreens = false
+    /** PC: the search text typed in the top bar (null on the phone: the search screen has its own box). */
+    var searchQuery: androidx.compose.runtime.MutableState<String>? = null
+    /** PC: wraps every song row (hover highlight, right-click menu); the row gets the menu opener. */
+    /** PC: menus / panels open on top (Esc closes them instead of going back). */
+    @Volatile var popups = 0
+    var songRow: (@Composable (song: dev.brahmkshatriya.echo.vibes.backend.SongRef, content: @Composable (openMenu: () -> Unit) -> Unit) -> Unit)? = null
+}
+
 @Composable
 fun VibesApp(engine: MusicEngine, pendingLink: MutableStateFlow<Uri?>) {
     val context = LocalContext.current
@@ -131,6 +146,8 @@ fun VibesApp(engine: MusicEngine, pendingLink: MutableStateFlow<Uri?>) {
                 dev.brahmkshatriya.echo.vibes.VibesGraph.onListened(force = true)
                 // shared playlists: catch up with what friends changed while the app was closed
                 runCatching { dev.brahmkshatriya.echo.vibes.VibesGraph.collab.refresh() }
+                // albums saved the old way (copied into a playlist) become saved albums again
+                runCatching { state.library.migrateAlbums(state.deezer) }
                 // keep friends' live "now playing" fresh in lists
                 var tick = 0
                 while (true) {
@@ -150,8 +167,11 @@ fun VibesApp(engine: MusicEngine, pendingLink: MutableStateFlow<Uri?>) {
                     hasProfile == null -> LoadingScreen()
                     hasProfile == false -> ProfileSetupScreen()
                     meNow?.banned == true -> BannedScreen(meNow?.banReason)
-                    LocalSettings.current.needsOnboarding -> OnboardingScreen()
-                    else -> MainScaffold(pendingLink)
+                    LocalSettings.current.needsOnboarding && System.getenv("VIBES_UITEST") == null -> OnboardingScreen()
+                    else -> {
+                        val desk = PlatformUI.desktopScaffold
+                        if (desk != null) desk(pendingLink) else MainScaffold(pendingLink)
+                    }
                 }
             }
         }
@@ -305,7 +325,16 @@ fun Screen(route: Route) {
         is Route.Playlist -> PlaylistScreen(route.id)
         Route.Liked -> LikedScreen()
         Route.Downloads -> DownloadsScreen()
-        is Route.Media -> (route.item as? dev.brahmkshatriya.echo.common.models.Artist)?.let { ArtistFromEngine(it) } ?: MediaScreen(route.item)
+        is Route.Media -> {
+            val it = route.item
+            val albumId = (it as? dev.brahmkshatriya.echo.common.models.Album)?.id?.toLongOrNull()
+            when {
+                it is dev.brahmkshatriya.echo.common.models.Artist -> ArtistFromEngine(it)
+                // a Deezer album: the album page (saved as an album, never as a playlist)
+                albumId != null -> DzAlbumScreen(albumId)
+                else -> MediaScreen(it)
+            }
+        }
         is Route.DzArtist -> ArtistScreen(route.id, route.name)
         is Route.DzAlbum -> DzAlbumScreen(route.id)
         is Route.DzPlaylist -> DzPlaylistScreen(route.id)
@@ -451,7 +480,7 @@ private fun NavItem(label: String, on: ImageVector, off: ImageVector, selected: 
 }
 
 @Composable
-private fun Toast(message: String?, onDone: () -> Unit) {
+fun Toast(message: String?, onDone: () -> Unit) {
     var shown by remember { mutableStateOf<String?>(null) }
     LaunchedEffect(message) {
         if (message != null) { shown = message; delay(2600); onDone(); shown = null }

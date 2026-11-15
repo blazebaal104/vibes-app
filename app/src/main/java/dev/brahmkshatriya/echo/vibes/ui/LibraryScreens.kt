@@ -99,6 +99,7 @@ fun LibraryScreen() {
     val me by app.social.me.collectAsState()
     val playlists by app.library.playlists.collectAsState()
     val liked by app.library.liked.collectAsState()
+    val albums by app.library.albums.collectAsState()
     var creating by remember { mutableStateOf(false) }
     var filter by remember { mutableStateOf(0) }
     val deezerLogged by app.engine.deezerLoggedIn.collectAsState(initial = false)
@@ -126,10 +127,11 @@ fun LibraryScreen() {
                     item { Pill("Tutto", filter == 0, { filter = 0 }) }
                     item { Pill("Playlist", filter == 1, { filter = 1 }) }
                     item { Pill("Da amici", filter == 2, { filter = 2 }) }
+                    if (albums.isNotEmpty()) item { Pill("Album", filter == 4, { filter = 4 }) }
                     if (deezerPlaylists.isNotEmpty()) item { Pill("Deezer", filter == 3, { filter = 3 }) }
                 }
             }
-            if (filter != 2) item {
+            if (filter != 2 && filter != 4) item {
                 LibraryRow(
                     title = "Brani che ti piacciono", subtitle = "Playlist · ${liked.size} brani",
                     art = {
@@ -139,7 +141,7 @@ fun LibraryScreen() {
                     }
                 ) { nav.open(Route.Liked) }
             }
-            if (filter != 2) item {
+            if (filter != 2 && filter != 4) item {
                 val off by dev.brahmkshatriya.echo.vibes.music.VibesOffline.entries.collectAsState()
                 LibraryRow(
                     title = "Scaricati", subtitle = "Offline · ${off.size} brani · ${formatBytes(off.values.sumOf { it.size })}",
@@ -152,7 +154,7 @@ fun LibraryScreen() {
             }
             val shown = when (filter) {
                 2 -> playlists.filter { it.from != null }
-                3 -> emptyList()
+                3, 4 -> emptyList()
                 else -> playlists
             }
             itemsIndexed(shown, key = { _, p -> p.id }) { i, p ->
@@ -161,6 +163,14 @@ fun LibraryScreen() {
                     art = { PlaylistArt(p, Modifier.size(64.dp), RoundedCornerShape(6.dp)) },
                     modifier = Modifier.enter(i)
                 ) { nav.open(Route.Playlist(p.id)) }
+            }
+            // saved albums: the album as released, opened read-only
+            if (filter == 0 || filter == 4) itemsIndexed(albums, key = { _, a -> "al" + a.id }) { i, a ->
+                LibraryRow(
+                    a.title, "Album · ${a.artist}",
+                    art = { Cover(a.cover, Modifier.size(64.dp), RoundedCornerShape(6.dp)) },
+                    modifier = Modifier.enter(i)
+                ) { nav.open(Route.DzAlbum(a.id)) }
             }
             if (filter == 0 || filter == 3) {
                 if (deezerPlaylists.isNotEmpty()) item { SectionTitle("Dal tuo account Deezer") }
@@ -256,7 +266,9 @@ fun CollectionHeader(
 ) {
     val nav = LocalApp.current.nav
     Column(Modifier.fillMaxWidth().statusBarsPadding()) {
-        IconButton(onClick = { nav.back() }, modifier = Modifier.padding(4.dp)) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Indietro") }
+        // PC: back is in the window's top bar
+        if (!PlatformUI.isDesktop) IconButton(onClick = { nav.back() }, modifier = Modifier.padding(4.dp)) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Indietro") }
+        else Spacer(Modifier.height(20.dp))
         Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) { art() }
         Text(title, style = MaterialTheme.typography.headlineMedium, maxLines = 2, overflow = TextOverflow.Ellipsis,
             modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 18.dp))
@@ -410,7 +422,7 @@ fun MediaScreen(item: EchoMediaItem) {
                     onPlay = { tracks?.let { app.engine.play(extId, it, 0, full) } },
                     onShuffle = { tracks?.let { app.engine.play(extId, it.shuffled(), 0, full) } },
                     actions = {
-                        if (songs.isNotEmpty()) IconButton(onClick = {
+                        if (songs.isNotEmpty() && full !is Album) IconButton(onClick = {
                             scope.launch {
                                 val all = (full as? dev.brahmkshatriya.echo.common.models.Playlist)?.let { pl ->
                                     runCatching { app.engine.allTracks(pl) }.getOrNull()?.map { SongRef.from(extId, it) }
@@ -508,7 +520,7 @@ fun AddToPlaylistSheet(song: SongRef, onDismiss: () -> Unit) {
     val app = LocalApp.current
     val playlists by app.library.playlists.collectAsState()
     var creating by remember { mutableStateOf(false) }
-    ModalBottomSheet(onDismissRequest = onDismiss, containerColor = MaterialTheme.colorScheme.background) {
+    VibesSheet(onDismiss) {
         // a list that scrolls: with many playlists every one must be reachable
         androidx.compose.foundation.lazy.LazyColumn(Modifier.fillMaxWidth(), contentPadding = androidx.compose.foundation.layout.PaddingValues(bottom = 16.dp)) {
           item {

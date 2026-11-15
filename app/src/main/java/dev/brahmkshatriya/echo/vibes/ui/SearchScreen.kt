@@ -58,7 +58,9 @@ import kotlinx.coroutines.delay
 fun SearchScreen() {
     val app = LocalApp.current
     val nav = app.nav
-    var query by rememberSaveable { mutableStateOf("") }
+    // PC: the search box is in the window's top bar and drives this screen
+    val localQuery = rememberSaveable { mutableStateOf("") }
+    var query by (PlatformUI.searchQuery ?: localQuery)
     var result by remember { mutableStateOf<dev.brahmkshatriya.echo.vibes.music.VibesSearch.Result?>(null) }
     var loading by remember { mutableStateOf(false) }
     var filter by rememberSaveable { mutableStateOf(0) } // 0 tutto, 1 brani, 2 artisti, 3 album, 4 playlist
@@ -82,11 +84,12 @@ fun SearchScreen() {
 
     GradientBackground {
         LazyColumn(contentPadding = ScreenPadding) {
-            item {
+            if (PlatformUI.isDesktop) item { Spacer(Modifier.height(12.dp)) }
+            if (!PlatformUI.isDesktop) item {
                 Text("Cerca", style = MaterialTheme.typography.headlineLarge,
                     modifier = Modifier.statusBarsPadding().padding(start = 16.dp, top = 16.dp, bottom = 12.dp))
             }
-            item {
+            if (!PlatformUI.isDesktop) item {
                 Row(
                     Modifier.padding(horizontal = 16.dp).fillMaxWidth().height(52.dp)
                         .glass(RoundedCornerShape(16.dp), fallback = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.12f)).padding(horizontal = 14.dp),

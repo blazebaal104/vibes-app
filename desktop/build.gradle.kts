@@ -104,6 +104,8 @@ dependencies {
     implementation("com.github.wendykierp:JTransforms:3.1") // FFT for the karaoke separator
     implementation("org.json:json:20240303") // Android ships org.json; the themes code uses it
     implementation("de.sfuhrm:jaad:0.8.7") // AAC / m4a (voice notes, uploads)
+    implementation("net.java.dev.jna:jna-platform:5.15.0") // Windows taskbar buttons
+    implementation("com.microsoft.onnxruntime:onnxruntime:1.22.0") // karaoke HD (vocal removal model)
     testImplementation(kotlin("test"))
     testImplementation("junit:junit:4.13.2")
 }

@@ -85,7 +85,11 @@ class PlayerViewModel(private val context: Context, private val loader: Extensio
         if (speed != exo.playbackParameters.speed) exo.setPlaybackSpeed(speed)
     }
 
+    /** Bumped on every player change: the queue panel and the taskbar buttons follow it. */
+    val changes = MutableStateFlow(0L)
+
     private fun publish() {
+        changes.value = changes.value + 1
         val i = exo.currentMediaItemIndex
         val item = exo.currentMediaItem
         playerState.current.value = item?.takeIf { it.desktopTag is QueueTag }?.let {
@@ -199,6 +203,15 @@ class PlayerViewModel(private val context: Context, private val loader: Extensio
     }
     /** Vibes: songs that continue a single shared/recommended song (instead of looping it). */
     fun appendTracks(extId: String, tracks: List<Track>) { if (tracks.isNotEmpty()) addToQueue(extId, tracks, next = false) }
-    fun removeQueueItem(i: Int) = exo.removeMediaItem(i)
-    fun moveQueueItem(from: Int, to: Int) = exo.moveMediaItem(from, to)
+    fun removeQueueItem(i: Int) { exo.removeMediaItem(i); publish() }
+    fun moveQueueItem(from: Int, to: Int) { exo.moveMediaItem(from, to); publish() }
+    /** Jumps to queue entry [i] and plays it. */
+    fun playAt(i: Int) { if (i in 0 until exo.mediaItemCount) { exo.seekTo(i, 0); exo.play(); publish() } }
+    /** Empties "next up" (keeps what is playing). */
+    fun clearUpcoming() { val c = exo.currentMediaItemIndex; if (c + 1 < exo.mediaItemCount) exo.removeMediaItems(c + 1, exo.mediaItemCount); publish() }
+    var volume: Float
+        get() = exo.volume
+        set(v) { exo.volume = v.coerceIn(0f, 1f); publish() }
+    val shuffle get() = exo.shuffleModeEnabled
+    val repeat get() = exo.repeatMode
 }

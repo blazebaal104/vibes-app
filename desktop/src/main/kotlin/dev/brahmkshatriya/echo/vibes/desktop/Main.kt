@@ -71,6 +71,14 @@ private fun start(args: Array<String>) {
         android.widget.Toast.show("Link copiato: incollalo dove vuoi")
     }
 
+    // UI tests (no Deezer account): put the test library's songs in the player, paused, so the
+    // "now playing" parts of the window have something to show
+    if (System.getenv("VIBES_UITEST") != null) CoroutineScope(SupervisorJob() + Dispatchers.Swing).launch {
+        kotlinx.coroutines.delay(75_000)
+        val songs = VibesGraph.library.recent.value.take(6)
+        if (songs.isNotEmpty()) runCatching { player.setQueue(songs.first().ext, songs.map { it.toTrack() }, 0, null); player.setPlaying(false) }
+    }
+
     // like the phone's activity: each song that starts → recents, play counts, "now playing" for friends
     CoroutineScope(SupervisorJob() + Dispatchers.Swing).launch {
         player.playerState.current.filterNotNull().distinctUntilChangedBy { it.mediaItem.mediaId }.collect { cur ->
@@ -82,8 +90,28 @@ private fun start(args: Array<String>) {
         }
     }
 
+    // the PC layout (library / page / now playing / player bar) instead of the phone's
+    dev.brahmkshatriya.echo.vibes.ui.PlatformUI.desktopScaffold = { link -> dev.brahmkshatriya.echo.vibes.desktop.shell.DesktopShell(link) }
+    dev.brahmkshatriya.echo.vibes.ui.PlatformUI.transparentScreens = true
+    dev.brahmkshatriya.echo.vibes.ui.PlatformUI.searchQuery = androidx.compose.runtime.mutableStateOf("")
+    dev.brahmkshatriya.echo.vibes.ui.PlatformUI.songRow = { song, content -> dev.brahmkshatriya.echo.vibes.desktop.shell.DeskSongRow(song, content) }
+
     application {
-        val state = rememberWindowState(size = DpSize(1280.dp, 820.dp), position = WindowPosition(Alignment.Center))
+        // big screens: start large (most of the screen), like the other desktop apps
+        val screen = java.awt.Toolkit.getDefaultToolkit().screenSize
+        val scale = runCatching { java.awt.GraphicsEnvironment.getLocalGraphicsEnvironment().defaultScreenDevice.defaultConfiguration.defaultTransform.scaleX }.getOrDefault(1.0)
+        val w = (screen.width / scale * 0.86).coerceIn(1100.0, 1920.0); val h = (screen.height / scale * 0.86).coerceIn(700.0, 1200.0)
+        val uitest = System.getenv("VIBES_UITEST") != null
+        val state = if (uitest) rememberWindowState(size = DpSize(screen.width.dp, screen.height.dp), position = WindowPosition(0.dp, 0.dp))
+        else rememberWindowState(size = DpSize(w.dp, h.dp), position = WindowPosition(Alignment.Center),
+            placement = if (screen.width / scale <= 1600) androidx.compose.ui.window.WindowPlacement.Maximized else androidx.compose.ui.window.WindowPlacement.Floating)
+        val desk = dev.brahmkshatriya.echo.vibes.desktop.shell.DeskHolder.state
+        var before = androidx.compose.ui.window.WindowPlacement.Floating
+        desk.isWindowFullscreen = { state.placement == androidx.compose.ui.window.WindowPlacement.Fullscreen }
+        desk.toggleWindowFullscreen = {
+            if (state.placement == androidx.compose.ui.window.WindowPlacement.Fullscreen) state.placement = before
+            else { before = state.placement; state.placement = androidx.compose.ui.window.WindowPlacement.Fullscreen }
+        }
         val icon = painterResource("icon.png")
         Window(
             onCloseRequest = ::exitApplication,
@@ -92,11 +120,14 @@ private fun start(args: Array<String>) {
             state = state,
             onPreviewKeyEvent = { ev ->
                 // Esc = Android's back button (closes dialogs/panels first, then goes back)
-                if (ev.type == KeyEventType.KeyDown && ev.key == Key.Escape) androidx.activity.compose.BackDispatcher.back() else false
+                if (ev.type == KeyEventType.KeyDown && ev.key == Key.Escape && dev.brahmkshatriya.echo.vibes.ui.PlatformUI.popups == 0) androidx.activity.compose.BackDispatcher.back() else false
             },
         ) {
             LaunchedOnce {
-                window.minimumSize = java.awt.Dimension(900, 620)
+                window.minimumSize = java.awt.Dimension(1000, 640)
+                // taskbar preview buttons: previous / play-pause / next / like (Windows only)
+                runCatching { dev.brahmkshatriya.echo.vibes.desktop.shell.TaskbarButtons.install(window, engine) }
+                    .onFailure { println("taskbar buttons: ${it.message}") }
                 runCatching { DesktopTray.install(javax.imageio.ImageIO.read(javaClass.getResourceAsStream("/icon.png"))) }
                 DesktopTray.onShow = { javax.swing.SwingUtilities.invokeLater { window.isVisible = true; window.toFront(); window.requestFocus() } }
                 // mouse "back" side button

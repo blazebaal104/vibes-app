@@ -1,5 +1,9 @@
 package dev.brahmkshatriya.echo.vibes.ui
 
+import androidx.compose.foundation.layout.heightIn
+
+import androidx.compose.foundation.layout.widthIn
+
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
@@ -158,6 +162,22 @@ fun SongRow(
     onMore: (() -> Unit)? = null,
     trailing: (@Composable () -> Unit)? = null,
 ) {
+    // PC: right click / ⋯ open the full song menu (queue, playlists, artist, album...)
+    val pc = PlatformUI.songRow
+    if (pc != null) { pc(song) { open -> SongRowContent(song, onClick, modifier, playing, index, open, trailing) }; return }
+    SongRowContent(song, onClick, modifier, playing, index, onMore, trailing)
+}
+
+@Composable
+private fun SongRowContent(
+    song: SongRef,
+    onClick: () -> Unit,
+    modifier: Modifier,
+    playing: Boolean,
+    index: Int?,
+    onMore: (() -> Unit)?,
+    trailing: (@Composable () -> Unit)?,
+) {
     Row(
         modifier
             .fillMaxWidth()
@@ -255,6 +275,14 @@ fun GradientBackground(modifier: Modifier = Modifier, tint: Color? = null, image
     val v = LocalVibes.current
     val prefs = LocalSettings.current
     val bg = if (prefs.background == "amoled") Color.Black else MaterialTheme.colorScheme.background
+    // PC: the window draws the background (colour that follows what you point at); screens only add their tint
+    if (PlatformUI.transparentScreens && image == null) {
+        Box(modifier.fillMaxSize()) {
+            if (tint != null) Box(Modifier.matchParentSize().background(Brush.verticalGradient(0f to tint.copy(alpha = 0.55f), 0.5f to tint.copy(alpha = 0.12f), 1f to Color.Transparent)))
+            content()
+        }
+        return
+    }
     Box(modifier.fillMaxSize().background(bg)) {
         if (image != null) {
             // a profile's own background photo: blurred and dimmed, with the colour wash on top (glass look)
@@ -312,4 +340,30 @@ fun EmptyState(emoji: String, title: String, subtitle: String, modifier: Modifie
     }
 }
 
-val ScreenPadding = PaddingValues(bottom = 160.dp)
+/** Room at the bottom of scrolling screens for the mini player + tab bar (the PC has neither over the content). */
+val ScreenPadding get() = if (PlatformUI.isDesktop) PaddingValues(bottom = 32.dp) else PaddingValues(bottom = 160.dp)
+
+
+/**
+ * A panel that slides up from the bottom on the phone; on PC a centred card (no drag handle: it is a
+ * mouse and keyboard app, not a phone in a window).
+ */
+@OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
+@Composable
+fun VibesSheet(onDismiss: () -> Unit, container: Color = MaterialTheme.colorScheme.background, content: @Composable androidx.compose.foundation.layout.ColumnScope.() -> Unit) {
+    if (PlatformUI.isDesktop) androidx.compose.ui.window.Dialog(
+        onDismissRequest = onDismiss,
+        properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false),
+    ) {
+        androidx.compose.runtime.DisposableEffect(Unit) { PlatformUI.popups++; onDispose { PlatformUI.popups-- } }
+        androidx.compose.foundation.layout.Column(
+            Modifier.padding(24.dp).widthIn(max = 560.dp).heightIn(max = 720.dp)
+                .clip(RoundedCornerShape(22.dp)).background(container).padding(vertical = 14.dp),
+            content = content,
+        )
+    } else androidx.compose.material3.ModalBottomSheet(
+        onDismissRequest = onDismiss, containerColor = container,
+        sheetState = androidx.compose.material3.rememberModalBottomSheetState(skipPartiallyExpanded = true),
+        content = content,
+    )
+}

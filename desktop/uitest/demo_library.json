@@ -1,0 +1,228 @@
+{
+ "playlists": [
+  {
+   "id": "p1",
+   "name": "Serata al PC",
+   "emoji": "🎧",
+   "color": "#B84DFF",
+   "songs": [
+    {
+     "ext": "deezer",
+     "id": "3135556",
+     "title": "Harder, Better, Faster, Stronger",
+     "artist": "Daft Punk",
+     "album": "Discovery",
+     "duration": 224000
+    },
+    {
+     "ext": "deezer",
+     "id": "3135553",
+     "title": "One More Time",
+     "artist": "Daft Punk",
+     "album": "Discovery",
+     "duration": 320000
+    },
+    {
+     "ext": "deezer",
+     "id": "3135554",
+     "title": "Aerodynamic",
+     "artist": "Daft Punk",
+     "album": "Discovery",
+     "duration": 207000
+    },
+    {
+     "ext": "deezer",
+     "id": "3135555",
+     "title": "Digital Love",
+     "artist": "Daft Punk",
+     "album": "Discovery",
+     "duration": 301000
+    }
+   ],
+   "createdAt": 1700000000000
+  },
+  {
+   "id": "p2",
+   "name": "Rap classici",
+   "emoji": "🔥",
+   "color": "#FF7A59",
+   "songs": [
+    {
+     "ext": "deezer",
+     "id": "1109731",
+     "title": "Lose Yourself",
+     "artist": "Eminem",
+     "album": "8 Mile",
+     "duration": 326000
+    },
+    {
+     "ext": "deezer",
+     "id": "916424",
+     "title": "Without Me",
+     "artist": "Eminem",
+     "album": "The Eminem Show",
+     "duration": 290000
+    }
+   ],
+   "createdAt": 1700000001000
+  },
+  {
+   "id": "p3",
+   "name": "Studio focus",
+   "emoji": "📚",
+   "color": "#35D0F5",
+   "songs": [
+    {
+     "ext": "deezer",
+     "id": "3135556",
+     "title": "Harder, Better, Faster, Stronger",
+     "artist": "Daft Punk",
+     "album": "Discovery",
+     "duration": 224000
+    },
+    {
+     "ext": "deezer",
+     "id": "3135553",
+     "title": "One More Time",
+     "artist": "Daft Punk",
+     "album": "Discovery",
+     "duration": 320000
+    }
+   ],
+   "createdAt": 1700000002000
+  },
+  {
+   "id": "p4",
+   "name": "Palestra",
+   "emoji": "💪",
+   "color": "#1ED760",
+   "songs": [
+    {
+     "ext": "deezer",
+     "id": "1109731",
+     "title": "Lose Yourself",
+     "artist": "Eminem",
+     "album": "8 Mile",
+     "duration": 326000
+    },
+    {
+     "ext": "deezer",
+     "id": "916424",
+     "title": "Without Me",
+     "artist": "Eminem",
+     "album": "The Eminem Show",
+     "duration": 290000
+    },
+    {
+     "ext": "deezer",
+     "id": "3135556",
+     "title": "Harder, Better, Faster, Stronger",
+     "artist": "Daft Punk",
+     "album": "Discovery",
+     "duration": 224000
+    }
+   ],
+   "createdAt": 1700000003000
+  }
+ ],
+ "liked": [
+  {
+   "ext": "deezer",
+   "id": "3135556",
+   "title": "Harder, Better, Faster, Stronger",
+   "artist": "Daft Punk",
+   "album": "Discovery",
+   "duration": 224000
+  },
+  {
+   "ext": "deezer",
+   "id": "3135553",
+   "title": "One More Time",
+   "artist": "Daft Punk",
+   "album": "Discovery",
+   "duration": 320000
+  },
+  {
+   "ext": "deezer",
+   "id": "3135554",
+   "title": "Aerodynamic",
+   "artist": "Daft Punk",
+   "album": "Discovery",
+   "duration": 207000
+  }
+ ],
+ "recent": [
+  {
+   "ext": "deezer",
+   "id": "3135556",
+   "title": "Harder, Better, Faster, Stronger",
+   "artist": "Daft Punk",
+   "album": "Discovery",
+   "duration": 224000
+  },
+  {
+   "ext": "deezer",
+   "id": "3135553",
+   "title": "One More Time",
+   "artist": "Daft Punk",
+   "album": "Discovery",
+   "duration": 320000
+  },
+  {
+   "ext": "deezer",
+   "id": "3135554",
+   "title": "Aerodynamic",
+   "artist": "Daft Punk",
+   "album": "Discovery",
+   "duration": 207000
+  },
+  {
+   "ext": "deezer",
+   "id": "3135555",
+   "title": "Digital Love",
+   "artist": "Daft Punk",
+   "album": "Discovery",
+   "duration": 301000
+  },
+  {
+   "ext": "deezer",
+   "id": "1109731",
+   "title": "Lose Yourself",
+   "artist": "Eminem",
+   "album": "8 Mile",
+   "duration": 326000
+  },
+  {
+   "ext": "deezer",
+   "id": "916424",
+   "title": "Without Me",
+   "artist": "Eminem",
+   "album": "The Eminem Show",
+   "duration": 290000
+  }
+ ],
+ "albums": [
+  {
+   "id": 302127,
+   "title": "Discovery",
+   "artist": "Daft Punk",
+   "savedAt": 1700000004000
+  }
+ ],
+ "folders": [
+  {
+   "id": "f1",
+   "name": "Allenamento",
+   "items": [
+    "pl:p4"
+   ]
+  }
+ ],
+ "artists": [
+  {
+   "id": 27,
+   "name": "Daft Punk"
+  }
+ ],
+ "albumsMigrated": true
+}

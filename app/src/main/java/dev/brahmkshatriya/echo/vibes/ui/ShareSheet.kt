@@ -89,7 +89,7 @@ fun ShareSheet(item: ShareItem, onDismiss: () -> Unit) {
         is ShareItem.Playlist -> { title = item.playlist.name; subtitle = "Playlist · ${item.playlist.songs.size} brani"; cover = item.playlist.songs.firstOrNull()?.cover }
     }
 
-    ModalBottomSheet(onDismissRequest = onDismiss, containerColor = MaterialTheme.colorScheme.background) {
+    VibesSheet(onDismiss) {
         Column(Modifier.navigationBarsPadding().padding(bottom = 12.dp)) {
             Row(Modifier.padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
                 Cover(cover, Modifier.size(56.dp))
