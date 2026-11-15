@@ -222,7 +222,11 @@ private fun CenterRoute(route: Route) {
         is Route.DzAlbum -> DeskAlbumPage(route.id)
         is Route.Media -> {
             val albumId = (route.item as? dev.brahmkshatriya.echo.common.models.Album)?.id?.toLongOrNull()
-            if (albumId != null) DeskAlbumPage(albumId) else Wide { Screen(route) }
+            when {
+                albumId != null -> DeskAlbumPage(albumId)
+                route.item is dev.brahmkshatriya.echo.common.models.Artist -> Wide { Screen(route) }
+                else -> DeskMediaPage(route.item)
+            }
         }
         // the phone's screens, centred at a comfortable width
         Route.Games, is Route.Guess, is Route.BlindTest, Route.Layers -> Wide(900) { Screen(route) }

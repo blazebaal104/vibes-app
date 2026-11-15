@@ -198,6 +198,18 @@ object Actions {
     }
 
     fun newPlaylistColor() = avatarColors.random()
+
+    /** All the songs of an engine item (Deezer playlist / album), loading every page of a playlist. */
+    suspend fun mediaTracks(app: AppState, item: dev.brahmkshatriya.echo.common.models.EchoMediaItem): Pair<dev.brahmkshatriya.echo.common.models.EchoMediaItem, List<dev.brahmkshatriya.echo.common.models.Track>> {
+        val (full, first) = app.engine.open(item)
+        val all = (full as? dev.brahmkshatriya.echo.common.models.Playlist)?.let { runCatching { app.engine.allTracks(it) }.getOrNull() } ?: first
+        return full to all
+    }
+
+    suspend fun playMedia(app: AppState, item: dev.brahmkshatriya.echo.common.models.EchoMediaItem) {
+        val (full, tracks) = runCatching { mediaTracks(app, item) }.getOrElse { app.nav.toast(it.message ?: "Errore di caricamento"); return }
+        if (tracks.isNotEmpty()) app.engine.play(app.engine.extensionId(), tracks, 0, full)
+    }
 }
 
 /** Every song row of the shared screens (search, artist, history...): hover highlight + the song menu. */

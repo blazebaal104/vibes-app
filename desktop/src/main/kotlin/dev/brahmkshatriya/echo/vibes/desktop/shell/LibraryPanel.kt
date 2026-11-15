@@ -66,6 +66,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import dev.brahmkshatriya.echo.vibes.VibesGraph
+import dev.brahmkshatriya.echo.vibes.backend.SongRef.Companion.url
 import dev.brahmkshatriya.echo.vibes.music.FollowedArtist
 import dev.brahmkshatriya.echo.vibes.music.LibraryFolder
 import dev.brahmkshatriya.echo.vibes.music.SavedAlbum
@@ -85,6 +86,8 @@ private sealed interface LibItem {
     data class Pl(val p: VibesPlaylist, val inFolder: Boolean = false) : LibItem { override val key = "pl:${p.id}"; override val title = p.name; override val sortTime = p.createdAt; override val author = p.from ?: "" }
     data class Al(val a: SavedAlbum) : LibItem { override val key = "al:${a.id}"; override val title = a.title; override val sortTime = a.savedAt; override val author = a.artist }
     data class Ar(val a: FollowedArtist) : LibItem { override val key = "ar:${a.id}"; override val title = a.name; override val sortTime = 0L; override val author = a.name }
+    /** A playlist of the user's Deezer account. */
+    data class Dz(val p: dev.brahmkshatriya.echo.common.models.Playlist) : LibItem { override val key = "dz:${p.id}"; override val title = p.title; override val sortTime = 1L; override val author = "Deezer" }
     data class Fo(val f: LibraryFolder) : LibItem { override val key = "fo:${f.id}"; override val title = f.name; override val sortTime = 0L; override val author = "" }
 }
 
@@ -119,17 +122,23 @@ fun LibraryPanel(width: Dp, modifier: Modifier = Modifier) {
     var deleting by remember { mutableStateOf<VibesPlaylist?>(null) }
     val openFolders = remember { androidx.compose.runtime.mutableStateMapOf<String, Boolean>() }
     val scope = rememberCoroutineScope()
+    // the playlists of the Deezer account, like on the phone
+    val deezerLogged by app.engine.deezerLoggedIn.collectAsState(initial = false)
+    var deezer by remember { mutableStateOf<List<dev.brahmkshatriya.echo.common.models.Playlist>>(emptyList()) }
+    androidx.compose.runtime.LaunchedEffect(deezerLogged) {
+        if (deezerLogged) deezer = runCatching { app.engine.libraryPlaylists() }.getOrDefault(emptyList())
+    }
 
     val inFolder = folders.flatMap { it.items }.toSet()
     val items: List<LibItem> = run {
         fun recent(k: String, fallback: Long) = opened[k] ?: (fallback / 1000)
         val pls = playlists.filter { filter == 0 || "pl:${it.id}" !in inFolder }.map { LibItem.Pl(it) }
         val all = when (filter) {
-            0 -> pls
+            0 -> pls + deezer.map { LibItem.Dz(it) }
             1 -> albums.map { LibItem.Al(it) }
             2 -> artists.map { LibItem.Ar(it) }
             3 -> folders.map { LibItem.Fo(it) }
-            else -> folders.map { LibItem.Fo(it) } + pls + albums.map { LibItem.Al(it) } + artists.map { LibItem.Ar(it) }
+            else -> folders.map { LibItem.Fo(it) } + pls + albums.map { LibItem.Al(it) } + artists.map { LibItem.Ar(it) } + deezer.map { LibItem.Dz(it) }
         }.filter { query.isBlank() || it.title.contains(query, true) || it.author.contains(query, true) }
         val sorted = when (desk.librarySort) {
             1 -> all.sortedByDescending { it.sortTime }
@@ -229,6 +238,14 @@ fun LibraryPanel(width: Dp, modifier: Modifier = Modifier) {
                             menu = { albumMenu(app, it.a.id, it.a.title, it.a.artist, it.a.cover) },
                             onOpen = { nav.open(Route.DzAlbum(it.a.id)) },
                             onPlay = { scope.launch { VibesGraph.deezer.album(it.a.id)?.let { a -> app.engine.playAll(a.tracks.map { t -> t.toSongRef().copy(album = a.title) }); app.library.touch(it.key) } } })
+                        is LibItem.Dz -> {
+                            val cover = it.p.cover.url()
+                            LibRow(collapsed, it.p.title, "Playlist Deezer" + (it.p.trackCount?.let { n -> " · $n brani" } ?: ""),
+                                { m -> Cover(cover, m, RoundedCornerShape(12.dp)) }, cover = cover,
+                                active = nav.current == Route.Media(it.p),
+                                onOpen = { nav.open(Route.Media(it.p)); app.library.touch(it.key) },
+                                onPlay = { scope.launch { Actions.playMedia(app, it.p) } })
+                        }
                         is LibItem.Ar -> LibRow(collapsed, it.a.name, "Artista", { m -> Cover(it.a.picture, m, CircleShape) }, round = true, cover = it.a.picture,
                             active = nav.current == Route.DzArtist(it.a.id, it.a.name),
                             menu = { listOf(MenuItem("Non seguire più", Icons.Rounded.PersonRemove) { app.library.unfollowArtist(it.a.id) }) },

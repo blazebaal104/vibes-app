@@ -633,3 +633,57 @@ fun DeskLibraryPage() {
         }
     }
 }
+
+
+// ---------------------------------------------------------------- a Deezer playlist (from the account or the home)
+
+@Composable
+fun DeskMediaPage(item: dev.brahmkshatriya.echo.common.models.EchoMediaItem) {
+    val app = LocalApp.current
+    val nav = app.nav
+    var full by remember(item.id) { mutableStateOf(item) }
+    var songs by remember(item.id) { mutableStateOf<List<SongRef>?>(null) }
+    var tracks by remember(item.id) { mutableStateOf<List<dev.brahmkshatriya.echo.common.models.Track>>(emptyList()) }
+    var extId by remember { mutableStateOf(MusicEngine.DEEZER) }
+    LaunchedEffect(item.id) {
+        runCatching { extId = app.engine.extensionId(); Actions.mediaTracks(app, item) }
+            .onSuccess { (f, t) -> full = f; tracks = t; songs = t.map { SongRef.from(extId, it) } }
+            .onFailure { songs = emptyList(); nav.toast(it.message ?: "Errore di caricamento") }
+    }
+    val cover = full.cover.url()
+    val color = rememberCoverColor(cover)
+    PageColor(color)
+    val list = songs.orEmpty()
+    val playing = playingFrom(null, list)
+    val selection = remember { Selection() }
+    val state = rememberLazyListState()
+    fun play(i: Int = 0) { if (tracks.isNotEmpty()) app.engine.play(extId, tracks, i, full) }
+    Box(Modifier.fillMaxSize()) {
+        LazyColumn(state = state, modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 40.dp)) {
+            item {
+                PageHeader("Playlist", full.title, { m -> Cover(cover, m, RoundedCornerShape(20.dp)) }) {
+                    Text((full.subtitle?.let { "$it · " } ?: "") + (songs?.let { "${it.size} brani" + totalTime(it) } ?: "Carico…"),
+                        color = Color.White, style = MaterialTheme.typography.bodyMedium)
+                }
+            }
+            item {
+                ActionRow {
+                    PlayCircle(56.dp, playing) { if (playing) app.engine.togglePlay() else play() }
+                    DeskIcon(Icons.Rounded.Shuffle, "Riproduci in ordine casuale", size = 44.dp, iconSize = 30.dp) {
+                        if (tracks.isNotEmpty()) app.engine.play(extId, tracks.shuffled(), 0, full)
+                    }
+                    DeskIcon(Icons.Rounded.AddCircleOutline, "Copia nelle playlist di Vibes", size = 44.dp, iconSize = 32.dp) {
+                        if (list.isNotEmpty()) {
+                            val p = app.library.createPlaylist(full.title, "🎵", Actions.newPlaylistColor(), list, cover = cover)
+                            nav.toast("Copiata in Vibes (${list.size} brani)"); nav.open(Route.Playlist(p.id))
+                        }
+                    }
+                    DeskIcon(Icons.AutoMirrored.Rounded.PlaylistAdd, "Aggiungi alla coda", size = 44.dp, iconSize = 28.dp) { Actions.queue(app, list, false) }
+                }
+            }
+            if (songs == null) item { Box(Modifier.fillMaxWidth().padding(40.dp), contentAlignment = Alignment.Center) { androidx.compose.material3.CircularProgressIndicator() } }
+            trackList(list, selection, ::play)
+        }
+        StickyBar(state.firstVisibleItemIndex > 0, color ?: Desk.panel, full.title, playing) { if (playing) app.engine.togglePlay() else play() }
+    }
+}
