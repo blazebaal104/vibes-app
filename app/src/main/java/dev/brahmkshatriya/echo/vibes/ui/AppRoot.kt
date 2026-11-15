@@ -346,6 +346,8 @@ fun Screen(route: Route) {
         Route.EditProfile -> EditProfileScreen()
         Route.AddFriend -> AddFriendScreen()
         Route.Settings -> SettingsScreen()
+        Route.Feedback -> FeedbackScreen()
+        Route.FeedbackAdmin -> FeedbackAdminScreen()
         Route.DeezerLogin -> DeezerLoginScreen()
         is Route.SharedPlaylist -> SharedPlaylistScreen(route.id, route.collab)
         is Route.Guess -> GuessGameScreen(route.lobbyId, route.source)

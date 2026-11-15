@@ -27,6 +27,8 @@ sealed interface Route {
     data object EditProfile : Route
     data object AddFriend : Route
     data object Settings : Route
+    data object Feedback : Route
+    data object FeedbackAdmin : Route
     data object DeezerLogin : Route
     data class SharedPlaylist(val id: String, val collab: String? = null) : Route
     data class Guess(val lobbyId: String? = null, val source: dev.brahmkshatriya.echo.vibes.games.GameSource? = null) : Route

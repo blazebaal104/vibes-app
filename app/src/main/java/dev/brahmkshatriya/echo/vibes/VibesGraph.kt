@@ -29,6 +29,8 @@ object VibesGraph {
     val collab by lazy { dev.brahmkshatriya.echo.vibes.backend.CollabPlaylists(supa, library) }
     val deezer by lazy { DeezerPublic(supa.http) }
     /** Playlists, likes, albums... the same on every device of the account. */
+    /** "Segnala un problema": reports and ideas, answered by the admins. */
+    val feedback by lazy { dev.brahmkshatriya.echo.vibes.backend.FeedbackApi(supa) }
     val librarySync by lazy { dev.brahmkshatriya.echo.vibes.backend.LibrarySync(supa, library) }
     val recommender by lazy { dev.brahmkshatriya.echo.vibes.music.Recommender(deezer, library) }
     val importer by lazy { dev.brahmkshatriya.echo.vibes.music.Importer(deezer, { library }, supa.http) }

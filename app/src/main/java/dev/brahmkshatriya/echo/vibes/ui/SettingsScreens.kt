@@ -1,5 +1,7 @@
 package dev.brahmkshatriya.echo.vibes.ui
 
+import androidx.compose.runtime.LaunchedEffect
+
 import androidx.compose.foundation.verticalScroll
 
 import androidx.compose.foundation.background
@@ -79,6 +81,27 @@ fun SettingsScreen() {
                 Row(Modifier.statusBarsPadding().padding(4.dp), verticalAlignment = Alignment.CenterVertically) {
                     IconButton(onClick = { nav.back() }) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Indietro") }
                     Text("Impostazioni", style = MaterialTheme.typography.headlineSmall)
+                }
+            }
+            // feedback first: easy to find when something goes wrong
+            item {
+                Row(
+                    Modifier.padding(horizontal = 16.dp, vertical = 8.dp).fillMaxWidth().clip(RoundedCornerShape(18.dp))
+                        .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.16f)).clickable { nav.open(Route.Feedback) }.padding(16.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text("🐞", style = MaterialTheme.typography.headlineSmall)
+                    Column(Modifier.weight(1f).padding(start = 14.dp)) {
+                        Text("Segnala un problema o suggerisci un'idea", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                        Text("Scrivici cosa non va: ti rispondiamo qui nell'app", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
+            }
+            if (app.social.isAdmin) item {
+                var nuove by remember { mutableStateOf<Int?>(null) }
+                LaunchedEffect(Unit) { nuove = runCatching { dev.brahmkshatriya.echo.vibes.VibesGraph.feedback.all().count { it.status == "nuovo" } }.getOrNull() }
+                SettingRow("Segnalazioni ricevute (admin)", nuove?.let { if (it == 0) "Nessuna nuova" else "$it nuove da leggere" } ?: "Carico…", "Apri") {
+                    nav.open(Route.FeedbackAdmin)
                 }
             }
             item { SectionTitle("Tema") }
