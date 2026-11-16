@@ -24,7 +24,7 @@ import java.util.concurrent.atomic.AtomicInteger
  * Supported: Deezer links (public API) and Spotify links (the public embed page, which lists up to
  * ~100 tracks without needing a Spotify account).
  */
-class Importer(private val deezer: DeezerPublic, private val libraryProvider: () -> VibesLibrary, private val http: okhttp3.OkHttpClient, val matcher: SongMatcher) {
+class Importer(private val deezer: DeezerPublic, private val libraryProvider: () -> VibesLibrary, private val http: okhttp3.OkHttpClient, val matcher: SongMatcher = SongMatcher(deezer, null)) {
     private val library get() = libraryProvider()
 
     data class Progress(val done: Int, val total: Int, val found: Int, val stage: String)

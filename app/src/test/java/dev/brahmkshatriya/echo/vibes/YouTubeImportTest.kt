@@ -39,8 +39,8 @@ class YouTubeImportTest {
         assertTrue("more than one page (100) of songs", items.size > 100)
         assertTrue(src.name.isNotBlank() && src.name != "Da YouTube Music")
         assertNotNull(src.cover)
-        assertTrue(items.all { it.first.isNotBlank() && it.second.isNotBlank() })
-        assertTrue("no (Official Video) noise", items.none { it.first.contains("Official", ignoreCase = true) })
+        assertTrue(items.all { it.title.isNotBlank() && it.artist.isNotBlank() })
+        assertTrue("no (Official Video) noise", items.none { it.title.contains("Official", ignoreCase = true) })
     }
 
     @Test

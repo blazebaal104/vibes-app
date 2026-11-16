@@ -21,7 +21,7 @@ import java.util.concurrent.ConcurrentHashMap
  *
  * Every candidate gets a score (title, artists, duration): the best wins, look-alikes are refused.
  */
-class SongMatcher(private val deezer: DeezerPublic, private val supa: Supa) {
+class SongMatcher(private val deezer: DeezerPublic, private val supa: Supa?) {
 
     /** A song to find. */
     data class Want(val title: String, val artist: String, val durationMs: Long? = null, val isrc: String? = null)
@@ -99,6 +99,7 @@ class SongMatcher(private val deezer: DeezerPublic, private val supa: Supa) {
 
     /** Loads what other users already matched for these songs (one request per 60 songs). */
     suspend fun prefetch(wants: List<Want>) {
+        val supa = supa ?: return
         val keys = wants.flatMap { listOfNotNull(key(it), it.isrc?.let { i -> "isrc:" + i.uppercase() }) }.distinct().filter { !memory.containsKey(it) }
         keys.chunked(60).forEach { chunk ->
             runCatching {
@@ -116,6 +117,7 @@ class SongMatcher(private val deezer: DeezerPublic, private val supa: Supa) {
 
     /** Shares the new matches with everyone (one request at the end). */
     suspend fun flush() {
+        val supa = supa ?: return
         if (toSave.isEmpty()) return
         val rows = buildJsonArray {
             toSave.forEach { (k, s) -> add(buildJsonObject { put("key", k); put("song", Supa.json.encodeToJsonElement(s.copy(data = null))) }) }

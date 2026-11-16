@@ -43,7 +43,7 @@ jobs:
       - name: Compile phone app
         continue-on-error: true
         run: |
-          ./gradlew :app:compileReleaseKotlin --build-cache --parallel --no-configuration-cache 2>&1 | tee android.log && echo "PHONE: OK" >> out/status.txt || echo "PHONE: FAILED" >> out/status.txt
+          ./gradlew :app:compileReleaseKotlin :app:compileReleaseUnitTestKotlin --build-cache --parallel --no-configuration-cache 2>&1 | tee android.log && echo "PHONE: OK" >> out/status.txt || echo "PHONE: FAILED" >> out/status.txt
           grep -E "^e: " android.log | sed 's|file://.*/app/src/main/java/||' | sort -u | head -200 > out/android-errors.txt || true
           grep -E "What went wrong" -A12 android.log | head -40 >> out/android-errors.txt || true
       - name: Screenshots

@@ -39,8 +39,8 @@ class AppleImportTest {
         val items = src.items!!
         println("Apple test: '${src.name}' ${items.size} songs, cover=${src.cover}")
         assertTrue("songs found (${items.size})", items.size >= 20)
-        assertTrue(items.all { it.first.isNotBlank() && it.second.isNotBlank() })
-        assertTrue(items.map { it.second }.toSet().size > 5) // real artists, not one placeholder
+        assertTrue(items.all { it.title.isNotBlank() && it.artist.isNotBlank() })
+        assertTrue(items.map { it.artist }.toSet().size > 5) // real artists, not one placeholder
         assertTrue(src.name.isNotBlank() && !src.name.contains("Apple Music"))
         assertNotNull(src.cover)
     }
