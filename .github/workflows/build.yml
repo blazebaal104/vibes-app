@@ -154,8 +154,9 @@ jobs:
 
   # Vibes for Windows: same build number, installer published next to the APK (in 45 MB parts:
   # the storage limit is 50 MB per file) and added to latest.json for in-app updates on PC.
+  # Runs IN PARALLEL with the phone build (saves ~6 minutes); it only waits for the phone release
+  # before attaching/publishing, so latest.json is still written phone first, Windows second.
   windows:
-    needs: build
     runs-on: windows-latest
     timeout-minutes: 45
     steps:
@@ -183,12 +184,28 @@ jobs:
         shell: bash
         run: |
           grep -E "^e: |error:|What went wrong" -A6 win.log | head -150
+      - name: Wait for the phone release
+        id: wait
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          PUB=https://kxgswrwitsedppjzcokh.supabase.co/storage/v1/object/public/vibes-updates
+          for i in $(seq 1 120); do
+            V=$(curl -sS "$PUB/latest.json?t=$(date +%s)" | jq -r .versionCode 2>/dev/null || true)
+            if [ "$V" = "$N" ]; then echo "phone release $N is out"; echo "ok=true" >> $GITHUB_OUTPUT; exit 0; fi
+            sleep 15
+          done
+          echo "phone release $N never appeared (phone build failed or was replaced): Windows not published"
+          echo "ok=false" >> $GITHUB_OUTPUT
       - name: Attach to the release
+        if: steps.wait.outputs.ok == 'true'
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
         run: gh release upload build-$N out/Vibes-Setup.exe --clobber || true
       - name: Keep the installer in git (branch windows-exe) for direct sharing
+        if: steps.wait.outputs.ok == 'true'
         shell: bash
         run: |
           mkdir -p /tmp/exe && cp out/Vibes-Setup.exe /tmp/exe/ && cd /tmp/exe
@@ -198,6 +215,7 @@ jobs:
           git add . && git -c user.name=ci -c user.email=ci@vibes commit -qm "Vibes for Windows build $N"
           git push -q -f "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" windows-exe
       - name: Publish Windows update
+        if: steps.wait.outputs.ok == 'true'
         shell: bash
         run: |
           set -e
