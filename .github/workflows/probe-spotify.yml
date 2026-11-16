@@ -9,5 +9,5 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - run: python3 .github/probe/spotify.py 37i9dQZF1DX4UtSsGT1Sbe 37i9dQZF1DWVlYsZJXqdym > probe.txt 2>&1 || true
+      - run: python3 .github/probe/spotify.py 4cOdK2wGLETKBW3PvgPWqT 0VjIjW4GlUZAMYd2vXMi3b > probe.txt 2>&1 || true
       - run: cat probe.txt
