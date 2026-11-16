@@ -93,6 +93,7 @@ fun ImportScreen() {
 
     // the "playlist longer than 100" help page, and playlists read from a file
     var longHelp by remember { mutableStateOf(false) }
+    var tuneMyMusic by remember { mutableStateOf(false) }
     var fileChoices by remember { mutableStateOf<List<Importer.Source>>(emptyList()) }
     var job by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
     fun run(block: suspend () -> Importer.Preview) {
@@ -296,8 +297,11 @@ fun ImportScreen() {
             longHelp = false
         },
         onFile = { filePicker.launch(arrayOf("text/*", "application/json", "application/octet-stream", "*/*")) },
-        onOpen = { runCatching { uri.openUri(it) } },
+        onOpen = { if (it.contains("tunemymusic")) { longHelp = false; tuneMyMusic = true } else runCatching { uri.openUri(it) } },
     )
+    androidx.activity.compose.BackHandler(enabled = tuneMyMusic) { tuneMyMusic = false }
+    // TuneMyMusic inside Vibes: when the Deezer copy is ready, its link comes back here and is imported
+    if (tuneMyMusic) TransferWeb(onBack = { tuneMyMusic = false }) { url -> tuneMyMusic = false; link = url }
     if (fileChoices.isNotEmpty()) VibesSheet({ fileChoices = emptyList() }) {
         Text("Quale playlist importo?", style = MaterialTheme.typography.titleLarge, modifier = Modifier.padding(16.dp))
         androidx.compose.foundation.lazy.LazyColumn(Modifier.heightIn(max = 520.dp)) {
@@ -332,10 +336,10 @@ private fun LongPlaylistHelp(partial: Boolean, onClose: () -> Unit, onPaste: () 
                     style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 8.dp, bottom = 8.dp))
             }
             item {
-                HelpCard("1", "Il più semplice: passa da TuneMyMusic", "Funziona anche dal telefono", green, listOf(
-                    "Apri TuneMyMusic e scegli Spotify come origine",
-                    "Incolla il link della tua playlist e scegli Deezer (o YouTube Music) come destinazione",
-                    "Copia il link della nuova playlist Deezer e incollalo qui: Vibes la importa intera, a qualsiasi lunghezza",
+                HelpCard("1", "Il più semplice: con TuneMyMusic, qui dentro", "Funziona anche dal telefono · gratis fino a 500 brani", green, listOf(
+                    "Tocca il pulsante: TuneMyMusic si apre dentro Vibes",
+                    "Scegli Spotify come origine, la tua playlist, e Deezer come destinazione (serve un account Deezer, anche gratis)",
+                    "Appena la playlist è pronta su Deezer, Vibes la prende e la importa intera da solo",
                 )) { Pill("Apri TuneMyMusic", true, { onOpen("https://www.tunemymusic.com/it/transfer") }) }
             }
             item {
