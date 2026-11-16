@@ -20,6 +20,7 @@ import dev.brahmkshatriya.echo.extension.api.DeezerUtil
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
@@ -454,7 +455,8 @@ class DeezerApi(private val session: DeezerSession) {
         method: String,
         paramsBuilder: JsonObjectBuilder.() -> Unit = {},
         gatewayInput: String? = "",
-        np: Boolean = false
+        np: Boolean = false,
+        csrfRetried: Boolean = false
     ): JsonObject = withContext(Dispatchers.IO) {
         val url = HttpUrl.Builder()
             .scheme("https").host("www.deezer.com")
@@ -517,8 +519,19 @@ class DeezerApi(private val session: DeezerSession) {
             if (errorObj != null) {
                 if (errorObj["VALID_TOKEN_REQUIRED"]?.jsonPrimitive?.content?.contains("Invalid CSRF token") == true) {
                     if (email.isEmpty() && pass.isEmpty()) {
+                        // Vibes: links are ARL-only. "Invalid CSRF token" here almost always means the
+                        // SHORT-LIVED api_token/sid expired (hours-days), NOT the ARL (months). Before
+                        // this, every such expiry marked the ARL dead and the user saw "non collegato"
+                        // every 2-3 days. Now: refresh token+sid from the ARL and retry once; only a
+                        // refresh that itself fails means the ARL is really gone.
+                        if (method != "deezer.getUserData" && !csrfRetried && arl.isNotEmpty()) {
+                            val fresh = runCatching { refreshFromArl() }.getOrNull()
+                            if (fresh != null) {
+                                return@withContext callApi(method, paramsBuilder, gatewayInput, np, csrfRetried = true)
+                            }
+                        }
                         session.isArlExpired(true)
-                        throw Exception("Please re-login (Best use User + Pass method)")
+                        throw ClientException.LoginRequired()
                     } else {
                         session.isArlExpired(false)
                         // ⚠⚠ THE ENCLOSING CSRF BRANCH IS PROTECTED BY TWO PRIOR SESSIONS - DO
@@ -762,6 +775,42 @@ class DeezerApi(private val session: DeezerSession) {
     }
 
     //<============= Login =============>
+
+    private val refreshLock = kotlinx.coroutines.sync.Mutex()
+    @Volatile private var lastRefresh = 0L
+
+    /**
+     * Vibes: renews the short-lived api_token (checkForm) and sid using only the long-lived ARL.
+     * Serialised so a burst of failing calls (queue restore, home shelves) refreshes once.
+     */
+    suspend fun refreshFromArl(): User = refreshLock.withLock {
+        if (System.currentTimeMillis() - lastRefresh < 15_000 && token.isNotEmpty()) {
+            return@withLock makeUserCached ?: makeUser().first()
+        }
+        session.updateCredentials(sid = "", token = "")
+        val user = try {
+            makeUser().first()
+        } catch (e: Exception) {
+            // Deezer answered but recognised no account for this ARL: that, and only that, is a dead link.
+            if ("USER_ID" in e.message.orEmpty() || "USER object" in e.message.orEmpty()) {
+                session.isArlExpired(true); throw ClientException.LoginRequired()
+            }
+            throw e
+        }
+        if (user.id == "0" || user.id.isEmpty()) {
+            session.isArlExpired(true); throw ClientException.LoginRequired()
+        }
+        val ex = user.extras
+        session.updateCredentials(
+            sid = ex["sid"], token = ex["token"], userId = ex["user_id"],
+            licenseToken = ex["license_token"]?.takeIf { it.isNotEmpty() }
+        )
+        session.isArlExpired(false)
+        lastRefresh = System.currentTimeMillis()
+        makeUserCached = user
+        user
+    }
+    @Volatile private var makeUserCached: User? = null
 
     suspend fun makeUser(email: String? = null, pass: String? = null): List<User> {
         val userEmail = email ?: this.email

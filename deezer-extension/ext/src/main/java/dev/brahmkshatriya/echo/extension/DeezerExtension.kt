@@ -821,6 +821,15 @@ class DeezerExtension : HomeFeedClient, TrackClient, LikeClient, RadioClient,
     //<============= Login =============>
 
     override suspend fun getCurrentUser(): User {
+        // Vibes: an ARL-only link renews its short-lived token here, so the start-up check never
+        // mistakes an old token for a dead account.
+        val c = session.credentials
+        if (c.email.isEmpty() && c.arl.isNotEmpty()) {
+            return runCatching { api.refreshFromArl() }.getOrElse {
+                if (it is ClientException.LoginRequired) throw it
+                api.makeUser().firstOrNull() ?: throw it
+            }
+        }
         val userList = api.makeUser()
         return userList.firstOrNull() ?: throw Exception("Login failed: could not retrieve user after authentication")
     }
@@ -1075,6 +1084,8 @@ class DeezerExtension : HomeFeedClient, TrackClient, LikeClient, RadioClient,
      * (credentials present, used, and REFUSED) look unfixable. That state is distinguishable where
      * it happens; see the note at DeezerApi.callApi's CSRF branch.
      */
+    @Volatile private var lastArlRetry = 0L
+
     suspend fun handleArlExpiration() {
         val creds = session.credentials
         val isArlExpired = session.arlExpired || creds.arl.isEmpty()
@@ -1088,10 +1099,19 @@ class DeezerExtension : HomeFeedClient, TrackClient, LikeClient, RadioClient,
                 // login - see DeezerSession.credentialsRejected.
                 if (session.credentialsRejected) throw ClientException.LoginRequired()
                 api.makeUser()
-            } else if (isArlExpired) {
+            } else if (creds.arl.isEmpty()) {
                 throw ClientException.LoginRequired()
+            } else if (isArlExpired) {
+                // Vibes: the latch is often set by an expired TOKEN, not a dead ARL. Give the ARL one
+                // real chance (at most once a minute, so a truly dead link doesn't hammer Deezer).
+                val now = System.currentTimeMillis()
+                if (now - lastArlRetry < 60_000) throw ClientException.LoginRequired()
+                lastArlRetry = now
+                runCatching { api.refreshFromArl() }.getOrElse { throw ClientException.LoginRequired() }
             } else {
-                runCatching { api.makeUser() }
+                // Missing sid/token: makeUser alone never stored the new token, so the next call hit
+                // "Invalid CSRF token" and the link looked dead. refreshFromArl stores both.
+                runCatching { api.refreshFromArl() }
             }
         }
     }

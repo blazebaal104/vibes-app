@@ -108,6 +108,12 @@ class MusicEngine(
                 extension().getAs<LoginClient, User?> { getCurrentUser() }.getOrThrow()
             }
         }
+        // Vibes: keep the freshly renewed token/sid on disk, so the next start doesn't begin from a
+        // stale token (it would still self-heal, but this saves a refused first request).
+        r.getOrNull()?.let { u ->
+            if (!u.extras["arl"].isNullOrEmpty())
+                runCatching { userDao.insertUsers(listOf(u.toEntity(ExtensionType.MUSIC, extension().id))) }
+        }
         when {
             r.isSuccess -> r.getOrNull() != null
             DeezerAuth.isLoginError(r.exceptionOrNull()) -> false
