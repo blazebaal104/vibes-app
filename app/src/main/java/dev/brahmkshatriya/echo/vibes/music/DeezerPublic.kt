@@ -54,8 +54,40 @@ class DeezerPublic(private val http: OkHttpClient) {
         }.getOrNull()
     }
 
-    private fun JsonObject.toGameTrack(): GameTrack? {
-        val preview = this["preview"]?.jsonPrimitive?.contentOrNull?.takeIf { it.isNotBlank() } ?: return null
+    /**
+     * Like [get], but when Deezer answers "Quota limit exceeded" (50 requests / 5 s per device) it
+     * waits a moment and tries again instead of returning nothing: a refused request must never
+     * look like "this song doesn't exist". Only the requests that hit the limit wait.
+     */
+    private suspend fun getPatient(url: String, tries: Int = 8): JsonObject? {
+        repeat(tries) { attempt ->
+            val o = get(url)
+            val err = o?.get("error") as? JsonObject
+            val code = err?.get("code")?.jsonPrimitive?.intOrNull
+            when {
+                o != null && err == null -> return o
+                code == 4 || code == 700 -> kotlinx.coroutines.delay(900L + attempt * 600L + (0..400).random()) // quota / busy
+                o == null -> kotlinx.coroutines.delay(400L + attempt * 400L) // network hiccup
+                else -> return o // a real answer (e.g. "no data")
+            }
+        }
+        return null
+    }
+
+    /** Search for matching (imports): every result, also songs without a 30 s preview. */
+    suspend fun searchAny(q: String, limit: Int = 10): List<GameTrack> {
+        if (q.isBlank()) return emptyList()
+        return getPatient("https://api.deezer.com/search?limit=$limit&q=" + URLEncoder.encode(q, "UTF-8"))
+            ?.get("data")?.jsonArray?.mapNotNull { (it as? JsonObject)?.toGameTrack(needPreview = false) }.orEmpty()
+    }
+
+    /** The exact song from its ISRC code (same recording on every service). */
+    suspend fun byIsrc(isrc: String): GameTrack? =
+        getPatient("https://api.deezer.com/track/isrc:" + URLEncoder.encode(isrc.trim().uppercase(), "UTF-8"))
+            ?.takeIf { it["error"] == null }?.toGameTrack(needPreview = false)
+
+    private fun JsonObject.toGameTrack(needPreview: Boolean = true): GameTrack? {
+        val preview = this["preview"]?.jsonPrimitive?.contentOrNull?.takeIf { it.isNotBlank() } ?: if (needPreview) return null else ""
         val artist = this["artist"]?.jsonObject
         val album = this["album"]?.jsonObject
         return GameTrack(

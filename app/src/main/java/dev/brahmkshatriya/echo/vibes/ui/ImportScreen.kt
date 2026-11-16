@@ -77,6 +77,8 @@ fun ImportScreen() {
     var progress by remember { mutableStateOf<Importer.Progress?>(null) }
     var error by remember { mutableStateOf<String?>(null) }
     var preview by remember { mutableStateOf<Importer.Preview?>(null) }
+    // songs found so far, while the search runs (the list fills in live)
+    var partial by remember { mutableStateOf<List<Importer.PreviewItem?>>(emptyList()) }
     var name by remember { mutableStateOf("") }
     var cover by remember { mutableStateOf<String?>(null) }
     val items = remember { mutableStateListOf<Importer.PreviewItem>() }
@@ -87,10 +89,10 @@ fun ImportScreen() {
 
     // reads the playlist as soon as a supported link is pasted
     LaunchedEffect(link) {
-        preview = null; error = null; progress = null; items.clear(); included.clear()
+        preview = null; error = null; progress = null; items.clear(); included.clear(); partial = emptyList()
         if (service == null) return@LaunchedEffect
         delay(500)
-        runCatching { VibesGraph.importer.preview(link) { p -> progress = p } }
+        runCatching { VibesGraph.importer.preview(link, { p -> progress = p }) { l -> partial = l } }
             .onSuccess { p ->
                 preview = p; name = p.name; cover = p.cover
                 items.addAll(p.items); included.addAll(p.items.map { it.match != null })
@@ -150,8 +152,28 @@ fun ImportScreen() {
                     }
                 }
             }
+            // ---------------------------------------------------------------- live list while searching
+            if (preview == null && progress != null) {
+                val live = partial.filterNotNull()
+                items(live.size.coerceAtMost(400), key = { "live$it" }) { i ->
+                    val it = live[live.size - 1 - i]
+                    Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 5.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Cover(it.match?.cover, Modifier.size(40.dp))
+                        Spacer(Modifier.width(10.dp))
+                        Column(Modifier.weight(1f)) {
+                            Text(it.match?.title ?: it.title, style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            Text(if (it.match != null) it.match.artist else "Ancora da trovare…", style = MaterialTheme.typography.bodySmall,
+                                color = if (it.match != null) MaterialTheme.colorScheme.onSurfaceVariant else Color(0xFFFFB86B), maxLines = 1)
+                        }
+                    }
+                }
+            }
             // ---------------------------------------------------------------- preview
             preview?.let { p ->
+                if (p.partial) item {
+                    Text("Spotify ci lascia leggere solo i primi 100 brani di questa playlist: questi sono stati cercati tutti. Per il resto, dividi la playlist su Spotify e importa anche l'altra parte.",
+                        style = MaterialTheme.typography.bodySmall, color = Color(0xFFFFB86B), modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp))
+                }
                 item {
                     Column(Modifier.padding(16.dp).fillMaxWidth().glass(RoundedCornerShape(22.dp), tint = accent).padding(16.dp)) {
                         Text("Anteprima da ${p.service}", style = MaterialTheme.typography.labelLarge, color = accent)
@@ -186,7 +208,10 @@ fun ImportScreen() {
                         Spacer(Modifier.width(10.dp))
                         Column(Modifier.weight(1f)) {
                             if (m != null) {
-                                Text(m.title, style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Text(m.title, style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
+                                    if (!it.sure) Text("  da controllare", style = MaterialTheme.typography.labelSmall, color = Color(0xFFFFB86B))
+                                }
                                 Text(m.artist, style = MaterialTheme.typography.bodySmall, maxLines = 1, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             } else Text("Non trovato", style = MaterialTheme.typography.titleSmall, color = Color(0xFFFF7A8F))
                             Text("originale: ${it.title} – ${it.artist}", style = MaterialTheme.typography.labelSmall, maxLines = 1, overflow = TextOverflow.Ellipsis,

@@ -33,7 +33,8 @@ object VibesGraph {
     val feedback by lazy { dev.brahmkshatriya.echo.vibes.backend.FeedbackApi(supa) }
     val librarySync by lazy { dev.brahmkshatriya.echo.vibes.backend.LibrarySync(supa, library) }
     val recommender by lazy { dev.brahmkshatriya.echo.vibes.music.Recommender(deezer, library) }
-    val importer by lazy { dev.brahmkshatriya.echo.vibes.music.Importer(deezer, { library }, supa.http) }
+    val matcher by lazy { dev.brahmkshatriya.echo.vibes.music.SongMatcher(deezer, supa) }
+    val importer by lazy { dev.brahmkshatriya.echo.vibes.music.Importer(deezer, { library }, supa.http, matcher) }
     val picker by lazy { dev.brahmkshatriya.echo.vibes.games.TrackPicker(deezer, library) }
     val prefs by lazy { VibesPrefs(app) }
     val studio by lazy { dev.brahmkshatriya.echo.vibes.music.StudioPlayer(app) }

@@ -1,5 +1,7 @@
 package dev.brahmkshatriya.echo.vibes.ui
 
+import kotlinx.coroutines.flow.first
+
 import androidx.compose.foundation.layout.height
 
 import androidx.compose.foundation.shape.CircleShape
@@ -146,6 +148,13 @@ fun VibesApp(engine: MusicEngine, pendingLink: MutableStateFlow<Uri?>) {
                 dev.brahmkshatriya.echo.vibes.VibesGraph.onListened(force = true)
                 // shared playlists: catch up with what friends changed while the app was closed
                 runCatching { dev.brahmkshatriya.echo.vibes.VibesGraph.collab.refresh() }
+                // playlist transfer: match with the Deezer account's search too (no request limit, wider catalogue)
+                dev.brahmkshatriya.echo.vibes.VibesGraph.matcher.engineSearch = { q ->
+                    if (state.engine.deezerLoggedIn.first()) {
+                        val ext = state.engine.extensionId()
+                        state.engine.search(q).tracks.take(10).map { dev.brahmkshatriya.echo.vibes.backend.SongRef.from(ext, it) }
+                    } else emptyList()
+                }
                 // albums saved the old way (copied into a playlist) become saved albums again
                 runCatching { state.library.migrateAlbums(state.deezer) }
                 // the library of the account: what was made on the other devices arrives here

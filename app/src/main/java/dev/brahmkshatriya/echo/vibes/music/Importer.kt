@@ -24,15 +24,19 @@ import java.util.concurrent.atomic.AtomicInteger
  * Supported: Deezer links (public API) and Spotify links (the public embed page, which lists up to
  * ~100 tracks without needing a Spotify account).
  */
-class Importer(private val deezer: DeezerPublic, private val libraryProvider: () -> VibesLibrary, private val http: okhttp3.OkHttpClient) {
+class Importer(private val deezer: DeezerPublic, private val libraryProvider: () -> VibesLibrary, private val http: okhttp3.OkHttpClient, val matcher: SongMatcher) {
     private val library get() = libraryProvider()
 
     data class Progress(val done: Int, val total: Int, val found: Int, val stage: String)
-    data class Source(val name: String, val cover: String?, val items: List<Pair<String, String>>?, val deezerTracks: List<DeezerPublic.GameTrack>?)
+    data class Source(
+        val name: String, val cover: String?, val items: List<SongMatcher.Want>?, val deezerTracks: List<DeezerPublic.GameTrack>?,
+        /** The source showed only part of the playlist (Spotify's public page stops at 100). */
+        val partial: Boolean = false,
+    )
 
     /** One song of the source playlist and what Vibes found for it (null = not found). */
-    data class PreviewItem(val title: String, val artist: String, val match: SongRef?)
-    data class Preview(val service: String, val name: String, val cover: String?, val items: List<PreviewItem>)
+    data class PreviewItem(val title: String, val artist: String, val match: SongRef?, val sure: Boolean = true)
+    data class Preview(val service: String, val name: String, val cover: String?, val items: List<PreviewItem>, val partial: Boolean = false)
 
     private val youtubeRe = Regex("""(?:youtube\.com|youtu\.be)(?:.*[?&]list=|/browse/VL)([A-Za-z0-9_-]+)""")
 
@@ -49,7 +53,7 @@ class Importer(private val deezer: DeezerPublic, private val libraryProvider: ()
     }
 
     /** Reads the playlist and matches every song, WITHOUT saving: the user checks it first. */
-    suspend fun preview(rawUrl: String, onProgress: (Progress) -> Unit): Preview {
+    suspend fun preview(rawUrl: String, onProgress: (Progress) -> Unit, onPartial: (List<PreviewItem?>) -> Unit = {}): Preview {
         var url = Regex("""https?://\S+""").find(rawUrl)?.value ?: rawUrl.trim()
         if (url.contains("link.deezer.com") || url.contains("spotify.link") || url.contains("deezer.page.link"))
             url = deezer.resolveUrl(url)
@@ -62,9 +66,9 @@ class Importer(private val deezer: DeezerPublic, private val libraryProvider: ()
             else -> fromYouTube(url)
         }
         val items: List<PreviewItem> = source.deezerTracks?.map { PreviewItem(it.title, it.artist, it.toSongRef()) }
-            ?: matchItems(source.items.orEmpty(), onProgress)
+            ?: matchItems(source.items.orEmpty(), onProgress, onPartial)
         if (items.isEmpty()) throw IllegalStateException("Non ho trovato nessun brano in questa playlist")
-        return Preview(service, source.name.ifBlank { "Playlist importata" }, source.cover, items)
+        return Preview(service, source.name.ifBlank { "Playlist importata" }, source.cover, items, source.partial)
     }
 
     /** Saves the checked songs with the chosen name and cover. */
@@ -74,20 +78,53 @@ class Importer(private val deezer: DeezerPublic, private val libraryProvider: ()
         return library.playlist(p.id) ?: p
     }
 
-    private suspend fun matchItems(items: List<Pair<String, String>>, onProgress: (Progress) -> Unit): List<PreviewItem> = coroutineScope {
-        val sem = Semaphore(6)
+    /**
+     * Matches every song: all are really searched (a refused request is retried, never "not found"),
+     * the list fills in while it works, then a second, wider pass for the songs still missing.
+     */
+    private suspend fun matchItems(items: List<SongMatcher.Want>, onProgress: (Progress) -> Unit, onPartial: (List<PreviewItem?>) -> Unit): List<PreviewItem> = coroutineScope {
+        val out = arrayOfNulls<PreviewItem>(items.size)
         val done = AtomicInteger(0); val found = AtomicInteger(0)
         onProgress(Progress(0, items.size, 0, "Cerco i brani…"))
-        items.map { (title, artist) ->
+        runCatching { matcher.prefetch(items) }
+        // the account search has no limit: more at once when it is there
+        val sem = Semaphore(if (matcher.engineSearch != null) 10 else 6)
+        var lastPush = 0L
+        fun push(force: Boolean = false) {
+            val now = System.currentTimeMillis()
+            if (force || now - lastPush > 250) { lastPush = now; onPartial(out.toList()) }
+        }
+        items.mapIndexed { i, w ->
             async {
                 sem.withPermit {
-                    val t = runCatching { deezer.match(title, artist) }.getOrNull()
-                    if (t != null) found.incrementAndGet()
+                    val f = runCatching { matcher.match(w) }.getOrNull()
+                    if (f != null) found.incrementAndGet()
+                    out[i] = PreviewItem(w.title, w.artist, f?.song, (f?.score ?: 1.0) >= 0.8)
                     onProgress(Progress(done.incrementAndGet(), items.size, found.get(), "Cerco i brani…"))
-                    PreviewItem(title, artist, t?.toSongRef())
+                    push()
                 }
             }
         }.awaitAll()
+        // second pass: wider searches for what is still missing
+        val missing = items.indices.filter { out[it]?.match == null }
+        if (missing.isNotEmpty()) {
+            val left = AtomicInteger(0)
+            onProgress(Progress(0, missing.size, 0, "Ricontrollo i ${missing.size} brani mancanti…"))
+            missing.map { i ->
+                async {
+                    sem.withPermit {
+                        val w = items[i]
+                        val f = runCatching { matcher.match(w, relaxed = true) }.getOrNull()
+                        if (f != null) { found.incrementAndGet(); out[i] = PreviewItem(w.title, w.artist, f.song, f.score >= 0.8) }
+                        onProgress(Progress(left.incrementAndGet(), missing.size, found.get(), "Ricontrollo i brani mancanti…"))
+                        push()
+                    }
+                }
+            }.awaitAll()
+        }
+        push(force = true)
+        runCatching { matcher.flush() }
+        items.mapIndexed { i, w -> out[i] ?: PreviewItem(w.title, w.artist, null) }
     }
 
     // ------------------------------------------------------------------ YouTube / YouTube Music
@@ -212,7 +249,7 @@ class Importer(private val deezer: DeezerPublic, private val libraryProvider: ()
             pages++
         }
         if (items.isEmpty()) throw IllegalStateException("Playlist vuota o privata: su YouTube Music mettila «Pubblica» o «Non in elenco»")
-        return Source(name, cover?.substringBefore("?")?.replace(Regex("""=w\d+-h\d+.*$"""), "=w544-h544"), items, null)
+        return Source(name, cover?.substringBefore("?")?.replace(Regex("""=w\d+-h\d+.*$"""), "=w544-h544"), items.map { SongMatcher.Want(it.first, it.second) }, null)
     }
 
     /** Fallback: the youtube.com page (old playlistVideoRenderer items and the new lockupViewModel ones). */
@@ -237,7 +274,7 @@ class Importer(private val deezer: DeezerPublic, private val libraryProvider: ()
             items += cleanYt(title, channel)
         }
         if (items.isEmpty()) throw IllegalStateException("Playlist di YouTube vuota o privata")
-        return Source(name, null, items, null)
+        return Source(name, null, items.map { SongMatcher.Want(it.first, it.second) }, null)
     }
 
     private val appleRe = Regex("""(?:music|itunes)\.apple\.com/(?:[a-z]{2}/)?(?:playlist|album)/""")
@@ -283,7 +320,7 @@ class Importer(private val deezer: DeezerPublic, private val libraryProvider: ()
             .replace("&amp;", "&").replace("&quot;", "\"").replace("&#39;", "'").replace("&apos;", "'")
         val cover = meta("image")?.replace(Regex("""/\d+x\d+[^/]*\.(jpg|png)"""), "/600x600bb.jpg")
         if (items.isEmpty()) throw IllegalStateException("Nessun brano trovato in questa playlist di Apple Music")
-        return Source(name, cover, items, null)
+        return Source(name, cover, items.map { SongMatcher.Want(it.first, it.second) }, null)
     }
 
     private val deezerRe = Regex("""deezer\.com/(?:[a-z]{2}(?:-[a-z]{2})?/)?(playlist|album)/(\d+)""")
@@ -328,6 +365,8 @@ class Importer(private val deezer: DeezerPublic, private val libraryProvider: ()
     private suspend fun fromSpotify(url: String): Source {
         val m = spotifyRe.find(url)!!
         val type = m.groupValues[1]; val id = m.groupValues[2]
+        // the whole playlist (any length, with ISRC codes) through the official Spotify API on our server
+        runCatching { spotifyOfficial(type, id) }.getOrNull()?.let { return it }
         val html = deezer.fetchText("https://open.spotify.com/embed/$type/$id")
             ?: throw IllegalStateException("Non riesco a leggere la playlist Spotify")
         val raw = Regex("""<script id="__NEXT_DATA__" type="application/json">(.*?)</script>""", RegexOption.DOT_MATCHES_ALL)
@@ -343,9 +382,23 @@ class Importer(private val deezer: DeezerPublic, private val libraryProvider: ()
         val items = (entity["trackList"] as JsonArray).mapNotNull { e ->
             val o = e as? JsonObject ?: return@mapNotNull null
             val title = o.s("title") ?: return@mapNotNull null
-            title to (o.s("subtitle") ?: "")
+            SongMatcher.Want(title, o.s("subtitle") ?: "", o.s("duration")?.toLongOrNull())
         }
-        return Source(name, cover, items, null)
+        return Source(name, cover, items, null, partial = type == "playlist" && items.size >= 100)
+    }
+
+    /** Edge function "vibes-spotify" (official Web API, app credentials): null when not set up. */
+    private suspend fun spotifyOfficial(type: String, id: String): Source? {
+        val res = dev.brahmkshatriya.echo.vibes.VibesGraph.supa.function("vibes-spotify", kotlinx.serialization.json.buildJsonObject {
+            put("type", kotlinx.serialization.json.JsonPrimitive(type)); put("id", kotlinx.serialization.json.JsonPrimitive(id))
+        }) as? JsonObject ?: return null
+        val tracks = res["tracks"] as? JsonArray ?: return null
+        val items = tracks.mapNotNull { e ->
+            val o = e as? JsonObject ?: return@mapNotNull null
+            SongMatcher.Want(o.s("title") ?: return@mapNotNull null, o.s("artist") ?: "", o.s("duration")?.toLongOrNull(), o.s("isrc"))
+        }
+        if (items.isEmpty()) return null
+        return Source(res.s("name") ?: "Da Spotify", res.s("cover"), items, null)
     }
 
     private suspend fun oembedCover(url: String): String? {
@@ -362,21 +415,8 @@ class Importer(private val deezer: DeezerPublic, private val libraryProvider: ()
         else -> null
     }
 
-    private suspend fun matchAll(items: List<Pair<String, String>>, onProgress: (Progress) -> Unit): List<SongRef> = coroutineScope {
-        val sem = Semaphore(6)
-        val done = AtomicInteger(0); val found = AtomicInteger(0)
-        onProgress(Progress(0, items.size, 0, "Cerco i brani…"))
-        items.map { (title, artist) ->
-            async {
-                sem.withPermit {
-                    val t = runCatching { deezer.match(title, artist) }.getOrNull()
-                    if (t != null) found.incrementAndGet()
-                    onProgress(Progress(done.incrementAndGet(), items.size, found.get(), "Cerco i brani…"))
-                    t?.toSongRef()
-                }
-            }
-        }.awaitAll().filterNotNull()
-    }
+    private suspend fun matchAll(items: List<SongMatcher.Want>, onProgress: (Progress) -> Unit): List<SongRef> =
+        matchItems(items, onProgress) {}.mapNotNull { it.match }
 
     @Suppress("unused")
     private fun JsonElement.str() = runCatching { jsonPrimitive.contentOrNull }.getOrNull()
