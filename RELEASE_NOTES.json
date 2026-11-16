@@ -1,8 +1,8 @@
 {
-  "title": "Deezer resta collegato 🔗",
+  "title": "Home sistemata + sfondo reattivo ✨",
   "notes": [
-    "Risolto: ogni 2-3 giorni Vibes diceva \"Deezer non collegato\" anche se lo era",
-    "Ora Vibes rinnova da solo la sessione di Deezer in background, senza chiederti niente",
-    "Il pannello per ricollegarsi appare solo se Deezer ha davvero chiuso l'accesso"
+    "Le copertine dei mix \"Made for you\" non sono più mezze vuote",
+    "Gli artisti senza foto mostrano la copertina del loro brano più famoso",
+    "Nuovo (Impostazioni > Aspetto): Sfondo reattivo, le pagine si aprono dalla copertina nel suo colore"
   ]
 }
