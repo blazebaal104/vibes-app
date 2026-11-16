@@ -129,7 +129,8 @@ fun DesktopShell(pendingLink: MutableStateFlow<Uri?>) {
     fun back() {
         when {
             desk.karaoke -> desk.karaoke = false
-            desk.fullPlayer -> { desk.fullPlayer = false; if (desk.isWindowFullscreen()) desk.toggleWindowFullscreen() }
+            desk.fullPlayer -> desk.fullPlayer = false
+            desk.isWindowFullscreen() -> desk.toggleWindowFullscreen()
             desk.overlay != CenterOverlay.None -> desk.overlay = CenterOverlay.None
             else -> { val cur = nav.current; if (nav.back()) { desk.forward.add(cur); expected[0] = nav.current }  }
         }
@@ -240,7 +241,8 @@ private fun CenterRoute(route: Route) {
         // artist pages: as wide as the centre (the banner used to stop with dark strips at the sides)
         is Route.DzArtist -> Wide(1600) { Screen(route) }
         Route.Studio, Route.Publish, Route.Samples, Route.StudioStats, Route.Podcasts, is Route.VibesRelease -> Wide(1300) { Screen(route) }
-        is Route.Chat -> Wide(900) { Screen(route) }
+        // chat and settings use the whole centre (they were a narrow column with empty sides)
+        is Route.Chat, Route.Settings -> Wide(4000) { Screen(route) }
         else -> Wide { Screen(route) }
     }
 }
@@ -257,6 +259,7 @@ private fun shortcut(app: dev.brahmkshatriya.echo.vibes.ui.AppState, ev: android
     val p = app.engine.player
     return when {
         k == Key.Spacebar || k == Key.MediaPlayPause -> { app.engine.togglePlay(); true }
+        k == Key.F11 -> { DeskHolder.state.toggleWindowFullscreen(); true }
         ev.isCtrlPressed && k == Key.DirectionRight || k == Key.MediaNext -> { app.engine.next(); true }
         ev.isCtrlPressed && k == Key.DirectionLeft || k == Key.MediaPrevious -> { app.engine.previous(); true }
         ev.isCtrlPressed && k == Key.DirectionUp -> { p.volume = p.volume + 0.1f; true }

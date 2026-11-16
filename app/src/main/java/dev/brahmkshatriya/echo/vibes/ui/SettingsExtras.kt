@@ -231,6 +231,13 @@ fun LazyListScope.vibesSettings() {
             subtitle = "Il brano successivo entra mentre finisce quello attuale",
             onChange = { fade = it }, onDone = { sp.edit { putInt("true_crossfade_seconds", fade.toInt()) } })
     }
+    item {
+        val s = LocalSettings.current
+        var v by remember { mutableFloatStateOf(s.karaokeFadeSec) }
+        SliderRow("Dissolvenza del karaoke", if (v < 0.3f) "Spenta" else "%.1f s".format(v), v, 0f..5f,
+            subtitle = "Entrando nel karaoke la voce sfuma nella base; uscendo la voce torna piano piano",
+            onChange = { v = it }, onDone = { upd { it.copy(karaokeFadeSec = v) } })
+    }
     item { EngineSwitch("Niente dissolvenza negli album", "Gli album live e i concept restano senza stacchi", "skip_fade_on_albums", true) }
     item { EngineSwitch("Normalizza il volume", "Tutti i brani allo stesso volume", "loudness_normalization", false) }
     item { EngineSwitch("Salta i silenzi", "Taglia i silenzi all'inizio e alla fine dei brani", "skip_silence", true) }
@@ -281,10 +288,29 @@ fun LazyListScope.vibesSettings() {
 
     // ---------------- notifications
     item { Header("Notifiche", "🔔") }
-    item { val s = LocalSettings.current; SwitchRow("Messaggi", null, s.notifyMessages) { b -> upd { it.copy(notifyMessages = b) } } }
-    item { val s = LocalSettings.current; SwitchRow("Sfide", "Quando un amico ti sfida a un gioco", s.notifyChallenges) { b -> upd { it.copy(notifyChallenges = b) } } }
-    item { val s = LocalSettings.current; SwitchRow("Brani e playlist condivisi", null, s.notifySongs) { b -> upd { it.copy(notifySongs = b) } } }
     item {
+        // master switch: turning it on asks the phone for permission (Android 13+); on PC it just works
+        val s = LocalSettings.current
+        val ask = androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.RequestPermission()) { ok ->
+            upd { it.copy(notifyEnabled = ok) }
+        }
+        SwitchRow("Ricevi notifiche", "Messaggi, sfide, brani condivisi e nuovi follower", s.notifyEnabled) { b ->
+            if (b && !PlatformUI.isDesktop && android.os.Build.VERSION.SDK_INT >= 33) ask.launch(android.Manifest.permission.POST_NOTIFICATIONS)
+            else upd { it.copy(notifyEnabled = b) }
+        }
+    }
+    item {
+        val s = LocalSettings.current
+        AnimatedVisibility(s.notifyEnabled) {
+            Column {
+                SwitchRow("Nuovi follower", "Quando qualcuno inizia a seguirti su Vibes", s.notifyFollowers) { b -> upd { it.copy(notifyFollowers = b) } }
+                SwitchRow("Messaggi", null, s.notifyMessages) { b -> upd { it.copy(notifyMessages = b) } }
+                SwitchRow("Sfide", "Quando un amico ti sfida a un gioco", s.notifyChallenges) { b -> upd { it.copy(notifyChallenges = b) } }
+                SwitchRow("Brani e playlist condivisi", null, s.notifySongs) { b -> upd { it.copy(notifySongs = b) } }
+            }
+        }
+    }
+    if (!PlatformUI.isDesktop) item {
         val context = LocalContext.current
         Text("Impostazioni di sistema delle notifiche", color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.labelLarge,
             modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp).clickable {

@@ -376,6 +376,9 @@ object KaraokeHD {
     }
 
     /** Can HD take over at [ms] and stay ahead of playback until the end? */
+    /** Output level 0..1, moved by the karaoke screen for the fades with the normal player. */
+    @Volatile var gain = 1f
+
     fun readyAtMs(ms: Long): Boolean {
         val at = (ms * RATE / 1000).toInt()
         curReady?.let { return at < it.total }
@@ -508,7 +511,7 @@ object KaraokeHD {
             val block = 2048
             val buf = ShortArray(block * 2)
             // soft start (~0.5 s): the switch from the quick filter to HD no longer cuts in
-            val fadeTotal = RATE / 2; var faded = 0
+            val fadeTotal = RATE / 10; var faded = 0
             while (!stopFlag) {
                 val ready = curReady; val sep = curSep
                 val tot = ready?.total ?: sep?.total ?: 0
@@ -525,7 +528,7 @@ object KaraokeHD {
                 if (avail <= 0) { Thread.sleep(30); continue } // waiting for the model
                 val n = minOf(block, avail)
                 for (i in 0 until n) {
-                    val g = if (faded < fadeTotal) (faded++).toFloat() / fadeTotal else 1f
+                    val g = (if (faded < fadeTotal) (faded++).toFloat() / fadeTotal else 1f) * gain
                     buf[2 * i] = (l.get(writePos + i) * g).toInt().toShort(); buf[2 * i + 1] = (r.get(writePos + i) * g).toInt().toShort()
                 }
                 val w = t.write(buf, 0, n * 2)

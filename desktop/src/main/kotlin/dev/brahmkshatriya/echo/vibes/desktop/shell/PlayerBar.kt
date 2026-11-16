@@ -30,6 +30,7 @@ import androidx.compose.material.icons.rounded.AddCircleOutline
 import androidx.compose.material.icons.rounded.Bedtime
 import androidx.compose.material.icons.rounded.CheckCircle
 import androidx.compose.material.icons.rounded.Fullscreen
+import androidx.compose.material.icons.rounded.FullscreenExit
 import androidx.compose.material.icons.rounded.KeyboardArrowUp
 import androidx.compose.material.icons.rounded.Lyrics
 import androidx.compose.material.icons.rounded.Mic
@@ -230,7 +231,9 @@ fun PlayerBar() {
             }
             VolumeControl()
             DeskIcon(Icons.Rounded.PictureInPictureAlt, "Apri mini player", active = desk.miniPlayer) { desk.miniPlayer = !desk.miniPlayer }
-            DeskIcon(Icons.Rounded.Fullscreen, "Schermo intero", enabled = now != null) { desk.fullPlayer = true; if (!desk.isWindowFullscreen()) desk.toggleWindowFullscreen() }
+            // only the WINDOW goes full screen (you stay on your page); the big song view opens from the cover
+            val fs = desk.isWindowFullscreen()
+            DeskIcon(if (fs) Icons.Rounded.FullscreenExit else Icons.Rounded.Fullscreen, if (fs) "Esci da schermo intero" else "Schermo intero") { desk.toggleWindowFullscreen() }
         }
     }
 }

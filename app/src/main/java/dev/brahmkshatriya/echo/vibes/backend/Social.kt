@@ -499,6 +499,13 @@ class Social(context: Context, val supa: Supa) {
 
     // ------------------------------------------------------------------ saves + studio analytics
 
+    /** Who started following me after [sinceIso] (oldest first): follower id + when. */
+    suspend fun newFollowers(sinceIso: String): List<Pair<String, String>> {
+        val me = uid ?: return emptyList()
+        return supa.select("vibes_follows", "followee_id=eq.$me&created_at=gt.${enc(sinceIso)}&select=follower_id,created_at&order=created_at.asc&limit=20")
+            .mapNotNull { r -> (r as? JsonObject)?.let { o -> o.str("follower_id")?.let { it to (o.str("created_at") ?: sinceIso) } } }
+    }
+
     suspend fun mySaves(): List<String> {
         val id = uid ?: return emptyList()
         return supa.select("vibes_upload_saves", "user_id=eq.$id&select=upload_id&order=created_at.desc").mapNotNull { (it as JsonObject).str("upload_id") }

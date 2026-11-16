@@ -36,7 +36,12 @@ data class VibesSettings(
     /** New account: show the favourite-artists questionnaire once. */
     val needsOnboarding: Boolean = false,
     val liquidGlass: Boolean = true,
-    val reactiveBackground: Boolean = false, // background that follows covers, now playing and page switches
+    val reactiveBackground: Boolean = false,
+    /** All Vibes notifications on/off (the per-type switches below apply when on). */
+    val notifyEnabled: Boolean = true,
+    val notifyFollowers: Boolean = true, // someone starts following you
+    /** Karaoke: seconds of the fade between the song with voice and the backing track (in and out). */
+    val karaokeFadeSec: Float = 2.5f, // background that follows covers, now playing and page switches
     val glassBlur: Float = 1f,          // 0.4 .. 2
     val glassShine: Boolean = true,     // light reflection gliding on glass
     val studioVibe: String = "neon",    // aurora colours of the Studio

@@ -335,7 +335,7 @@ private fun Bubble(m: Message, mine: Boolean, myId: String?) {
     )
     Row(Modifier.fillMaxWidth(), horizontalArrangement = if (mine) Arrangement.End else Arrangement.Start) {
         Column(
-            Modifier.widthIn(max = 290.dp)
+            Modifier.widthIn(max = if (PlatformUI.isDesktop) 560.dp else 290.dp)
                 .graphicsLayer {
                     scaleX = 0.6f + 0.4f * anim.value; scaleY = 0.6f + 0.4f * anim.value
                     alpha = anim.value

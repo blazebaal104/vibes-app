@@ -106,11 +106,23 @@ private fun start(args: Array<String>) {
         else rememberWindowState(size = DpSize(w.dp, h.dp), position = WindowPosition(Alignment.Center),
             placement = if (screen.width / scale <= 1600) androidx.compose.ui.window.WindowPlacement.Maximized else androidx.compose.ui.window.WindowPlacement.Floating)
         val desk = dev.brahmkshatriya.echo.vibes.desktop.shell.DeskHolder.state
-        var before = androidx.compose.ui.window.WindowPlacement.Floating
+        // where to go back to when leaving full screen (kept across recompositions: it used to be reset,
+        // and going straight from Fullscreen to Maximized is ignored on Windows -> "stuck" full screen)
+        val before = androidx.compose.runtime.remember { arrayOf(androidx.compose.ui.window.WindowPlacement.Maximized) }
+        val fsScope = androidx.compose.runtime.rememberCoroutineScope()
         desk.isWindowFullscreen = { state.placement == androidx.compose.ui.window.WindowPlacement.Fullscreen }
         desk.toggleWindowFullscreen = {
-            if (state.placement == androidx.compose.ui.window.WindowPlacement.Fullscreen) state.placement = before
-            else { before = state.placement; state.placement = androidx.compose.ui.window.WindowPlacement.Fullscreen }
+            if (state.placement == androidx.compose.ui.window.WindowPlacement.Fullscreen) {
+                val back = before[0]
+                state.placement = androidx.compose.ui.window.WindowPlacement.Floating
+                if (back == androidx.compose.ui.window.WindowPlacement.Maximized) fsScope.launch {
+                    kotlinx.coroutines.delay(120); state.placement = androidx.compose.ui.window.WindowPlacement.Maximized
+                }
+            } else {
+                before[0] = state.placement.takeIf { it != androidx.compose.ui.window.WindowPlacement.Fullscreen }
+                    ?: androidx.compose.ui.window.WindowPlacement.Maximized
+                state.placement = androidx.compose.ui.window.WindowPlacement.Fullscreen
+            }
         }
         val icon = painterResource("icon.png")
         Window(

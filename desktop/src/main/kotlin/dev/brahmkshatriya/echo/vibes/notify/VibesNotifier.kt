@@ -21,6 +21,9 @@ object VibesNotifier {
         scope.launch { VibesGraph.social.incoming.collect { m -> runCatching { show(m) } } }
         scope.launch { VibesGraph.social.lobbyInvites.collect { inv -> runCatching { showLobbyInvite(inv) } } }
         scope.launch { runCatching { checkReleases(context) } }
+        scope.launch {
+            FollowWatch.run(context) { id, name -> DesktopTray.notify("$name ha iniziato a seguirti", "Guarda il suo profilo su Vibes", "vibes://user/$id") }
+        }
     }
 
     suspend fun checkReleases(context: Context, force: Boolean = false) {
@@ -59,6 +62,7 @@ object VibesNotifier {
 
     private fun show(m: Message) {
         val prefs = VibesGraph.prefs.value
+        if (!prefs.notifyEnabled) return
         val allowed = when (m.kind) {
             "challenge" -> prefs.notifyChallenges
             "track", "playlist" -> prefs.notifySongs
@@ -72,6 +76,7 @@ object VibesNotifier {
     }
 
     private suspend fun showLobbyInvite(inv: dev.brahmkshatriya.echo.vibes.listen.ListenInvite) {
+        if (!VibesGraph.prefs.value.notifyEnabled) return
         runCatching { VibesGraph.lobbies.refreshInvites() }
         val name = VibesGraph.social.friendName(inv.fromUser)
         val lobby = VibesGraph.lobbies.lobbyName(inv.lobbyId) ?: "una lobby"

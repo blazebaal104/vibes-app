@@ -42,6 +42,7 @@ import androidx.compose.material.icons.rounded.MoreHoriz
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.RemoveCircleOutline
 import androidx.compose.material.icons.rounded.Share
+import androidx.compose.material.icons.rounded.OpenInFull
 import androidx.compose.material.icons.rounded.VerticalAlignTop
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -58,6 +59,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
@@ -181,7 +183,20 @@ fun NowPlayingPanel() {
             ContextMenuBox(items = { songMenu(app, desk, song, scope) }) { open -> DeskIcon(Icons.Rounded.MoreHoriz, "Altre opzioni") { open() } }
         }
         Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp)) {
-            Cover(song.cover, Modifier.fillMaxWidth().aspectRatio(1f).clickable { desk.fullPlayer = true }, RoundedCornerShape(18.dp))
+            // the cover opens the big song view: rounded hover glow + hand cursor, so it reads as a button
+            var coverHover by remember { mutableStateOf(false) }
+            val lift by androidx.compose.animation.core.animateFloatAsState(if (coverHover) 1.02f else 1f, label = "ch")
+            Box(Modifier.fillMaxWidth().aspectRatio(1f).graphicsLayer { scaleX = lift; scaleY = lift }
+                .shadow(if (coverHover) 24.dp else 8.dp, RoundedCornerShape(18.dp), ambientColor = color, spotColor = color)
+                .clip(RoundedCornerShape(18.dp)).hovered { coverHover = it }.pointerHoverIcon(HandCursor)
+                .clickable(interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }, indication = null) { desk.fullPlayer = true }) {
+                Cover(song.cover, Modifier.fillMaxSize(), RoundedCornerShape(18.dp))
+                if (coverHover) Box(Modifier.fillMaxSize().border(2.dp, Color.White.copy(alpha = 0.55f), RoundedCornerShape(18.dp))
+                    .background(Color.White.copy(alpha = 0.06f)), contentAlignment = Alignment.Center) {
+                    Icon(Icons.Rounded.OpenInFull, "Apri la vista del brano", tint = Color.White, modifier = Modifier.size(42.dp)
+                        .background(Color.Black.copy(alpha = 0.35f), androidx.compose.foundation.shape.CircleShape).padding(8.dp))
+                }
+            }
             Row(Modifier.fillMaxWidth().padding(top = 14.dp), verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
                     LinkText(song.title, color = Color.White, style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.Bold)) {

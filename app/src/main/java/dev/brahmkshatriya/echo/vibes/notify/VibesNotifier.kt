@@ -45,6 +45,29 @@ object VibesNotifier {
             VibesGraph.social.lobbyInvites.collect { inv -> runCatching { showLobbyInvite(context, inv) } }
         }
         scope.launch { runCatching { checkReleases(context) } }
+        scope.launch { FollowWatch.run(context) { id, name -> runCatching { showFollower(context, id, name) } } }
+    }
+
+    private const val CHANNEL_SOCIAL = "vibes_social"
+
+    private fun showFollower(context: Context, id: String, name: String) {
+        if (Build.VERSION.SDK_INT >= 33 &&
+            ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) return
+        if (Build.VERSION.SDK_INT >= 26) context.getSystemService(NotificationManager::class.java).createNotificationChannel(
+            NotificationChannel(CHANNEL_SOCIAL, "Nuovi follower", NotificationManager.IMPORTANCE_DEFAULT).apply {
+                description = "Quando qualcuno inizia a seguirti su Vibes"
+            })
+        val pi = PendingIntent.getActivity(context, ("fol" + id).hashCode(),
+            Intent(context, VibesActivity::class.java).apply {
+                action = Intent.ACTION_VIEW; data = Uri.parse("vibes://user/$id")
+                flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
+            }, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+        val n = NotificationCompat.Builder(context, CHANNEL_SOCIAL)
+            .setSmallIcon(R.drawable.ic_launcher_foreground)
+            .setContentTitle("$name ha iniziato a seguirti")
+            .setContentText("Guarda il suo profilo su Vibes")
+            .setAutoCancel(true).setContentIntent(pi).build()
+        NotificationManagerCompat.from(context).notify(("fol" + id).hashCode(), n)
     }
 
     private const val CHANNEL_RELEASES = "vibes_releases"
@@ -121,6 +144,7 @@ object VibesNotifier {
             ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
         ) return
         val prefs = VibesGraph.prefs.value
+        if (!prefs.notifyEnabled) return
         val allowed = when (m.kind) {
             "challenge" -> prefs.notifyChallenges
             "track", "playlist" -> prefs.notifySongs

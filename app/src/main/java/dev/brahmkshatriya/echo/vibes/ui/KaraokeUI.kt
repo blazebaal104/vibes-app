@@ -70,6 +70,8 @@ import dev.brahmkshatriya.echo.playback.MediaItemUtils.extensionId
 import dev.brahmkshatriya.echo.playback.MediaItemUtils.track
 import androidx.compose.runtime.collectAsState
 import kotlinx.coroutines.launch
+import androidx.compose.material.icons.automirrored.rounded.ArrowBack
+import dev.brahmkshatriya.echo.vibes.VibesGraph
 import dev.brahmkshatriya.echo.vibes.backend.SongRef
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -121,13 +123,20 @@ fun KaraokeScreen(song: SongRef, playing: Boolean, onClose: () -> Unit) {
     var wantPlay by remember { mutableStateOf(playing) }
     val scope = androidx.compose.runtime.rememberCoroutineScope()
 
+    val fadeMs = (VibesGraph.prefs.value.karaokeFadeSec * 1000).toLong()
+    /** PC: no quick filter (the HD is ready in seconds on a real graphics card): the song keeps its
+     *  voice until HD is ready, then cross-fades into it. Phone: the quick filter fades in first. */
+    val useFilter = !PlatformUI.isDesktop
+
     fun leave() {
-        val at = KaraokeHD.close()
-        if (at != null) { app.engine.seekTo(at); app.engine.player.setPlaying(true) }
+        // the screen closes at once; the voice comes back gradually (KaraokeFade runs on its own)
+        KaraokeFade.exit(app, fadeMs)
         onClose()
     }
     DisposableEffect(Unit) {
-        Karaoke.enabled = true
+        KaraokeFade.cancelExit()
+        KaraokeHD.gain = 1f
+        if (useFilter) KaraokeFade.filterIn(fadeMs)
         KaraokeHD.init(context)
         KaraokeHD.onEnded = {
             // HD reached the end of the song: hand back to the normal player, which goes to the next one
@@ -137,12 +146,18 @@ fun KaraokeScreen(song: SongRef, playing: Boolean, onClose: () -> Unit) {
             }
         }
         onDispose {
+            if (KaraokeFade.exiting) return@onDispose
             Karaoke.enabled = false
             KaraokeHD.onEnded = null
             KaraokeHD.close()?.let { at -> app.engine.seekTo(at); app.engine.player.setPlaying(true) }
         }
     }
     BackHandler { leave() }
+    // PC without the HD model (or HD failed): fall back to the quick filter, faded in
+    LaunchedEffect(hdPhase is KaraokeHD.Phase.NeedsModel || hdPhase is KaraokeHD.Phase.Failed || hdPhase is KaraokeHD.Phase.DownloadingModel) {
+        val noHd = hdPhase is KaraokeHD.Phase.NeedsModel || hdPhase is KaraokeHD.Phase.Failed || hdPhase is KaraokeHD.Phase.DownloadingModel
+        if (!useFilter && noHd && !Karaoke.enabled) KaraokeFade.filterIn(fadeMs)
+    }
     // AI separation of this song, starting from where we are
     LaunchedEffect(song.key) { KaraokeHD.open(song, app.engine.position()) }
     LaunchedEffect(song.key) {
@@ -167,16 +182,19 @@ fun KaraokeScreen(song: SongRef, playing: Boolean, onClose: () -> Unit) {
             else if (wantPlay && !switching && KaraokeHD.readyAtMs(app.engine.position())) {
                 // smooth hand-over: HD fades in from the same point while the normal player fades out
                 val at = app.engine.position()
+                KaraokeHD.gain = 0f
                 if (KaraokeHD.play(at)) {
+                    // cross-fade (length in Settings): the song with its voice fades out while the
+                    // backing track fades in, from the same point, so you HEAR the voice disappear
                     switching = true
                     val b = app.engine.player.browser.value
                     val v0 = b?.volume ?: 1f
-                    for (i in 1..10) { b?.volume = v0 * (1f - i / 10f); kotlinx.coroutines.delay(45) }
+                    KaraokeFade.ramp(fadeMs.coerceAtLeast(300)) { t -> KaraokeHD.gain = t; b?.volume = v0 * (1f - t) }
                     app.engine.pause()
                     b?.volume = v0
-                    kotlinx.coroutines.delay(900)
+                    KaraokeHD.gain = 1f
                     switching = false
-                }
+                } else KaraokeHD.gain = 1f
             }
             kotlinx.coroutines.delay(100)
         }
@@ -201,7 +219,7 @@ fun KaraokeScreen(song: SongRef, playing: Boolean, onClose: () -> Unit) {
         )))
         Column(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding()) {
             Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                IconButton(onClick = { leave() }) { Icon(Icons.Rounded.Close, "Esci dal karaoke", tint = Color.White) }
+                IconButton(onClick = { leave() }) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Esci dal karaoke", tint = Color.White) }
                 Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Icon(Icons.Rounded.Mic, null, tint = Color(0xFFFF4FD8), modifier = Modifier.size(16.dp))
@@ -307,7 +325,8 @@ fun KaraokeScreen(song: SongRef, playing: Boolean, onClose: () -> Unit) {
                     modifier = Modifier.padding(horizontal = 24.dp), maxLines = 1)
             }
             // voice amount (real-time filter): 0 = no voice, 1 = original song
-            if (!hdActive) Column(Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 6.dp)) {
+            // the quick filter's voice slider: phone only (on PC the HD takes over in seconds)
+            if (!hdActive && Karaoke.enabled && !PlatformUI.isDesktop) Column(Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 6.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text("Voce originale", color = Color.White, style = MaterialTheme.typography.labelLarge, modifier = Modifier.weight(1f))
                     Text(if (voice < 0.05f) "tolta" else "${(voice * 100).toInt()}%", color = Color.White.copy(alpha = 0.7f),
@@ -504,5 +523,69 @@ private fun KaraokeProgress(pos: Long, dur: Long, onSeek: (Long) -> Unit) {
             colors = androidx.compose.material3.SliderDefaults.colors(thumbColor = Color.White, activeTrackColor = Color(0xFFFF4FD8),
                 inactiveTrackColor = Color.White.copy(alpha = 0.18f)))
         Text(fmt(dur), color = Color.White.copy(alpha = 0.75f), style = MaterialTheme.typography.labelMedium)
+    }
+}
+
+/**
+ * The fades around karaoke, so the voice never just "cuts":
+ *  - [filterIn]: the quick filter takes the voice away gradually;
+ *  - [exit]: leaving karaoke, the normal song (with voice) comes back while the backing track fades out.
+ * Runs on its own scope, so the screen can close while the voice is still coming back.
+ */
+object KaraokeFade {
+    private val scope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.Main)
+    private var job: kotlinx.coroutines.Job? = null
+    @Volatile var exiting = false; private set
+
+    suspend fun ramp(ms: Long, step: (Float) -> Unit) {
+        val n = (ms / 30).coerceAtLeast(1)
+        for (i in 1..n) { step(i.toFloat() / n); kotlinx.coroutines.delay(30) }
+    }
+
+    @Volatile private var gen = 0
+
+    fun cancelExit() { if (exiting) { gen++; job?.cancel(); exiting = false } }
+
+    fun filterIn(ms: Long) {
+        val target = Karaoke.strength.takeIf { it > 0.05f } ?: 0.9f
+        Karaoke.strength = 0f; Karaoke.enabled = true
+        scope.launch { ramp(ms.coerceAtLeast(1)) { t -> Karaoke.strength = target * t } }
+    }
+
+    fun exit(app: AppState, ms: Long) {
+        exiting = true
+        val my = ++gen
+        job = scope.launch {
+            try {
+                val b = app.engine.player.browser.value
+                val v0 = b?.volume ?: 1f
+                if (KaraokeHD.active.value) {
+                    // the normal player starts again where HD is, silent, then the two swap
+                    val at = KaraokeHD.positionMs()
+                    Karaoke.enabled = false
+                    b?.volume = 0f
+                    app.engine.seekTo(at); app.engine.player.setPlaying(true)
+                    kotlinx.coroutines.delay(250)
+                    ramp(ms.coerceAtLeast(300)) { t -> KaraokeHD.gain = 1f - t; b?.volume = v0 * t }
+                    KaraokeHD.close()
+                } else {
+                    KaraokeHD.close()?.let { at -> app.engine.seekTo(at); app.engine.player.setPlaying(true) }
+                    if (Karaoke.enabled) {
+                        val s0 = Karaoke.strength
+                        ramp(ms.coerceAtLeast(1)) { t -> Karaoke.strength = s0 * (1f - t) }
+                        Karaoke.strength = s0
+                    }
+                }
+                b?.volume = v0
+            } finally {
+                // only if karaoke was not reopened meanwhile (that one owns the state now)
+                if (my == gen) {
+                    Karaoke.enabled = false
+                    KaraokeHD.gain = 1f
+                    KaraokeHD.onEnded = null
+                    exiting = false
+                }
+            }
+        }
     }
 }

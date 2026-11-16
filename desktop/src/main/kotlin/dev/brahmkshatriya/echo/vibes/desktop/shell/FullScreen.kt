@@ -31,6 +31,8 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.CloseFullscreen
+import androidx.compose.material.icons.rounded.Fullscreen
+import androidx.compose.material.icons.rounded.FullscreenExit
 import androidx.compose.material.icons.rounded.KeyboardArrowDown
 import androidx.compose.material.icons.rounded.Lyrics
 import androidx.compose.material.icons.rounded.Pause
@@ -134,7 +136,7 @@ fun FullScreenPlayer() {
     val (pos, dur) = rememberPlayback()
     var lyrics by remember { mutableStateOf(true) }
     val color = rememberCoverColor(song.cover) ?: Color(0xFF301848)
-    fun close() { desk.fullPlayer = false; if (desk.isWindowFullscreen()) desk.toggleWindowFullscreen() }
+    fun close() { desk.fullPlayer = false }
     Box(Modifier.fillMaxSize().background(Color.Black).clickable(enabled = false) {}) {
         if (song.cover != null) AsyncImage(sizedCover(song.cover, 250), null, contentScale = ContentScale.Crop,
             modifier = Modifier.fillMaxSize().blur(80.dp).scale(1.2f), alpha = 0.7f)
@@ -147,7 +149,11 @@ fun FullScreenPlayer() {
                 Text("In riproduzione" + (dev.brahmkshatriya.echo.vibes.VibesGraph.playContext?.let { " da ${it.name}" } ?: ""), color = Color.White,
                     style = MaterialTheme.typography.titleSmall, modifier = Modifier.padding(start = 12.dp).weight(1f))
                 DeskIcon(Icons.Rounded.Lyrics, if (lyrics) "Nascondi testo" else "Mostra testo", active = lyrics, size = 40.dp, iconSize = 24.dp) { lyrics = !lyrics }
-                DeskIcon(Icons.Rounded.CloseFullscreen, "Esci da schermo intero", size = 40.dp, iconSize = 24.dp) { close() }
+                // this view and the window's full screen are separate: the window toggle lives here too
+                val fs = desk.isWindowFullscreen()
+                DeskIcon(if (fs) Icons.Rounded.FullscreenExit else Icons.Rounded.Fullscreen, if (fs) "Esci da schermo intero" else "Schermo intero",
+                    size = 40.dp, iconSize = 24.dp) { desk.toggleWindowFullscreen() }
+                DeskIcon(Icons.Rounded.CloseFullscreen, "Chiudi", size = 40.dp, iconSize = 24.dp) { close() }
             }
             BoxWithConstraints(Modifier.weight(1f).fillMaxWidth()) {
                 val side = lyrics && maxWidth > 900.dp

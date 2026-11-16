@@ -32,6 +32,11 @@ object ActivityResultContracts {
         override fun pick(input: Array<String>): List<Uri> = FilePicker.pick(mimeExts(input), multiple = true)
     }
 
+    /** Windows shows notifications without asking: always granted. */
+    class RequestPermission : ActivityResultContract<String, Boolean>() {
+        override fun pick(input: String): Boolean = true
+    }
+
     class GetContent : ActivityResultContract<String, Uri?>() {
         override fun pick(input: String): Uri? = FilePicker.pick(mimeExts(arrayOf(input)), multiple = false).firstOrNull()
     }

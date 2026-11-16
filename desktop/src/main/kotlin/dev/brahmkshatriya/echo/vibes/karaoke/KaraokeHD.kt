@@ -340,6 +340,9 @@ object KaraokeHD {
         else -> curSep?.let { it.doneCount.toFloat() / it.chunks } ?: 0f
     }
 
+    /** Output level 0..1, moved by the karaoke screen for the fades with the normal player. */
+    @Volatile var gain = 1f
+
     fun readyAtMs(ms: Long): Boolean {
         val at = (ms * RATE / 1000).toInt()
         curReady?.let { return at < it.total }
@@ -444,7 +447,7 @@ object KaraokeHD {
             val block = 2048
             val bytes = ByteArray(block * 4)
             // soft start (~0.5 s): the switch from the quick filter to HD no longer cuts in
-            val fadeTotal = RATE / 2; var faded = 0
+            val fadeTotal = RATE / 10; var faded = 0
             while (!stopFlag) {
                 val ready = curReady; val sep = curSep
                 val tot = ready?.total ?: sep?.total ?: 0
@@ -462,7 +465,7 @@ object KaraokeHD {
                 if (avail <= 0) { Thread.sleep(30); continue }
                 val n = minOf(block, avail)
                 for (i in 0 until n) {
-                    val g = if (faded < fadeTotal) (faded++).toFloat() / fadeTotal else 1f
+                    val g = (if (faded < fadeTotal) (faded++).toFloat() / fadeTotal else 1f) * gain
                     val a = (ls[writePos + i] * g).toInt(); val b = (rs[writePos + i] * g).toInt()
                     bytes[4 * i] = a.toByte(); bytes[4 * i + 1] = (a shr 8).toByte()
                     bytes[4 * i + 2] = b.toByte(); bytes[4 * i + 3] = (b shr 8).toByte()
