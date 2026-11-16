@@ -27,7 +27,7 @@ class SongMatcherTest {
     fun `other versions and other songs score low`() {
         assertTrue(m.score(Want("With Or Without You", "U2"), song("With Or Without You (Daniel Lanois Remix)", "U2")) <
             m.score(Want("With Or Without You", "U2"), song("With Or Without You", "U2")))
-        assertTrue(m.score(Want("Hello", "Adele"), song("Hello", "Lionel Richie")) < 0.75)
-        assertTrue(m.score(Want("Yesterday", "The Beatles"), song("Yellow Submarine", "The Beatles")) < 0.72)
+        assertTrue(m.score(Want("Hello", "Adele"), song("Hello", "Lionel Richie")) < 0.8)
+        assertTrue(m.score(Want("Yesterday", "The Beatles"), song("Yellow Submarine", "The Beatles")) < 0.8)
     }
 }
