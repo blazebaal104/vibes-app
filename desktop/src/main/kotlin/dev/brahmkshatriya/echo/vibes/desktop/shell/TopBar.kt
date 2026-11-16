@@ -136,6 +136,14 @@ fun TopBar(searchFocus: FocusRequester, onBack: () -> Unit, onForward: () -> Uni
             Box(Modifier.size(44.dp).clip(CircleShape).background(Brush.linearGradient(VibesGradient)).padding(2.dp).pointerHoverIcon(HandCursor).clickable { open() },
                 contentAlignment = Alignment.Center) { Avatar(me, 40.dp) }
         }
+        // the essentials one click away (they were only inside the profile menu)
+        Spacer(Modifier.width(10.dp))
+        Row(Modifier.height(46.dp).deskGlass(CircleShape, dark = 0.3f).padding(horizontal = 6.dp), verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(2.dp)) {
+            DeskIcon(Icons.Rounded.BarChart, "Le tue statistiche", active = nav.current == Route.Stats, size = 36.dp, iconSize = 21.dp) { nav.open(Route.Stats) }
+            DeskIcon(Icons.Rounded.History, "Cronologia", active = nav.current == Route.History, size = 36.dp, iconSize = 21.dp) { nav.open(Route.History) }
+            DeskIcon(Icons.Rounded.Settings, "Impostazioni", active = nav.current == Route.Settings, size = 36.dp, iconSize = 21.dp) { nav.open(Route.Settings) }
+        }
     }
 }
 

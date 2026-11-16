@@ -315,6 +315,31 @@ object KaraokeHD {
         if (curSep === s) { curReady = Ready(s.song, s.outL, s.outR, s.total); curSep = null }
     }
 
+    /**
+     * How close HD is to taking over at [ms], 0..1, reaching 1 exactly when [readyAtMs] turns true.
+     * (The bar used to show how much of the WHOLE song was separated: HD starts long before the end,
+     * so the bar jumped from ~30% straight to "HD".) Two conditions: 6 s separated ahead of the
+     * player, and the rest finishing before the song does.
+     */
+    fun startProgress(ms: Long): Float {
+        val at = (ms * RATE / 1000).toInt()
+        if (curReady != null) return 1f
+        val s = curSep ?: return 0f
+        if (s.complete) return 1f
+        val ahead = (s.readyAhead(at).toFloat() / (6 * RATE)).coerceIn(0f, 1f)
+        val sps = samplesPerSecond.takeIf { it > 0 } ?: return ahead * 0.5f
+        val timeToFinish = s.undoneFrom(at).toDouble() * s.sep.gen / sps
+        val timeUntilEnd = (s.total - at).toDouble() / RATE - 4
+        val finish = if (timeToFinish <= 0.0) 1f else (timeUntilEnd / timeToFinish).toFloat().coerceIn(0f, 1f)
+        return minOf(ahead, finish).let { if (it >= 1f && !readyAtMs(ms)) 0.99f else it }
+    }
+
+    /** Whole-song separation (0..1) of the song open in karaoke. */
+    fun songProgress(): Float = when {
+        curReady != null -> 1f
+        else -> curSep?.let { it.doneCount.toFloat() / it.chunks } ?: 0f
+    }
+
     fun readyAtMs(ms: Long): Boolean {
         val at = (ms * RATE / 1000).toInt()
         curReady?.let { return at < it.total }
@@ -418,6 +443,8 @@ object KaraokeHD {
         writer = Thread({
             val block = 2048
             val bytes = ByteArray(block * 4)
+            // soft start (~0.5 s): the switch from the quick filter to HD no longer cuts in
+            val fadeTotal = RATE / 2; var faded = 0
             while (!stopFlag) {
                 val ready = curReady; val sep = curSep
                 val tot = ready?.total ?: sep?.total ?: 0
@@ -435,7 +462,8 @@ object KaraokeHD {
                 if (avail <= 0) { Thread.sleep(30); continue }
                 val n = minOf(block, avail)
                 for (i in 0 until n) {
-                    val a = ls[writePos + i].toInt(); val b = rs[writePos + i].toInt()
+                    val g = if (faded < fadeTotal) (faded++).toFloat() / fadeTotal else 1f
+                    val a = (ls[writePos + i] * g).toInt(); val b = (rs[writePos + i] * g).toInt()
                     bytes[4 * i] = a.toByte(); bytes[4 * i + 1] = (a shr 8).toByte()
                     bytes[4 * i + 2] = b.toByte(); bytes[4 * i + 3] = (b shr 8).toByte()
                 }

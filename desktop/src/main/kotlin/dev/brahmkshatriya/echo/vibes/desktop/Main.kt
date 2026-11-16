@@ -125,6 +125,23 @@ private fun start(args: Array<String>) {
         ) {
             LaunchedOnce {
                 window.minimumSize = java.awt.Dimension(1000, 640)
+                // render only in the foreground: minimized / in the tray = no decorative animation,
+                // no progress ticking; another app in front = animations paused
+                val perf = dev.brahmkshatriya.echo.vibes.ui.Perf
+                fun updatePerf() {
+                    perf.visible = window.isVisible && (window.extendedState and java.awt.Frame.ICONIFIED) == 0
+                    perf.focused = perf.visible && window.isActive
+                }
+                window.addWindowStateListener { updatePerf() }
+                window.addWindowFocusListener(object : java.awt.event.WindowFocusListener {
+                    override fun windowGainedFocus(e: java.awt.event.WindowEvent?) = updatePerf()
+                    override fun windowLostFocus(e: java.awt.event.WindowEvent?) = updatePerf()
+                })
+                window.addComponentListener(object : java.awt.event.ComponentAdapter() {
+                    override fun componentShown(e: java.awt.event.ComponentEvent?) = updatePerf()
+                    override fun componentHidden(e: java.awt.event.ComponentEvent?) = updatePerf()
+                })
+                updatePerf()
                 // taskbar preview buttons: previous / play-pause / next / like (Windows only)
                 runCatching { dev.brahmkshatriya.echo.vibes.desktop.shell.TaskbarButtons.install(window, engine) }
                     .onFailure { println("taskbar buttons: ${it.message}") }

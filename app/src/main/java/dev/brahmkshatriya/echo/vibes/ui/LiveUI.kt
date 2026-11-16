@@ -80,9 +80,10 @@ fun LiveCard(p: Profile, isMe: Boolean) {
     AnimatedVisibility(live != null, enter = expandVertically() + fadeIn(), exit = shrinkVertically() + fadeOut()) {
         val l = live ?: return@AnimatedVisibility
         var now by remember { mutableLongStateOf(l.positionNow()) }
-        LaunchedEffect(l) { while (true) { withFrameMillis { }; now = l.positionNow() } }
-        val breathe by rememberInfiniteTransition(label = "lb").animateFloat(1f, if (l.playing) 1.06f else 1f,
-            infiniteRepeatable(tween(520, easing = FastOutSlowInEasing), RepeatMode.Reverse), label = "lbv")
+        // progress: 4 times a second is plenty (it was every single frame), and nothing while minimized
+        LaunchedEffect(l) { while (true) { Perf.awaitVisible(); now = l.positionNow(); delay(Perf.tick(250)) } }
+        val breathe = liveFloat(1f, if (l.playing) 1.06f else 1f,
+            infiniteRepeatable(tween(520, easing = FastOutSlowInEasing), RepeatMode.Reverse), "lbv", enabled = l.playing)
         val accent = parseColor(p.avatarColor)
         Column(
             Modifier.padding(16.dp).fillMaxWidth().clip(RoundedCornerShape(20.dp))

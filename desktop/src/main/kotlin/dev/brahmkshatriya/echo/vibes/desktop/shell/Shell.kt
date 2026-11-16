@@ -159,8 +159,13 @@ fun DesktopShell(pendingLink: MutableStateFlow<Uri?>) {
                     ResizeHandle({ d -> desk.libraryWidth = (desk.libraryWidth + d).coerceIn(72f, 560f) },
                         onEnd = { if (desk.libraryWidth < 160f) desk.libraryWidth = 72f else if (desk.libraryWidth < 240f) desk.libraryWidth = 240f; desk.save() })
                     CenterPane(Modifier.weight(1f).fillMaxHeight())
-                    if (desk.right != RightPanel.None) {
-                        ResizeHandle({ d -> desk.rightWidth = (desk.rightWidth - d).coerceIn(280f, 520f) }, onEnd = { desk.save() })
+                    // always there: dragged narrow (or "riduci") it becomes a strip of buttons, never disappears
+                    if (desk.rightCollapsed) {
+                        ResizeHandle({ d -> if (d < -12f) desk.expandRight() })
+                        RightStrip()
+                    } else {
+                        ResizeHandle({ d -> desk.rightWidth = (desk.rightWidth - d).coerceIn(200f, 560f) },
+                            onEnd = { if (desk.rightWidth < 260f) { desk.rightWidth = 340f; desk.collapseRight() } else desk.save() })
                         RightPanelHost(desk.rightWidth.dp)
                     }
                 }

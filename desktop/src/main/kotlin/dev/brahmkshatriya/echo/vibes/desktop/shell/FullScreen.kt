@@ -105,12 +105,17 @@ fun LyricsView() {
     if (now == null) { desk.overlay = CenterOverlay.None; return }
     val color = rememberCoverColor(now.first.cover) ?: Color(0xFF503070)
     val bg by animateColorAsState(color, tween(600), label = "lyb")
-    Box(Modifier.fillMaxSize().background(bg)) {
-        LyricsLines(now.first, pos, big = true, Modifier.fillMaxSize().padding(horizontal = 48.dp).widthIn(max = 900.dp)) {
-            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                Text("Nessun testo per questo brano", color = Color.White, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
-                Text("Il testo arriva dal servizio di Deezer quando c'è.", color = Color.White.copy(alpha = 0.7f))
+    BoxWithConstraints(Modifier.fillMaxSize().background(Brush.linearGradient(listOf(bg, bg.copy(alpha = 0.85f), Color.Black.copy(alpha = 0.55f))))) {
+        // wide: lyrics on the left, the cover breathing on the beat on the right (no more half-empty view)
+        val wide = maxWidth > 1000.dp
+        Row(Modifier.fillMaxSize()) {
+            LyricsLines(now.first, pos, big = true, Modifier.weight(if (wide) 1.3f else 1f).fillMaxHeight().padding(horizontal = 48.dp).widthIn(max = 900.dp)) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text("Nessun testo per questo brano", color = Color.White, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+                    Text("Il testo arriva dal servizio di Deezer quando c'è.", color = Color.White.copy(alpha = 0.7f))
+                }
             }
+            if (wide) dev.brahmkshatriya.echo.vibes.ui.BeatStage(now.first, pos, now.second, Modifier.weight(1f).fillMaxHeight())
         }
     }
 }

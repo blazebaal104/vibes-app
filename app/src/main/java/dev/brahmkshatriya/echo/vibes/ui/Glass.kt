@@ -43,12 +43,13 @@ fun Modifier.glass(
     if (!s.liquidGlass) return this.clip(shape).background(fallback ?: LocalVibes.current.card)
     val haze = LocalHaze.current
     val bg = MaterialTheme.colorScheme.background
-    val shineOn = s.glassShine && !s.reduceMotion
-    val shine by rememberInfiniteTransition(label = "glass").animateFloat(
-        -0.6f, 1.6f, infiniteRepeatable(tween(4200, easing = LinearEasing)), label = "shine"
-    )
+    // the reflection loop exists only when it is shown AND the window is in the foreground:
+    // before, every glass element ran its own infinite animation even with reflections turned off
+    val shineOn = s.glassShine && !s.reduceMotion && Perf.animate
+    val shine = liveFloat(-0.6f, 1.6f, infiniteRepeatable(tween(4200, easing = LinearEasing)), "shine", enabled = shineOn)
     var m = this.clip(shape)
-    m = if (blur && haze != null) m.hazeEffect(haze) {
+    // PC: no live blur (see deskGlass): the translucent fallback below looks the same over the soft background
+    m = if (blur && haze != null && !PlatformUI.isDesktop) m.hazeEffect(haze) {
         blurRadius = (22 * s.glassBlur).dp
         backgroundColor = bg
         tints = listOf(HazeTint(bg.copy(alpha = 0.35f)), HazeTint(tint.copy(alpha = 0.08f)))

@@ -2,6 +2,7 @@ package dev.brahmkshatriya.echo.vibes.ui
 
 import androidx.compose.ui.graphics.Color
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
 import kotlinx.coroutines.withContext
 import okhttp3.Request
 import java.util.concurrent.ConcurrentHashMap
@@ -9,12 +10,31 @@ import java.util.concurrent.ConcurrentHashMap
 /** The main colour of a cover, deep enough to sit behind white text (phone; the PC has its own). */
 object CoverTint {
     private val cache = ConcurrentHashMap<String, Color>()
-    private val missing = ConcurrentHashMap.newKeySet<String>()
+    /** url -> when it last failed: retried after a minute (before: one failure = never again). */
+    private val failedAt = ConcurrentHashMap<String, Long>()
+    /** One download per cover even when many places ask at once (hover, background, panels). */
+    private val inFlight = ConcurrentHashMap<String, kotlinx.coroutines.Deferred<Color?>>()
+    private val loadScope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + Dispatchers.IO)
 
     suspend fun of(url: String?): Color? {
         if (url.isNullOrBlank()) return null
         cache[url]?.let { return it }
-        if (url in missing) return null
+        failedAt[url]?.let { if (System.currentTimeMillis() - it < 60_000) return null }
+        // the download runs in its own scope: if the caller goes away (mouse left the cover, song
+        // skipped) it still finishes and is cached. Before, the cancellation was swallowed as a
+        // "failure" and that cover never got its colour again.
+        val job = inFlight.getOrPut(url) {
+            loadScope.async {
+                val c = load(url)
+                if (c != null) { cache[url] = c; failedAt.remove(url) } else failedAt[url] = System.currentTimeMillis()
+                inFlight.remove(url)
+                c
+            }
+        }
+        return job.await()
+    }
+
+    private suspend fun load(url: String): Color? {
         val c = withContext(Dispatchers.IO) {
             runCatching {
                 val bytes = dev.brahmkshatriya.echo.vibes.VibesGraph.supa.http
@@ -30,7 +50,6 @@ object CoverTint {
                 Color(android.graphics.Color.HSVToColor(hsv))
             }.getOrNull()
         }
-        if (c != null) cache[url] = c else missing += url
         return c
     }
 }

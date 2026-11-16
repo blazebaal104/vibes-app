@@ -165,11 +165,11 @@ private val vibeNames = mapOf("neon" to "Neon", "tramonto" to "Tramonto", "ocean
 /** Slowly drifting aurora blobs behind the Studio. */
 @Composable
 fun Aurora(colors: List<Color>, modifier: Modifier = Modifier) {
-    val t = androidx.compose.animation.core.rememberInfiniteTransition(label = "aurora")
-    val p1 by t.animateFloat(0f, 1f, androidx.compose.animation.core.infiniteRepeatable(androidx.compose.animation.core.tween(9000), androidx.compose.animation.core.RepeatMode.Reverse), label = "a1")
-    val p2 by t.animateFloat(0f, 1f, androidx.compose.animation.core.infiniteRepeatable(androidx.compose.animation.core.tween(13000), androidx.compose.animation.core.RepeatMode.Reverse), label = "a2")
-    val p3 by t.animateFloat(0f, 1f, androidx.compose.animation.core.infiniteRepeatable(androidx.compose.animation.core.tween(11000), androidx.compose.animation.core.RepeatMode.Reverse), label = "a3")
-    val bg = MaterialTheme.colorScheme.background
+    val p1 = liveFloat(0.3f, 1f, androidx.compose.animation.core.infiniteRepeatable(androidx.compose.animation.core.tween(9000), androidx.compose.animation.core.RepeatMode.Reverse), "a1")
+    val p2 = liveFloat(0.5f, 1f, androidx.compose.animation.core.infiniteRepeatable(androidx.compose.animation.core.tween(13000), androidx.compose.animation.core.RepeatMode.Reverse), "a2")
+    val p3 = liveFloat(0.2f, 1f, androidx.compose.animation.core.infiniteRepeatable(androidx.compose.animation.core.tween(11000), androidx.compose.animation.core.RepeatMode.Reverse), "a3")
+    // PC: transparent, so the app's own background shows through (no black slab beside the content)
+    val bg = if (PlatformUI.transparentScreens) Color.Transparent else MaterialTheme.colorScheme.background
     androidx.compose.foundation.Canvas(modifier.fillMaxSize().background(bg)) {
         fun blob(c: Color, cx: Float, cy: Float, r: Float) =
             drawCircle(Brush.radialGradient(listOf(c.copy(alpha = 0.55f), Color.Transparent), center = androidx.compose.ui.geometry.Offset(cx, cy), radius = r),
@@ -178,7 +178,7 @@ fun Aurora(colors: List<Color>, modifier: Modifier = Modifier) {
         blob(colors[0], w * (0.15f + 0.5f * p1), h * (0.10f + 0.15f * p2), w * 0.75f)
         blob(colors[1], w * (0.85f - 0.4f * p2), h * (0.30f + 0.2f * p3), w * 0.7f)
         blob(colors[2], w * (0.3f + 0.4f * p3), h * (0.55f + 0.2f * p1), w * 0.8f)
-        drawRect(Brush.verticalGradient(listOf(Color.Transparent, bg.copy(alpha = 0.7f), bg), startY = h * 0.35f))
+        if (!PlatformUI.transparentScreens) drawRect(Brush.verticalGradient(listOf(Color.Transparent, bg.copy(alpha = 0.7f), bg), startY = h * 0.35f))
     }
 }
 
@@ -305,8 +305,8 @@ fun StudioScreen() {
 
 @Composable
 private fun StudioHalf(emoji: String, title: String, sub: String, color: Color, modifier: Modifier, onClick: () -> Unit) {
-    val float by androidx.compose.animation.core.rememberInfiniteTransition(label = "half").animateFloat(-6f, 6f,
-        androidx.compose.animation.core.infiniteRepeatable(androidx.compose.animation.core.tween(1800), androidx.compose.animation.core.RepeatMode.Reverse), label = "fl")
+    val float = liveFloat(-6f, 6f,
+        androidx.compose.animation.core.infiniteRepeatable(androidx.compose.animation.core.tween(1800), androidx.compose.animation.core.RepeatMode.Reverse), "fl")
     Column(modifier.height(190.dp).glass(RoundedCornerShape(26.dp), tint = color)
         .background(Brush.verticalGradient(listOf(color.copy(alpha = 0.45f), Color.Transparent))).bouncy(onClick).padding(16.dp)) {
         Text(emoji, fontSize = 46.sp, modifier = Modifier.graphicsLayer { translationY = float })

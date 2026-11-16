@@ -53,6 +53,10 @@ object Ambient {
     /** Colour of the page opened at "tab:depth". */
     val pages = mutableStateMapOf<String, Color>()
     var burst by mutableStateOf<Burst?>(null)
+    /** PC: colour of the cover under the mouse (the background leans towards it while pointing). */
+    var hover by mutableStateOf<Color?>(null)
+    /** PC: colour of the album/playlist page open in the centre. */
+    var pinned by mutableStateOf<Color?>(null)
 
     data class Burst(val color: Color, val center: Offset?, val id: Long = System.nanoTime())
 
@@ -73,10 +77,16 @@ class AmbientTap internal constructor(private val scope: CoroutineScope, private
     /** Call when the card is tapped, BEFORE navigating (the new page is depth + 1). */
     fun fire() {
         if (!Ambient.enabled) return
-        val key = Ambient.key(nav, nav.depth + 1)
+        val from = nav.depth
+        val key = Ambient.key(nav, from + 1)
         val c = center
         val u = url ?: return
-        scope.launch { CoverTint.of(u)?.let { Ambient.open(key, it, c) } }
+        scope.launch {
+            val col = CoverTint.of(u) ?: return@launch
+            // the page keeps the colour only if a page really opened (a tapped SONG just plays:
+            // before, its colour stuck to the next page opened and the background looked "wrong")
+            if (nav.depth == from + 1) Ambient.open(key, col, c) else Ambient.burst = Ambient.Burst(col, c)
+        }
     }
 }
 
@@ -114,17 +124,14 @@ fun ReactiveBackground(modifier: Modifier = Modifier) {
     LaunchedEffect(npUrl) { npColor = CoverTint.of(npUrl) }
 
     val page = (depth downTo 1).firstNotNullOfOrNull { Ambient.pages["$tabIdx:$it"] }
-    val target = page ?: npColor ?: v.bgTop
+    val target = Ambient.hover ?: Ambient.pinned ?: page ?: npColor ?: v.bgTop
     val base by animateColorAsState(target, tween(1100), label = "ambient")
     val second by animateColorAsState(lerp(target, v.accent, 0.45f), tween(1400), label = "ambient2")
 
     val still = prefs.reduceMotion
     val drift by animateFloatAsState(tabIdx.toFloat(), spring(dampingRatio = 0.9f, stiffness = 40f), label = "drift")
     val zoom by animateFloatAsState(1f + 0.12f * min(depth, 3), tween(700, easing = FastOutSlowInEasing), label = "zoom")
-    val phase = if (still) 0f else {
-        val t = rememberInfiniteTransition(label = "amb")
-        t.animateFloat(0f, (2 * PI).toFloat(), infiniteRepeatable(tween(26_000, easing = LinearEasing), RepeatMode.Restart), label = "ph").value
-    }
+    val phase = liveFloat(0f, (2 * PI).toFloat(), infiniteRepeatable(tween(26_000, easing = LinearEasing), RepeatMode.Restart), "ph", enabled = !still)
 
     // the colour wave opening out of the tapped cover
     val wave = remember { Animatable(1f) }

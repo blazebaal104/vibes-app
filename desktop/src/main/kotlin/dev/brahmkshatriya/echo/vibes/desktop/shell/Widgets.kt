@@ -100,14 +100,13 @@ val VibesGradient = listOf(Color(0xFF7B2FF7), Color(0xFFC2187A), Color(0xFFFF6A3
 fun Modifier.deskGlass(shape: Shape = RoundedCornerShape(22.dp), dark: Float = 0.42f): Modifier {
     val s = dev.brahmkshatriya.echo.vibes.ui.LocalSettings.current
     if (!s.liquidGlass) return this.clip(shape).background(Desk.panel)
-    val haze = dev.brahmkshatriya.echo.vibes.ui.LocalHaze.current
-    var m = this.clip(shape)
-    m = if (haze != null) m.hazeEffect(haze) {
-        blurRadius = (44 * s.glassBlur.coerceAtLeast(0.3f)).dp
-        noiseFactor = 0.05f
-        tints = listOf(HazeTint(Color.Black.copy(alpha = dark)))
-    } else m.background(Color.Black.copy(alpha = 0.6f))
-    return m
+    // PERFORMANCE: what sits under the panels is the soft background gradient, which is already a
+    // blur. Re-blurring it live (44dp, five big panels, every frame the background moved) was most of
+    // the GPU Vibes used. A tinted translucent layer looks the same here and costs nothing.
+    // "Intensità del vetro" now sets how dark/frosted the panel is.
+    val frost = (dark + 0.10f * (s.glassBlur - 1f)).coerceIn(0.25f, 0.75f)
+    return this.clip(shape)
+        .background(Color.Black.copy(alpha = frost))
         .background(Brush.linearGradient(listOf(Color.White.copy(alpha = 0.10f), Color.White.copy(alpha = 0.02f), Color.White.copy(alpha = 0.05f))))
         .border(1.dp, Brush.linearGradient(listOf(Color.White.copy(alpha = 0.32f), Color.White.copy(alpha = 0.05f), Color.White.copy(alpha = 0.16f))), shape)
 }

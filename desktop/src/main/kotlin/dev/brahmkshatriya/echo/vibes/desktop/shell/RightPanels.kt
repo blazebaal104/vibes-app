@@ -28,6 +28,11 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.PlaylistAdd
+import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
+import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowLeft
+import androidx.compose.material.icons.automirrored.rounded.QueueMusic
+import androidx.compose.material.icons.rounded.Group
+import androidx.compose.material.icons.rounded.Lyrics
 import androidx.compose.material.icons.rounded.AddCircleOutline
 import androidx.compose.material.icons.rounded.CheckCircle
 import androidx.compose.material.icons.rounded.Close
@@ -97,13 +102,31 @@ fun RightPanelHost(width: Dp, modifier: Modifier = Modifier) {
     }
 }
 
+/** The right panel reduced to a strip: the current cover and the panel buttons, one click to open. */
+@Composable
+fun RightStrip() {
+    val desk = LocalDesk.current
+    val now = currentSong()
+    Column(Modifier.width(58.dp).fillMaxHeight().deskGlass().padding(vertical = 10.dp), horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        DeskIcon(Icons.AutoMirrored.Rounded.KeyboardArrowLeft, "Apri il pannello") { desk.expandRight() }
+        now?.let { (song, _) ->
+            Cover(song.cover, Modifier.size(40.dp).clip(RoundedCornerShape(8.dp)).clickable { desk.right = RightPanel.NowPlaying; desk.expandRight() }, RoundedCornerShape(8.dp))
+        }
+        DeskIcon(Icons.Rounded.Lyrics, "Testo", active = desk.right == RightPanel.NowPlaying) { desk.right = RightPanel.NowPlaying; desk.expandRight() }
+        DeskIcon(Icons.AutoMirrored.Rounded.QueueMusic, "Coda", active = desk.right == RightPanel.Queue) { desk.right = RightPanel.Queue; desk.expandRight() }
+        DeskIcon(Icons.Rounded.Group, "Amici", active = desk.right == RightPanel.Friends) { desk.right = RightPanel.Friends; desk.expandRight() }
+    }
+}
+
 @Composable
 private fun PanelTitle(title: String, onClose: () -> Unit, extra: @Composable () -> Unit = {}) {
     Row(Modifier.fillMaxWidth().padding(start = 16.dp, end = 8.dp, top = 12.dp, bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
         Text(title, color = Color.White, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, maxLines = 1,
             overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
         extra()
-        DeskIcon(Icons.Rounded.Close, "Chiudi") { onClose() }
+        val desk = LocalDesk.current
+        DeskIcon(Icons.AutoMirrored.Rounded.KeyboardArrowRight, "Riduci") { desk.collapseRight() }
     }
 }
 

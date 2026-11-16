@@ -231,10 +231,13 @@ fun ChatScreen(friendId: String) {
     LaunchedEffect(imeOpen, messages.size) {
         if (messages.isNotEmpty()) listState.animateScrollToItem(messages.lastIndex)
     }
-    Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background).imePadding()) {
+    // PC: transparent page over the app background, glass header (no black slab)
+    val pageBg = if (PlatformUI.transparentScreens) Color.Transparent else MaterialTheme.colorScheme.background
+    Column(Modifier.fillMaxSize().background(pageBg).imePadding()) {
         // header
         Row(
-            Modifier.fillMaxWidth().background(LocalVibes.current.card).statusBarsPadding().padding(4.dp),
+            Modifier.fillMaxWidth().then(if (PlatformUI.transparentScreens) Modifier.padding(top = 8.dp).glass(RoundedCornerShape(18.dp))
+                else Modifier.background(LocalVibes.current.card)).statusBarsPadding().padding(4.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             IconButton(onClick = { nav.back() }) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Indietro") }
@@ -338,7 +341,11 @@ private fun Bubble(m: Message, mine: Boolean, myId: String?) {
                     alpha = anim.value
                     transformOrigin = androidx.compose.ui.graphics.TransformOrigin(if (mine) 1f else 0f, 1f)
                 }
-                .clip(shape).background(bg).padding(4.dp)
+                // liquid glass bubbles: mine tinted with the accent colour, theirs clear glass
+                .then(if (LocalSettings.current.liquidGlass)
+                    Modifier.glass(shape, tint = if (mine) bg else Color.White)
+                        .background(if (mine) bg.copy(alpha = 0.55f) else Color.White.copy(alpha = 0.04f))
+                else Modifier.clip(shape).background(bg)).padding(4.dp)
         ) {
             when (m.kind) {
                 "track" -> {

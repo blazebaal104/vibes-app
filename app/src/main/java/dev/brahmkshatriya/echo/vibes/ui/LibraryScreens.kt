@@ -579,9 +579,9 @@ fun TransferBanner(modifier: Modifier = Modifier, onClick: () -> Unit) {
     LaunchedEffect(Unit) { while (true) { kotlinx.coroutines.delay(2000); i = (i + 1) % transferServices.size } }
     val (name, color) = transferServices[i]
     val accent by androidx.compose.animation.animateColorAsState(color, androidx.compose.animation.core.tween(600), label = "tb")
-    val sweep by androidx.compose.animation.core.rememberInfiniteTransition(label = "sweep").animateFloat(
+    val sweep = liveFloat(
         -0.4f, 1.4f, androidx.compose.animation.core.infiniteRepeatable(
-            androidx.compose.animation.core.tween(2000, easing = androidx.compose.animation.core.LinearEasing)), label = "sw")
+            androidx.compose.animation.core.tween(2000, easing = androidx.compose.animation.core.LinearEasing)), "sw")
     Box(
         modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp))
             .background(androidx.compose.ui.graphics.Brush.linearGradient(listOf(accent.copy(alpha = 0.55f), LocalVibes.current.card)))

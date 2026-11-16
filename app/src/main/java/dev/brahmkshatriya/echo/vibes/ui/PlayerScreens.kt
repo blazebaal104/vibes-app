@@ -95,8 +95,9 @@ fun rememberProgress(): Pair<Long, Long> {
     var dur by remember { mutableLongStateOf(0L) }
     LaunchedEffect(Unit) {
         while (true) {
+            Perf.awaitVisible()
             pos = app.engine.position(); dur = app.engine.duration()
-            delay(250)
+            delay(Perf.tick(250))
         }
     }
     return pos to dur
@@ -161,10 +162,10 @@ fun FullPlayer() {
     if (karaoke) { KaraokeScreen(song, playing) { karaoke = false }; return }
     val baseScale by animateFloatAsState(if (playing) 1f else 0.86f, spring(dampingRatio = 0.6f, stiffness = 300f), label = "cover")
     // "canvas": the cover slowly breathes while the song plays
-    val breathe by androidx.compose.animation.core.rememberInfiniteTransition(label = "br").animateFloat(
+    val breathe = liveFloat(
         1f, 1.035f, androidx.compose.animation.core.infiniteRepeatable(
             androidx.compose.animation.core.tween(2600, easing = androidx.compose.animation.core.FastOutSlowInEasing),
-            androidx.compose.animation.core.RepeatMode.Reverse), label = "brv")
+            androidx.compose.animation.core.RepeatMode.Reverse), "brv")
     val coverScale = baseScale * if (playing && LocalSettings.current.canvasCovers && !LocalSettings.current.reduceMotion) breathe else 1f
     val v = LocalVibes.current
 

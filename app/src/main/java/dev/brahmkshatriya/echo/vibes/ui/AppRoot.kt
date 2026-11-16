@@ -439,10 +439,9 @@ private fun KnobsIcon(color: Color, spin: Float, modifier: Modifier) {
 private fun StudioNavItem(selected: Boolean, onClick: () -> Unit) {
     val grow by androidx.compose.animation.core.animateFloatAsState(if (selected) 1f else 0f,
         androidx.compose.animation.core.spring(dampingRatio = 0.5f, stiffness = 260f), label = "grow")
-    val t = androidx.compose.animation.core.rememberInfiniteTransition(label = "studio")
-    val ringSpin by t.animateFloat(0f, 360f, androidx.compose.animation.core.infiniteRepeatable(tween(3500, easing = androidx.compose.animation.core.LinearEasing)), label = "ring")
-    val knobSpin by t.animateFloat(0f, 360f, androidx.compose.animation.core.infiniteRepeatable(tween(2600, easing = androidx.compose.animation.core.LinearEasing)), label = "knob")
-    val pulse by t.animateFloat(1f, 1.06f, androidx.compose.animation.core.infiniteRepeatable(tween(900), androidx.compose.animation.core.RepeatMode.Reverse), label = "pulse")
+    val ringSpin = liveFloat(0f, 360f, androidx.compose.animation.core.infiniteRepeatable(tween(3500, easing = androidx.compose.animation.core.LinearEasing)), "ring", enabled = selected)
+    val knobSpin = liveFloat(0f, 360f, androidx.compose.animation.core.infiniteRepeatable(tween(2600, easing = androidx.compose.animation.core.LinearEasing)), "knob", enabled = selected)
+    val pulse = liveFloat(1f, 1.06f, androidx.compose.animation.core.infiniteRepeatable(tween(900), androidx.compose.animation.core.RepeatMode.Reverse), "pulse", enabled = selected)
     // a quick knob twist every time you tap it
     val twist = remember { androidx.compose.animation.core.Animatable(0f) }
     LaunchedEffect(selected) { if (selected) { twist.snapTo(0f); twist.animateTo(180f, tween(600, easing = androidx.compose.animation.core.FastOutSlowInEasing)) } }

@@ -14,6 +14,7 @@ import androidx.compose.ui.input.pointer.onPointerEvent
 import dev.brahmkshatriya.echo.vibes.VibesGraph
 import dev.brahmkshatriya.echo.vibes.ui.sizedCover
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -24,14 +25,33 @@ import java.util.concurrent.ConcurrentHashMap
 /** The main colour of a cover (vibrant, darkened enough for white text on top), cached per URL. */
 object CoverColors {
     private val cache = ConcurrentHashMap<String, Color>()
-    private val missing = ConcurrentHashMap.newKeySet<String>()
+    /** url -> when it last failed: retried after a minute (before: one failure = never again). */
+    private val failedAt = ConcurrentHashMap<String, Long>()
+    /** One download per cover even when many places ask at once (hover, background, panels). */
+    private val inFlight = ConcurrentHashMap<String, kotlinx.coroutines.Deferred<Color?>>()
+    private val loadScope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + Dispatchers.IO)
 
     fun cached(url: String?): Color? = url?.let { cache[it] }
 
     suspend fun of(url: String?): Color? {
         if (url.isNullOrBlank()) return null
         cache[url]?.let { return it }
-        if (url in missing) return null
+        failedAt[url]?.let { if (System.currentTimeMillis() - it < 60_000) return null }
+        // the download runs in its own scope: if the caller goes away (mouse left the cover, song
+        // skipped) it still finishes and is cached. Before, the cancellation was swallowed as a
+        // "failure" and that cover never got its colour again.
+        val job = inFlight.getOrPut(url) {
+            loadScope.async {
+                val c = load(url)
+                if (c != null) { cache[url] = c; failedAt.remove(url) } else failedAt[url] = System.currentTimeMillis()
+                inFlight.remove(url)
+                c
+            }
+        }
+        return job.await()
+    }
+
+    private suspend fun load(url: String): Color? {
         val c = withContext(Dispatchers.IO) {
             runCatching {
                 val bytes = if (url.startsWith("http")) VibesGraph.supa.http.newCall(Request.Builder().url(sizedCover(url, 120)).build()).execute().use { it.body.bytes() }
@@ -40,7 +60,6 @@ object CoverColors {
                 dominant(img)
             }.getOrNull()
         }
-        if (c != null) cache[url] = c else missing += url
         return c
     }
 
@@ -87,11 +106,11 @@ fun Modifier.hoverTint(url: String?): Modifier {
     return this
         .onPointerEvent(PointerEventType.Enter) {
             job?.cancel()
-            job = scope.launch { delay(60); CoverColors.of(url)?.let { desk.hoverColor = it } }
+            job = scope.launch { delay(60); CoverColors.of(url)?.let { desk.hoverColor = it; dev.brahmkshatriya.echo.vibes.ui.Ambient.hover = it } }
         }
         .onPointerEvent(PointerEventType.Exit) {
             job?.cancel()
-            job = scope.launch { delay(140); desk.hoverColor = null }
+            job = scope.launch { delay(140); desk.hoverColor = null; dev.brahmkshatriya.echo.vibes.ui.Ambient.hover = null }
         }
 }
 

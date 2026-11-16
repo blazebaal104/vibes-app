@@ -103,7 +103,13 @@ fun rememberPlayback(): Pair<Long, Long> {
     val app = LocalApp.current
     var pos by remember { mutableLongStateOf(0L) }
     var dur by remember { mutableLongStateOf(0L) }
-    LaunchedEffect(Unit) { while (true) { pos = app.engine.position(); dur = app.engine.duration(); delay(200) } }
+    LaunchedEffect(Unit) {
+        while (true) {
+            dev.brahmkshatriya.echo.vibes.ui.Perf.awaitVisible()
+            pos = app.engine.position(); dur = app.engine.duration()
+            delay(dev.brahmkshatriya.echo.vibes.ui.Perf.tick(200))
+        }
+    }
     return pos to dur
 }
 

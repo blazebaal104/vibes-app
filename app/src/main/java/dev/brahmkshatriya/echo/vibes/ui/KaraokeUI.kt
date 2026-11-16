@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -106,7 +107,9 @@ suspend fun loadKaraokeLines(app: AppState, song: SongRef): List<KaraokeLine>? =
 fun KaraokeScreen(song: SongRef, playing: Boolean, onClose: () -> Unit) {
     val app = LocalApp.current
     val context = androidx.compose.ui.platform.LocalContext.current
-    val (mainPos, _) = rememberProgress()
+    val (mainPos, mainDur) = rememberProgress()
+    /** Moving from the quick filter to HD right now (both fade, a badge shows it). */
+    var switching by remember { mutableStateOf(false) }
     var lines by remember(song.key) { mutableStateOf<List<KaraokeLine>?>(null) }
     var loading by remember(song.key) { mutableStateOf(true) }
     var voice by remember { mutableFloatStateOf(1f - Karaoke.strength) }
@@ -161,9 +164,19 @@ fun KaraokeScreen(song: SongRef, playing: Boolean, onClose: () -> Unit) {
             val mainPlaying = app.engine.player.playerState.current.value?.isPlaying == true
             if (mainPlaying) wantPlay = true
             if (KaraokeHD.active.value) hdPos = KaraokeHD.positionMs()
-            else if (wantPlay && KaraokeHD.readyAtMs(app.engine.position())) {
+            else if (wantPlay && !switching && KaraokeHD.readyAtMs(app.engine.position())) {
+                // smooth hand-over: HD fades in from the same point while the normal player fades out
                 val at = app.engine.position()
-                if (KaraokeHD.play(at)) app.engine.pause()
+                if (KaraokeHD.play(at)) {
+                    switching = true
+                    val b = app.engine.player.browser.value
+                    val v0 = b?.volume ?: 1f
+                    for (i in 1..10) { b?.volume = v0 * (1f - i / 10f); kotlinx.coroutines.delay(45) }
+                    app.engine.pause()
+                    b?.volume = v0
+                    kotlinx.coroutines.delay(900)
+                    switching = false
+                }
             }
             kotlinx.coroutines.delay(100)
         }
@@ -200,7 +213,11 @@ fun KaraokeScreen(song: SongRef, playing: Boolean, onClose: () -> Unit) {
                 }
                 Spacer(Modifier.size(48.dp))
             }
-            Box(Modifier.weight(1f).fillMaxWidth()) {
+            androidx.compose.foundation.layout.BoxWithConstraints(Modifier.weight(1f).fillMaxWidth()) {
+            // big screens (PC, tablets): lyrics on the left, the cover breathing on the beat on the right
+            val wide = maxWidth > 900.dp
+            Row(Modifier.fillMaxSize()) {
+            Box(Modifier.weight(if (wide) 1.25f else 1f).fillMaxHeight()) {
                 when {
                     loading -> CircularProgressIndicator(Modifier.align(Alignment.Center), color = Color.White)
                     list.isEmpty() -> Column(Modifier.align(Alignment.Center).padding(32.dp), horizontalAlignment = Alignment.CenterHorizontally) {
@@ -247,6 +264,14 @@ fun KaraokeScreen(song: SongRef, playing: Boolean, onClose: () -> Unit) {
                     }
                 }
             }
+            if (wide) BeatStage(song, pos, isPlaying, Modifier.weight(1f).fillMaxHeight(),
+                caption = if (hdActive) "🎤 Karaoke HD" else "🎤 Karaoke")
+            }
+            }
+            // where we are in the song (drag to move)
+            KaraokeProgress(pos, mainDur.takeIf { it > 0 } ?: song.duration ?: 0L) { to ->
+                if (hdActive) KaraokeHD.seekTo(to) else app.engine.seekTo(to)
+            }
             KaraokeControls(
                 playing = isPlaying,
                 onPrev = {
@@ -269,7 +294,11 @@ fun KaraokeScreen(song: SongRef, playing: Boolean, onClose: () -> Unit) {
                     else { app.engine.pause(); app.engine.seekTo(0) }
                 }
             )
-            HdStatus(hdPhase, hdActive, onDownload = { KaraokeHD.downloadModel(song, app.engine.position()) },
+            androidx.compose.animation.AnimatedVisibility(switching) {
+                Text("✨ Passo alla versione HD", color = Color(0xFFFF4FD8), fontWeight = FontWeight.Bold,
+                    style = MaterialTheme.typography.labelLarge, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth())
+            }
+            HdStatus(hdPhase, hdActive, startProgress = KaraokeHD.startProgress(pos), songProgress = KaraokeHD.songProgress(), onDownload = { KaraokeHD.downloadModel(song, app.engine.position()) },
                 onRetry = { KaraokeHD.retry(song, app.engine.position()) })
             val bgState by KaraokeHD.background.collectAsState()
             bgState?.let { b ->
@@ -293,7 +322,7 @@ fun KaraokeScreen(song: SongRef, playing: Boolean, onClose: () -> Unit) {
 
 /** HD state under the lyrics: download offer, preparation progress, or the "HD" badge. */
 @Composable
-private fun HdStatus(phase: KaraokeHD.Phase, active: Boolean, onDownload: () -> Unit, onRetry: () -> Unit) {
+private fun HdStatus(phase: KaraokeHD.Phase, active: Boolean, startProgress: Float, songProgress: Float, onDownload: () -> Unit, onRetry: () -> Unit) {
     val pink = Color(0xFFFF4FD8)
     Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 6.dp)
         .clip(androidx.compose.foundation.shape.RoundedCornerShape(18.dp)).background(Color.White.copy(alpha = 0.08f)).padding(14.dp)) {
@@ -316,11 +345,15 @@ private fun HdStatus(phase: KaraokeHD.Phase, active: Boolean, onDownload: () -> 
                     modifier = Modifier.padding(top = 8.dp).fillMaxWidth().height(6.dp).clip(CircleShape))
             }
             phase is KaraokeHD.Phase.Fetching || phase is KaraokeHD.Phase.Separating -> {
-                val p = (phase as? KaraokeHD.Phase.Separating)?.progress ?: 0f
-                Text(if (phase is KaraokeHD.Phase.Fetching) "Preparo la versione HD…" else "Tolgo la voce con l'AI… ${(p * 100).toInt()}%",
+                // the bar is how close HD is to STARTING (100% = it switches), not the whole song
+                val fetching = phase is KaraokeHD.Phase.Fetching
+                val target = if (fetching) 0.05f * ((phase as KaraokeHD.Phase.Fetching).progress) else 0.05f + 0.95f * startProgress
+                val p by androidx.compose.animation.core.animateFloatAsState(target, androidx.compose.animation.core.tween(600), label = "hdp")
+                Text(if (fetching) "Preparo la versione HD…" else "Tolgo la voce con l'AI… ${(p * 100).toInt()}%",
                     color = Color.White, style = MaterialTheme.typography.bodyMedium)
-                Text("Intanto senti il filtro veloce: passa all'HD da sola appena è pronta", color = Color.White.copy(alpha = 0.6f),
-                    style = MaterialTheme.typography.bodySmall)
+                Text("Intanto senti il filtro veloce: a 100% passa all'HD da sola" +
+                        (if (!fetching && songProgress > 0f) " · brano separato ${(songProgress * 100).toInt()}%" else ""),
+                    color = Color.White.copy(alpha = 0.6f), style = MaterialTheme.typography.bodySmall)
                 androidx.compose.material3.LinearProgressIndicator(progress = { p }, color = pink,
                     modifier = Modifier.padding(top = 8.dp).fillMaxWidth().height(6.dp).clip(CircleShape))
             }
@@ -456,5 +489,20 @@ fun PlayerLyricsCard(song: SongRef, pos: Long, onOpenKaraoke: () -> Unit) {
                 }
             }
         }
+    }
+}
+
+/** Elapsed / length of the song, with a bar you can drag to move (karaoke had no time bar at all). */
+@Composable
+private fun KaraokeProgress(pos: Long, dur: Long, onSeek: (Long) -> Unit) {
+    var drag by remember { mutableStateOf<Float?>(null) }
+    val frac = drag ?: if (dur > 0) (pos.toFloat() / dur).coerceIn(0f, 1f) else 0f
+    Row(Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+        Text(fmt(if (drag != null) (drag!! * dur).toLong() else pos), color = Color.White.copy(alpha = 0.75f), style = MaterialTheme.typography.labelMedium)
+        Slider(frac, { drag = it }, onValueChangeFinished = { drag?.let { onSeek((it * dur).toLong()) }; drag = null },
+            modifier = Modifier.weight(1f).padding(horizontal = 10.dp), enabled = dur > 0,
+            colors = androidx.compose.material3.SliderDefaults.colors(thumbColor = Color.White, activeTrackColor = Color(0xFFFF4FD8),
+                inactiveTrackColor = Color.White.copy(alpha = 0.18f)))
+        Text(fmt(dur), color = Color.White.copy(alpha = 0.75f), style = MaterialTheme.typography.labelMedium)
     }
 }

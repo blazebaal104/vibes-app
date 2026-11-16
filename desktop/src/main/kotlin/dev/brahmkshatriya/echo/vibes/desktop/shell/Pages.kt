@@ -126,7 +126,13 @@ fun StickyBar(visible: Boolean, color: Color, title: String, playing: Boolean, o
 @Composable
 fun PageColor(c: Color?) {
     val desk = LocalDesk.current
-    DisposableEffect(c) { desk.pageColor = c; onDispose { if (desk.pageColor == c) desk.pageColor = null } }
+    DisposableEffect(c) {
+        desk.pageColor = c; dev.brahmkshatriya.echo.vibes.ui.Ambient.pinned = c
+        onDispose {
+            if (desk.pageColor == c) desk.pageColor = null
+            if (dev.brahmkshatriya.echo.vibes.ui.Ambient.pinned == c) dev.brahmkshatriya.echo.vibes.ui.Ambient.pinned = null
+        }
+    }
 }
 
 fun LazyListScope.trackList(

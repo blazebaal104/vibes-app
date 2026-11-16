@@ -215,15 +215,10 @@ private fun SongRowContent(
 /** Three little bars bouncing, shown next to the song that is playing. */
 @Composable
 fun EqualizerBars(modifier: Modifier = Modifier, color: Color = MaterialTheme.colorScheme.primary) {
-    val t = androidx.compose.animation.core.rememberInfiniteTransition(label = "eq")
     val heights = (0..2).map { i ->
-        t.animateFloat(
-            0.25f, 1f,
-            androidx.compose.animation.core.infiniteRepeatable(
-                androidx.compose.animation.core.tween(380 + i * 120),
-                androidx.compose.animation.core.RepeatMode.Reverse
-            ), label = "b$i"
-        )
+        val v = liveFloat(0.25f + i * 0.2f, 1f, androidx.compose.animation.core.infiniteRepeatable(
+            androidx.compose.animation.core.tween(380 + i * 120), androidx.compose.animation.core.RepeatMode.Reverse), "b$i")
+        androidx.compose.runtime.rememberUpdatedState(v)
     }
     Row(modifier, horizontalArrangement = Arrangement.spacedBy(2.dp), verticalAlignment = Alignment.Bottom) {
         heights.forEach { h ->
