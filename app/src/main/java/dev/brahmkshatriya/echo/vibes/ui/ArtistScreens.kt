@@ -94,8 +94,13 @@ fun ArtistScreen(id: Long, name: String = "") {
         LazyColumn(contentPadding = ScreenPadding) {
             item {
                 Box(Modifier.fillMaxWidth()) {
-                    Cover(info?.picture, Modifier.fillMaxWidth().height(320.dp), RoundedCornerShape(0.dp))
-                    Box(Modifier.fillMaxWidth().height(320.dp).background(Brush.verticalGradient(listOf(Color.Black.copy(alpha = 0.3f), Color.Transparent, MaterialTheme.colorScheme.background))))
+                    // PC: a taller banner with rounded corners that fades into the page (no hard band)
+                    val pc = PlatformUI.isDesktop
+                    val h = if (pc) 380.dp else 320.dp
+                    val shape = if (pc) RoundedCornerShape(topStart = 18.dp, topEnd = 18.dp) else RoundedCornerShape(0.dp)
+                    Cover(info?.picture, Modifier.fillMaxWidth().height(h), shape)
+                    Box(Modifier.fillMaxWidth().height(h).background(Brush.verticalGradient(listOf(Color.Black.copy(alpha = 0.3f), Color.Transparent,
+                        if (pc) Color.Black.copy(alpha = 0.55f) else MaterialTheme.colorScheme.background))))
                     IconButton(onClick = { nav.back() }, modifier = Modifier.statusBarsPadding().padding(4.dp)) {
                         Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Indietro", tint = Color.White)
                     }

@@ -230,13 +230,16 @@ private fun CenterRoute(route: Route) {
             val albumId = (route.item as? dev.brahmkshatriya.echo.common.models.Album)?.id?.toLongOrNull()
             when {
                 albumId != null -> DeskAlbumPage(albumId)
-                route.item is dev.brahmkshatriya.echo.common.models.Artist -> Wide { Screen(route) }
+                route.item is dev.brahmkshatriya.echo.common.models.Artist -> Wide(1600) { Screen(route) }
                 else -> DeskMediaPage(route.item)
             }
         }
         // the phone's screens, centred at a comfortable width
-        Route.Games, is Route.Guess, is Route.BlindTest, Route.Layers -> Wide(900) { Screen(route) }
-        Route.Studio, Route.Publish, Route.Samples, Route.StudioStats, Route.Podcasts, is Route.VibesRelease -> Wide(1100) { Screen(route) }
+        Route.Games -> Wide(1300) { Screen(route) }
+        is Route.Guess, is Route.BlindTest, Route.Layers -> Wide(900) { Screen(route) }
+        // artist pages: as wide as the centre (the banner used to stop with dark strips at the sides)
+        is Route.DzArtist -> Wide(1600) { Screen(route) }
+        Route.Studio, Route.Publish, Route.Samples, Route.StudioStats, Route.Podcasts, is Route.VibesRelease -> Wide(1300) { Screen(route) }
         is Route.Chat -> Wide(900) { Screen(route) }
         else -> Wide { Screen(route) }
     }

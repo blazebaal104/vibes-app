@@ -362,3 +362,8 @@ fun VibesSheet(onDismiss: () -> Unit, container: Color = MaterialTheme.colorSche
         content = content,
     )
 }
+
+/** A screen's own opaque background, left out on the PC (the app's living background shows through). */
+@Composable
+fun Modifier.screenBg(): Modifier =
+    if (PlatformUI.transparentScreens) this else this.background(MaterialTheme.colorScheme.background)

@@ -126,25 +126,27 @@ fun GamesScreen() {
                     modifier = Modifier.padding(horizontal = 16.dp))
             }
             item {
-                GameCard(
+                // PC: the three games side by side (on the phone, one under the other)
+                val cards: List<@Composable (Modifier, Boolean) -> Unit> = listOf(
+                    { m, st -> GameCard(
                     "Indovina il brano", "Ascolta 0,1 secondi. Poi 1, 2, 5, 10. Riconosci la canzone prima che finiscano i tentativi.",
                     "🎯", listOf(GameColors.Easy, GameColors.Medium, GameColors.Hard, GameColors.Impossible),
-                    onSolo = { setupFor = "solo" }, onChallenge = { setupFor = "challenge" }, index = 0
-                )
-            }
-            item {
-                GameCard(
+                    onSolo = { setupFor = "solo" }, onChallenge = { setupFor = "challenge" }, index = 0, modifier = m, stretch = st
+                ) },
+                    { m, st -> GameCard(
                     "Chi canta?", "8 brani, 4 artisti tra cui scegliere, 10 secondi a domanda. Più sei veloce, più punti fai.",
                     "🎤", listOf(Color(0xFF7B2FF7), Color(0xFFFF2E97), Color(0xFFFF7A59)),
-                    onSolo = { nav.open(Route.BlindTest(null)) }, onChallenge = { challengeGame = "blindtest" }, index = 1
-                )
-            }
-            item {
-                GameCard(
+                    onSolo = { nav.open(Route.BlindTest(null)) }, onChallenge = { challengeGame = "blindtest" }, index = 1, modifier = m, stretch = st
+                ) },
+                    { m, st -> GameCard(
                     "Strati", "Prima senti solo bassi e cassa, poi a ogni tentativo entrano altri strumenti. Indovina prima che arrivi la canzone intera.",
                     "🎚️", listOf(Color(0xFF00C2A8), Color(0xFF1E6BFF), Color(0xFF7B2FF7)),
-                    onSolo = { nav.open(Route.Layers) }, onChallenge = null, index = 2
+                    onSolo = { nav.open(Route.Layers) }, onChallenge = null, index = 2, modifier = m, stretch = st
+                ) },
                 )
+                if (PlatformUI.isDesktop) Row(Modifier.fillMaxWidth().height(androidx.compose.foundation.layout.IntrinsicSize.Max).padding(horizontal = 8.dp)) {
+                    cards.forEach { it(Modifier.weight(1f).fillMaxHeight(), true) }
+                } else Column { cards.forEach { it(Modifier.fillMaxWidth(), false) } }
             }
             item { GameLeaderboards() }
         }
@@ -278,9 +280,10 @@ private fun GameSetupSheet(onDismiss: () -> Unit, action: String, onStart: (Game
 }
 
 @Composable
-private fun GameCard(title: String, text: String, emoji: String, colors: List<Color>, onSolo: () -> Unit, onChallenge: (() -> Unit)?, index: Int) {
+private fun GameCard(title: String, text: String, emoji: String, colors: List<Color>, onSolo: () -> Unit, onChallenge: (() -> Unit)?, index: Int,
+                     modifier: Modifier = Modifier.fillMaxWidth(), stretch: Boolean = false) {
     Column(
-        Modifier.padding(16.dp).fillMaxWidth().enter(index).clip(RoundedCornerShape(24.dp))
+        modifier.padding(if (stretch) 8.dp else 16.dp).enter(index).clip(RoundedCornerShape(24.dp))
             .background(Brush.linearGradient(colors.map { it.copy(alpha = 0.85f) }))
             .padding(20.dp)
     ) {
@@ -288,6 +291,7 @@ private fun GameCard(title: String, text: String, emoji: String, colors: List<Co
         Text(title, style = MaterialTheme.typography.headlineMedium, color = Color.White, modifier = Modifier.padding(top = 6.dp))
         Text(text, style = MaterialTheme.typography.bodyMedium, color = Color.White.copy(alpha = 0.9f), modifier = Modifier.padding(top = 4.dp))
         Spacer(Modifier.height(16.dp))
+        if (stretch) Spacer(Modifier.weight(1f))
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             BigButton("Gioca da solo", onSolo, Modifier.weight(1f), container = Color.White, content = Color(0xFF111111))
             if (onChallenge != null) BigButton("Sfida un amico", onChallenge, Modifier.weight(1f), container = Color.Black.copy(alpha = 0.35f), content = Color.White)
@@ -572,7 +576,7 @@ fun GuessGameScreen(lobbyId: String?, source: GameSource? = null) {
     }
 
     val blurred = state == RoundState.WON || state == RoundState.LOST
-    Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
+    Box(Modifier.fillMaxSize().screenBg()) {
         Box(Modifier.fillMaxSize().then(if (blurred && Build.VERSION.SDK_INT >= 31) Modifier.blur(24.dp) else Modifier)) {
             GradientBackground(tint = color) {
                 Column(Modifier.fillMaxSize().imePadding().navigationBarsPadding()) {

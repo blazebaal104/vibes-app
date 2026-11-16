@@ -107,7 +107,7 @@ fun StatsScreen() {
         records = runCatching { VibesGraph.listens.records() }.getOrNull()
     }
 
-    Box(Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.background)) {
+    Box(Modifier.fillMaxWidth().screenBg()) {
         LazyColumn(contentPadding = ScreenPadding) {
             item {
                 Row(Modifier.statusBarsPadding().padding(4.dp).fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
