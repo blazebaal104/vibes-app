@@ -1,9 +1,9 @@
 {
-  "title": "Vibes per PC: più leggero e più curato ⚡",
+  "title": "Karaoke con dissolvenza 🎤",
   "notes": [
-    "Molta meno GPU: ridotto a icona non disegna più niente, solo musica",
-    "Karaoke e testo a schermo intero: copertina che pulsa a ritmo, barra del brano, passaggio all'HD morbido",
-    "La barra di preparazione HD ora segue il progresso vero",
-    "Pannello di destra sempre presente (si riduce a una striscia), bolle chat in vetro, statistiche/cronologia/impostazioni nella barra in alto"
+    "Karaoke: la voce sfuma nella base entrando e torna piano piano uscendo (durata nelle impostazioni)",
+    "PC: schermo intero solo per la finestra (e si esce davvero); la vista del brano si apre dalla copertina",
+    "Notifiche: interruttore generale e avviso quando qualcuno inizia a seguirti",
+    "Chat e impostazioni a tutta larghezza su PC, logo Vibes all'avvio su Android"
   ]
 }
