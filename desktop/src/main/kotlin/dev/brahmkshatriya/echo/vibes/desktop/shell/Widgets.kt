@@ -1,5 +1,6 @@
 package dev.brahmkshatriya.echo.vibes.desktop.shell
 
+import dev.brahmkshatriya.echo.vibes.ui.ambientBounds
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateFloatAsState
@@ -179,10 +180,11 @@ fun MediaCard(
     val bg by animateColorAsState(if (hover) Color.White.copy(alpha = 0.07f) else Color.Transparent, tween(160), label = "mc")
     val lift by animateFloatAsState(if (hover) 1f else 0f, tween(220), label = "lift")
     val glow = rememberCoverColor(cover) ?: VibesGradient[0]
+    val tap = dev.brahmkshatriya.echo.vibes.ui.rememberAmbientTap(cover)
     ContextMenuBox(items = { menu?.invoke() ?: emptyList() }) { _ ->
         Column(
-            Modifier.width(width).clip(RoundedCornerShape(16.dp)).background(bg).hovered { hover = it }.hoverTint(cover)
-                .pointerHoverIcon(HandCursor).clickable(onClick = onOpen).padding(10.dp),
+            Modifier.width(width).ambientBounds(tap).clip(RoundedCornerShape(16.dp)).background(bg).hovered { hover = it }.hoverTint(cover)
+                .pointerHoverIcon(HandCursor).clickable(onClick = { tap.fire(); onOpen() }).padding(10.dp),
         ) {
             // the cover lifts and glows in its own colour (Vibes' "pop" instead of a flat highlight)
             Box(Modifier.fillMaxWidth().aspectRatio(1f).graphicsLayer { translationY = -6.dp.toPx() * lift; val sc = 1f + 0.02f * lift; scaleX = sc; scaleY = sc }) {

@@ -20,6 +20,7 @@ import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 
@@ -807,6 +808,18 @@ class DeezerParser(private val session: DeezerSession) {
             subtitle = str("subtitle") ?: data.str("SUBTITLE"),
             extras = buildMap {
                 put("smarttracklist", id)
+                // Vibes: the COVER above is Deezer's template (flat colour band for the title + two
+                // photos), which looks half empty without Deezer's own overlay. The artist photos let the
+                // app draw a full collage instead.
+                val pics = ((this@toSmartTracklist["pictures"] as? JsonArray) ?: (data["pictures"] as? JsonArray))
+                    ?.mapNotNull { p ->
+                        val o = p as? JsonObject ?: return@mapNotNull null
+                        val md5 = (o["md5"] as? JsonPrimitive)?.contentOrNull
+                        val type = (o["type"] as? JsonPrimitive)?.contentOrNull ?: "artist"
+                        if (md5.isNullOrEmpty() || md5 == EMPTY_MD5) null
+                        else "https://cdn-images.dzcdn.net/images/$type/$md5/500x500-000000-80-0-0.jpg"
+                    }.orEmpty()
+                if (pics.size >= 2) put("collage", pics.take(4).joinToString("\n"))
                 data.str("EXPIRATION_DATE")?.let { put("expires", it) }
             },
             // ⚠️ RADIO OFF, and this is not a preference. DeezerRadioClient.radio(item) seeds a Playlist
@@ -870,8 +883,12 @@ class DeezerParser(private val session: DeezerSession) {
         )
     }
 
+    private val EMPTY_MD5 = "d41d8cd98f00b204e9800998ecf8427e"
+
     private fun getCover(md5: String?, type: String?): ImageHolder? {
         if (md5.isNullOrEmpty() || type.isNullOrEmpty()) return null
+        // Vibes: md5 of "" = Deezer's grey "no picture" silhouette; null lets the app show something better
+        if (md5 == EMPTY_MD5) return null
         // Mirrors the SettingSlider default in DeezerExtension.getSettingItems; both were 240 until
         // 2026-09-24. This is the only read of the key.
         val size = session.settings?.getInt("image_quality") ?: 480

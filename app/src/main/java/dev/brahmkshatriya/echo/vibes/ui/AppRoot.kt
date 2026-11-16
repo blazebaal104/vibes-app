@@ -229,8 +229,12 @@ fun MainScaffold(pendingLink: MutableStateFlow<Uri?>) {
         // onKeyEvent (not preview): text fields keep their spaces and arrows.
         .onKeyEvent { ev -> if (ev.type != androidx.compose.ui.input.key.KeyEventType.KeyDown) false else pcShortcut(app, ev) }
         .focusRequester(keyFocus).focusable()) {
+        // "Sfondo reattivo": one living background behind every screen (the screens turn transparent)
+        val reactive = LocalSettings.current.reactiveBackground
+        Box(Modifier.fillMaxSize().padding(start = sideW).hazeSource(hazeState)) {
+        if (reactive) ReactiveBackground(Modifier.fillMaxSize())
         AnimatedContent(
-            modifier = Modifier.fillMaxSize().padding(start = sideW).hazeSource(hazeState),
+            modifier = Modifier.fillMaxSize(),
             targetState = ScreenKey(tabs.indexOf(nav.tab), nav.depth, nav.current),
             contentKey = { it.route },
             transitionSpec = {
@@ -258,6 +262,7 @@ fun MainScaffold(pendingLink: MutableStateFlow<Uri?>) {
             if (wide) Box(Modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
                 Box(Modifier.widthIn(max = 980.dp).fillMaxHeight()) { Screen(key.route) }
             } else Screen(key.route)
+        }
         }
         if (wide) SideMenu(Modifier.align(Alignment.TopStart).width(sideW).fillMaxHeight())
 

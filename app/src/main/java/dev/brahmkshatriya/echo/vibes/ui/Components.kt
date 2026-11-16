@@ -276,7 +276,7 @@ fun GradientBackground(modifier: Modifier = Modifier, tint: Color? = null, image
     val prefs = LocalSettings.current
     val bg = if (prefs.background == "amoled") Color.Black else MaterialTheme.colorScheme.background
     // PC: the window draws the background (colour that follows what you point at); screens only add their tint
-    if (PlatformUI.transparentScreens && image == null) {
+    if ((PlatformUI.transparentScreens || prefs.reactiveBackground) && image == null) {
         Box(modifier.fillMaxSize()) {
             if (tint != null) Box(Modifier.matchParentSize().background(Brush.verticalGradient(0f to tint.copy(alpha = 0.55f), 0.5f to tint.copy(alpha = 0.12f), 1f to Color.Transparent)))
             content()

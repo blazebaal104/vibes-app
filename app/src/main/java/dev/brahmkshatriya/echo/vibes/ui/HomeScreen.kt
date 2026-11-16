@@ -249,8 +249,10 @@ fun MediaCarousel(items: List<EchoMediaItem>, onClick: (EchoMediaItem) -> Unit) 
 @Composable
 fun MediaTile(item: EchoMediaItem, modifier: Modifier = Modifier, size: androidx.compose.ui.unit.Dp = 150.dp, onClick: () -> Unit) {
     val round = item is Artist
-    Column(modifier.width(size).bouncy(onClick), horizontalAlignment = if (round) Alignment.CenterHorizontally else Alignment.Start) {
-        Cover(item.cover.url(), Modifier.size(size), if (round) CircleShape else RoundedCornerShape(8.dp))
+    // reactive background: the page opens out of this cover, in its colour
+    val tap = rememberAmbientTap(item.cover.url() ?: item.extras["collage"]?.substringBefore('\n'))
+    Column(modifier.width(size).ambientBounds(tap).bouncy({ tap.fire(); onClick() }), horizontalAlignment = if (round) Alignment.CenterHorizontally else Alignment.Start) {
+        MediaArt(item, Modifier.size(size), if (round) CircleShape else RoundedCornerShape(8.dp))
         Text(item.title, style = MaterialTheme.typography.titleSmall, maxLines = 2, overflow = TextOverflow.Ellipsis,
             modifier = Modifier.padding(top = 8.dp))
         val sub = when (item) {

@@ -150,7 +150,8 @@ fun DesktopShell(pendingLink: MutableStateFlow<Uri?>) {
                 .focusRequester(rootFocus).focusable()
         ) {
             // the living background: glows in the colours of the song playing, seen through the glass panels
-            LivingBackground(Modifier.fillMaxSize().hazeSource(haze))
+            if (dev.brahmkshatriya.echo.vibes.ui.LocalSettings.current.reactiveBackground) dev.brahmkshatriya.echo.vibes.ui.ReactiveBackground(Modifier.fillMaxSize().hazeSource(haze))
+            else LivingBackground(Modifier.fillMaxSize().hazeSource(haze))
             Column(Modifier.fillMaxSize()) {
                 TopBar(searchFocus, ::back, ::forward)
                 Row(Modifier.weight(1f).fillMaxWidth().padding(horizontal = 10.dp), horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(0.dp)) {

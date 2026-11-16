@@ -192,6 +192,7 @@ fun LazyListScope.vibesSettings() {
         var v by remember { mutableFloatStateOf(s.corners.toFloat()) }
         SliderRow("Angoli delle copertine", "${v.toInt()} dp", v, 0f..28f, onChange = { v = it }, onDone = { upd { it.copy(corners = v.toInt()) } })
     }
+    item { val s = LocalSettings.current; SwitchRow("Sfondo reattivo ✨", "Lo sfondo vive con quello che fai: le pagine si aprono dalla copertina nel suo colore, segue il brano in ascolto e scorre quando cambi sezione", s.reactiveBackground) { b -> upd { it.copy(reactiveBackground = b) } } }
     item { val s = LocalSettings.current; SwitchRow("Liquid glass", "Barre e schede di vetro smerigliato che lasciano intravedere ciò che c'è sotto", s.liquidGlass) { b -> upd { it.copy(liquidGlass = b) } } }
     item {
         val s = LocalSettings.current

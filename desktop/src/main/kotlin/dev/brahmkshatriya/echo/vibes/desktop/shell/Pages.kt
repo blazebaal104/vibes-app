@@ -277,6 +277,7 @@ fun DeskHome() {
                         val round = m is Artist
                         MediaCard(m.cover.url(), m.title, when (m) { is Artist -> "Artista"; is Album -> m.artists.joinToString(", ") { it.name }; else -> m.subtitle ?: "Playlist" },
                             w, round = round, onOpen = { nav.open(Route.Media(m)) },
+                            art = { mm -> dev.brahmkshatriya.echo.vibes.ui.MediaArt(m, mm, if (round) androidx.compose.foundation.shape.CircleShape else androidx.compose.foundation.shape.RoundedCornerShape(14.dp)) },
                             onPlay = if (round) null else { -> scope.launch { runCatching { app.engine.open(m) }.getOrNull()?.let { (f, t) -> app.engine.play(extId, t, 0, f) } }; Unit })
                     }
                 }
