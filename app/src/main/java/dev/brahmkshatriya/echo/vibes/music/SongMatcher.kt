@@ -72,11 +72,16 @@ class SongMatcher(private val deezer: DeezerPublic, private val supa: Supa) {
         return maxOf(jac, contain, ratio)
     }
 
+    private val versionWords = Regex("""(?i)\b(remix|live|acoustic|instrumental|karaoke|cover|sped up|slowed|nightcore|demo)\b""")
+
     fun score(w: Want, s: SongRef): Double {
         val title = maxOf(sim(w.title, s.title), sim(core(w.title), core(s.title)))
         val wa = artists(w.artist); val sa = artists(s.artist)
-        val artist = if (wa.isEmpty()) 0.6 else wa.maxOf { a -> sa.maxOfOrNull { b -> sim(a, b) } ?: 0.0 }
+        val artist = if (wa.isEmpty()) 0.6 else maxOf(sim(w.artist, s.artist), wa.maxOf { a -> sa.maxOfOrNull { b -> sim(a, b) } ?: 0.0 })
         var sc = 0.6 * title + 0.4 * artist
+        // a remix / live / acoustic version when the original was asked: not the same song
+        val extra = versionWords.findAll(s.title).map { it.value.lowercase() }.toSet() - versionWords.findAll(w.title).map { it.value.lowercase() }.toSet()
+        if (extra.isNotEmpty()) sc -= 0.15
         val d1 = w.durationMs; val d2 = s.duration
         if (d1 != null && d1 > 0 && d2 != null && d2 > 0) {
             val diff = kotlin.math.abs(d1 - d2) / 1000.0
