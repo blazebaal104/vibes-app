@@ -1,0 +1,16 @@
+name: probe spotify
+on:
+  push:
+    branches: [ probe-spotify ]
+permissions:
+  contents: write
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: python3 .github/probe/spotify.py 37i9dQZF1DX4UtSsGT1Sbe 37i9dQZF1DXbTxeAdrVG2l > probe.txt 2>&1 || true
+      - if: always()
+        run: |
+          mkdir o && cp probe.txt o/ && cd o && git init -q && git checkout -q -b probe-out && git add . && git -c user.name=ci -c user.email=ci@v commit -qm p
+          git push -q -f "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" probe-out
