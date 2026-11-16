@@ -1,0 +1,8 @@
+name: probe-deezer
+on: push
+jobs:
+  p:
+    runs-on: ubuntu-latest
+    steps:
+      - run: |
+          for u in "chart/0/podcasts?limit=2" "search/podcast?q=muschio&limit=2" "podcast/1063982/episodes?limit=2" "podcast/1063982" "genre/0/podcasts?limit=2"; do echo "=== $u"; curl -s "https://api.deezer.com/$u" | head -c 1500; echo; done
