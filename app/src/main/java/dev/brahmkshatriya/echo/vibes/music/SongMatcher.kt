@@ -94,7 +94,7 @@ class SongMatcher(private val deezer: DeezerPublic, private val supa: Supa) {
 
     /** Loads what other users already matched for these songs (one request per 60 songs). */
     suspend fun prefetch(wants: List<Want>) {
-        val keys = wants.flatMap { listOfNotNull(key(it), it.isrc?.let { i -> "isrc:" + i.uppercase() }) }.distinct().filter { it !in memory }
+        val keys = wants.flatMap { listOfNotNull(key(it), it.isrc?.let { i -> "isrc:" + i.uppercase() }) }.distinct().filter { !memory.containsKey(it) }
         keys.chunked(60).forEach { chunk ->
             runCatching {
                 val list = chunk.joinToString(",") { "\"" + it.replace("\"", "") + "\"" }
