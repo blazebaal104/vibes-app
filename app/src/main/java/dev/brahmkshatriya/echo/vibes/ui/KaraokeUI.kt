@@ -335,7 +335,7 @@ private fun HdStatus(phase: KaraokeHD.Phase, active: Boolean, startProgress: Flo
             }
             phase is KaraokeHD.Phase.NeedsModel -> {
                 Text("Karaoke HD", color = Color.White, fontWeight = FontWeight.Bold)
-                Text("Toglie la voce del tutto, anche riverbero e acuti, con un'AI che gira sul telefono. Si scarica una volta sola (66 MB, meglio col Wi-Fi).",
+                Text("Toglie la voce del tutto, anche riverbero e acuti, con un'AI che gira sul dispositivo. Si scarica una volta sola (66 MB, meglio col Wi-Fi).",
                     color = Color.White.copy(alpha = 0.75f), style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(top = 2.dp, bottom = 8.dp))
                 BigButton("Scarica karaoke HD", onDownload, Modifier.fillMaxWidth(), container = pink, content = Color.Black)
             }

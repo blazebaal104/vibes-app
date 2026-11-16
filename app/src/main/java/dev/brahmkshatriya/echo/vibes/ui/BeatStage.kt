@@ -76,7 +76,8 @@ fun BeatStage(song: SongRef, positionMs: Long, playing: Boolean, modifier: Modif
     }
 
     BoxWithConstraints(modifier, contentAlignment = Alignment.Center) {
-        val side = min(maxWidth, maxHeight) * 0.62f
+        // leaves room under the cover for title, artist and caption
+        val side = min(maxWidth * 0.62f, maxHeight * 0.5f)
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             Box(Modifier.size(side * 1.35f), contentAlignment = Alignment.Center) {
                 // glow + two rings that open on each beat
