@@ -10,3 +10,8 @@ click 475 34 sleep 4 shot 09-games
 sleep 10 click 1082 850 sleep 5 shot 10-nowplaying
 click 1114 850 sleep 5 shot 11-lyrics
 click 1402 850 sleep 4 shot 12-fullscreen key Escape sleep 2 shot 13-after
+click 355 34 sleep 5 shot 14-studio
+click 1326 34 sleep 4 shot 15-stats
+click 1402 34 sleep 4 shot 16-settings
+click 1406 96 sleep 2 shot 17-strip click 1406 96 sleep 2
+click 1146 850 sleep 8 shot 18-karaoke key Escape sleep 2

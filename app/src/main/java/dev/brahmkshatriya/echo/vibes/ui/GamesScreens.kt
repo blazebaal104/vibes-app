@@ -292,7 +292,12 @@ private fun GameCard(title: String, text: String, emoji: String, colors: List<Co
         Text(text, style = MaterialTheme.typography.bodyMedium, color = Color.White.copy(alpha = 0.9f), modifier = Modifier.padding(top = 4.dp))
         Spacer(Modifier.height(16.dp))
         if (stretch) Spacer(Modifier.weight(1f))
-        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+        // narrow cards (PC, side by side): buttons one under the other so the text never wraps
+        if (stretch) Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            BigButton("Gioca da solo", onSolo, Modifier.fillMaxWidth(), container = Color.White, content = Color(0xFF111111))
+            if (onChallenge != null) BigButton("Sfida un amico", onChallenge, Modifier.fillMaxWidth(), container = Color.Black.copy(alpha = 0.35f), content = Color.White)
+            else Spacer(Modifier.height(52.dp))
+        } else Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             BigButton("Gioca da solo", onSolo, Modifier.weight(1f), container = Color.White, content = Color(0xFF111111))
             if (onChallenge != null) BigButton("Sfida un amico", onChallenge, Modifier.weight(1f), container = Color.Black.copy(alpha = 0.35f), content = Color.White)
         }

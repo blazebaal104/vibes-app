@@ -107,7 +107,7 @@ fun LyricsView() {
     val bg by animateColorAsState(color, tween(600), label = "lyb")
     BoxWithConstraints(Modifier.fillMaxSize().background(Brush.linearGradient(listOf(bg, bg.copy(alpha = 0.85f), Color.Black.copy(alpha = 0.55f))))) {
         // wide: lyrics on the left, the cover breathing on the beat on the right (no more half-empty view)
-        val wide = maxWidth > 1000.dp
+        val wide = maxWidth > 850.dp
         Row(Modifier.fillMaxSize()) {
             LyricsLines(now.first, pos, big = true, Modifier.weight(if (wide) 1.3f else 1f).fillMaxHeight().padding(horizontal = 48.dp).widthIn(max = 900.dp)) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
