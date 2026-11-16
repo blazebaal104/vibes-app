@@ -45,6 +45,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
@@ -63,7 +64,9 @@ fun SearchScreen() {
     var query by (PlatformUI.searchQuery ?: localQuery)
     var result by remember { mutableStateOf<dev.brahmkshatriya.echo.vibes.music.VibesSearch.Result?>(null) }
     var loading by remember { mutableStateOf(false) }
-    var filter by rememberSaveable { mutableStateOf(0) } // 0 tutto, 1 brani, 2 artisti, 3 album, 4 playlist
+    var filter by rememberSaveable { mutableStateOf(0) } // 0 tutto, 1 brani, 2 artisti, 3 album, 4 playlist, 5 su Vibes, 6 podcast
+    var vibesHits by remember { mutableStateOf<List<dev.brahmkshatriya.echo.vibes.backend.Upload>>(emptyList()) }
+    var podHits by remember { mutableStateOf<List<dev.brahmkshatriya.echo.vibes.music.DeezerPublic.PodcastInfo>>(emptyList()) }
     val searches by app.library.searches.collectAsState()
     val playing = nowPlayingKey()
 
@@ -77,6 +80,9 @@ fun SearchScreen() {
         genre = Genres.match(query)
         genreSongs = genre?.let { g -> runCatching { Genres.tracks(app.deezer, g).map { it.toSongRef() } }.getOrDefault(emptyList()) }.orEmpty()
         result = runCatching { dev.brahmkshatriya.echo.vibes.VibesGraph.search.search(query) }.getOrNull()
+        // songs published by Vibes users + Deezer podcasts
+        vibesHits = runCatching { app.social.searchUploads(query) }.getOrDefault(emptyList())
+        podHits = runCatching { app.deezer.searchPodcasts(query, 12) }.getOrDefault(emptyList())
         loading = false
     }
     val r = result
@@ -117,7 +123,7 @@ fun SearchScreen() {
             if (query.isNotBlank()) item {
                 androidx.compose.foundation.lazy.LazyRow(contentPadding = androidx.compose.foundation.layout.PaddingValues(16.dp, 12.dp),
                     horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    val labels = listOf("Tutto", "Brani", "Artisti", "Album", "Playlist")
+                    val labels = listOf("Tutto", "Brani", "Artisti", "Album", "Playlist", "Su Vibes", "Podcast")
                     items(labels.size) { i -> Pill(labels[i], filter == i, { filter = i }) }
                 }
             }
@@ -134,6 +140,13 @@ fun SearchScreen() {
                         }
                     }
                 }
+                // two big doors: the community's music and podcasts
+                item {
+                    Row(Modifier.padding(horizontal = 16.dp, vertical = 6.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        BrowseDoor("🎙️", "Podcast", listOf(Color(0xFF1FB58F), Color(0xFF0B5E7A)), Modifier.weight(1f)) { nav.open(Route.Podcasts) }
+                        BrowseDoor("✨", "Su Vibes", listOf(Color(0xFF8A5CFF), Color(0xFFFF4D8D)), Modifier.weight(1f)) { nav.open(Route.Studio) }
+                    }
+                }
                 item { SectionTitle("Sfoglia tutto") }
                 Genres.all.filter { it.browse }.chunked(2).forEachIndexed { ri, row ->
                     item {
@@ -145,7 +158,7 @@ fun SearchScreen() {
                 }
             } else if (r == null && loading) {
                 item { Box(Modifier.fillMaxWidth().padding(40.dp), contentAlignment = Alignment.Center) { androidx.compose.material3.CircularProgressIndicator() } }
-            } else if (r == null || (r.isEmpty && genreSongs.isEmpty())) {
+            } else if (r == null || (r.isEmpty && genreSongs.isEmpty() && vibesHits.isEmpty() && podHits.isEmpty())) {
                 if (!loading) item { EmptyState("🔍", "Nessun risultato per \"$query\"", "Controlla come l'hai scritto o prova con meno parole.") }
             } else {
                 if (genre != null && filter == 0) {
@@ -206,6 +219,17 @@ fun SearchScreen() {
                             }
                         }
                     }
+                }
+                if ((filter == 0 || filter == 5) && vibesHits.isNotEmpty()) {
+                    item { SectionTitle("Su Vibes · dalla community") }
+                    val list = if (filter == 0) vibesHits.take(4) else vibesHits
+                    itemsIndexed(list, key = { _, u -> "v" + u.id }) { i, u ->
+                        UploadRow(u, null, Modifier.enter(i)) { saveQuery(); playUploads(app, list, i) }
+                    }
+                }
+                if ((filter == 0 || filter == 6) && podHits.isNotEmpty()) {
+                    item { SectionTitle("Podcast") }
+                    item { PodcastCarousel(if (filter == 0) podHits.take(10) else podHits) { saveQuery() } }
                 }
                 if ((filter == 0 || filter == 4) && r.playlists.isNotEmpty()) {
                     if (filter == 0) item { SectionTitle("Playlist") }
@@ -380,5 +404,13 @@ fun GenreScreen(name: String) {
                     onMore = { nav.share = ShareItem.Song(s) }, modifier = Modifier.enter(i))
             }
         }
+    }
+}
+
+@Composable
+private fun BrowseDoor(emoji: String, title: String, colors: List<Color>, modifier: Modifier, onClick: () -> Unit) {
+    Box(modifier.height(84.dp).clip(RoundedCornerShape(14.dp)).background(Brush.linearGradient(colors)).bouncy(onClick).padding(14.dp)) {
+        Text(title, style = MaterialTheme.typography.titleLarge, color = Color.White, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
+        Text(emoji, fontSize = 30.sp, modifier = Modifier.align(Alignment.BottomEnd))
     }
 }

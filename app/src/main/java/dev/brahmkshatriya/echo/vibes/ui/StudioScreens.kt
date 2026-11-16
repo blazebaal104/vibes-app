@@ -1,6 +1,8 @@
 package dev.brahmkshatriya.echo.vibes.ui
 
 import androidx.compose.material.icons.rounded.PlaylistAdd
+import androidx.compose.material.icons.rounded.BookmarkAdded
+import androidx.compose.material.icons.rounded.BookmarkBorder
 
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.runtime.mutableStateMapOf
@@ -46,6 +48,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Delete
+import androidx.compose.material.icons.rounded.KeyboardArrowDown
+import androidx.compose.material.icons.rounded.KeyboardArrowUp
 import androidx.compose.material.icons.rounded.Download
 import androidx.compose.material.icons.rounded.Pause
 import androidx.compose.material.icons.rounded.PlayArrow
@@ -78,6 +82,7 @@ import dev.brahmkshatriya.echo.vibes.VibesGraph
 import dev.brahmkshatriya.echo.vibes.backend.Profile
 import dev.brahmkshatriya.echo.vibes.backend.Sample
 import dev.brahmkshatriya.echo.vibes.backend.Upload
+import dev.brahmkshatriya.echo.vibes.backend.VibesAlbum
 import dev.brahmkshatriya.echo.vibes.music.StudioPlayer
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -85,13 +90,16 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
 
-private fun Upload.item() = StudioPlayer.Item(id, title, artist, cover, url)
 private fun Sample.item() = StudioPlayer.Item(id, name, listOfNotNull(bpm?.let { "$it BPM" }, key, genre.ifBlank { null }).joinToString(" · "), null, url, sample = true)
 
+/**
+ * Songs published on Vibes play in the real player (queue, notification, lock screen, stats), not in
+ * the little studio player. The play is counted for the artist only after a THIRD of the song has
+ * really been heard (ListenTracker -> Social.countUploadPlay).
+ */
 fun playUploads(app: AppState, list: List<Upload>, index: Int) {
-    app.engine.pause()
-    VibesGraph.studio.play(list.map { it.item() }, index)
-    list.getOrNull(index)?.let { VibesGraph.social.count("play", it.id) }
+    if (list.isEmpty()) return
+    app.engine.playAll(list.map { dev.brahmkshatriya.echo.vibes.music.VibesUploads.songOf(it) }, index)
 }
 
 private fun copyToCache(context: Context, uri: Uri, ext: String): File {
@@ -256,6 +264,8 @@ fun StudioScreen() {
             // quick actions
             item {
                 LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    item { QuickChip("📊", "Statistiche") { nav.open(Route.StudioStats) } }
+                    item { QuickChip("💿", "Pubblica album") { nav.open(Route.Publish) } }
                     item { QuickChip("🎲", "Sample a caso") { nav.open(Route.Samples); VibesGraph.prefs.update { it } ; nav.toast("Premi 🎲 nella libreria per un sample a sorpresa") } }
                     item { QuickChip("❤️", "Sample preferiti") { nav.open(Route.Samples) } }
                     item { QuickChip("➕", "Carica sample") { nav.open(Route.Samples) } }
@@ -263,10 +273,11 @@ fun StudioScreen() {
                 }
             }
             if (mine.isNotEmpty()) item {
-                Row(Modifier.padding(16.dp).fillMaxWidth().glass(RoundedCornerShape(20.dp)).padding(16.dp), horizontalArrangement = Arrangement.SpaceAround) {
+                Row(Modifier.padding(16.dp).fillMaxWidth().glass(RoundedCornerShape(20.dp)).bouncy({ nav.open(Route.StudioStats) }).padding(16.dp), horizontalArrangement = Arrangement.SpaceAround) {
                     StatBubble("${mine.size}", "brani")
                     StatBubble(fmtInt(mine.sumOf { it.plays }), "ascolti")
                     StatBubble(fmtInt(mine.sumOf { it.likes }), "❤️")
+                    StatBubble(fmtInt(mine.sumOf { it.saves }), "🔖")
                 }
             }
             if (trending.isNotEmpty()) {
@@ -332,18 +343,20 @@ private fun StudioTile(emoji: String, label: String, color: Color, modifier: Mod
 fun UploadRow(u: Upload, owner: Profile?, modifier: Modifier = Modifier, onDelete: (() -> Unit)? = null,
               liked: Boolean? = null, onLike: (() -> Unit)? = null, onClick: () -> Unit) {
     val nav = LocalApp.current.nav
-    val st by VibesGraph.studio.state.collectAsState()
-    val playing = st?.item?.id == u.id
+    val cur by LocalApp.current.engine.player.playerState.current.collectAsState()
+    val playing = cur?.track?.id == dev.brahmkshatriya.echo.vibes.music.VibesUploads.PREFIX + u.id
+    val saved by VibesUploadSaves.ids.collectAsState()
+    LaunchedEffect(Unit) { VibesUploadSaves.ensure() }
     Row(modifier.fillMaxWidth().clickable(onClick = onClick).padding(horizontal = 16.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
         Box {
             Cover(u.cover, Modifier.size(54.dp))
-            if (playing && st?.playing == true) EqualizerBars(Modifier.align(Alignment.Center).size(20.dp), color = Color.White)
+            if (playing && cur?.isPlaying == true) EqualizerBars(Modifier.align(Alignment.Center).size(20.dp), color = Color.White)
         }
         Spacer(Modifier.width(12.dp))
         Column(Modifier.weight(1f)) {
             Text(u.title, style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis,
                 color = if (playing) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface)
-            Text(listOfNotNull(if (u.explicit) "🅴" else null, u.artist.ifBlank { owner?.name }, u.album, "${u.plays} ascolti",
+            Text(listOfNotNull(if (u.explicit) "🅴" else null, u.artist.ifBlank { owner?.name }, u.album, "${fmtInt(u.plays)} ascolti",
                 if (u.visibility != "public") "🔒 follower" else null).joinToString(" · "),
                 style = MaterialTheme.typography.bodySmall, maxLines = 1, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
@@ -351,6 +364,10 @@ fun UploadRow(u: Upload, owner: Profile?, modifier: Modifier = Modifier, onDelet
         if (onLike != null) {
             val sc by androidx.compose.animation.core.animateFloatAsState(if (liked == true) 1.2f else 1f, androidx.compose.animation.core.spring(dampingRatio = 0.35f), label = "lk")
             Text(if (liked == true) "❤️" else "🤍", fontSize = 20.sp, modifier = Modifier.padding(start = 8.dp).graphicsLayer { scaleX = sc; scaleY = sc }.clip(CircleShape).clickable { onLike() }.padding(4.dp))
+        }
+        val isSaved = u.id in saved
+        IconButton(onClick = { VibesUploadSaves.toggle(u, !isSaved); nav.toast(if (isSaved) "Tolto dai salvati" else "Salvato nella tua libreria") }) {
+            Icon(if (isSaved) Icons.Rounded.BookmarkAdded else Icons.Rounded.BookmarkBorder, if (isSaved) "Togli dai salvati" else "Salva")
         }
         IconButton(onClick = { nav.addToPlaylist = dev.brahmkshatriya.echo.vibes.music.VibesUploads.songOf(u) }) {
             Icon(Icons.Rounded.PlaylistAdd, "Aggiungi a playlist")
@@ -384,10 +401,61 @@ fun ProfileUploads(p: Profile, isMe: Boolean) {
 
 // =====================================================================================  publish
 
-private data class DraftTrack(val uri: Uri, val title: String, val durationMs: Long)
+/** One song of a release being prepared: a new file from the device, or a single already on Vibes. */
+private sealed interface DraftTrack {
+    val title: String
+    val durationMs: Long
+    data class File(val uri: Uri, override val title: String, override val durationMs: Long) : DraftTrack
+    data class Existing(val upload: Upload) : DraftTrack {
+        override val title get() = upload.title
+        override val durationMs get() = upload.durationMs
+    }
+}
 
+/**
+ * Publish: first you choose WHAT you publish.
+ *  - Singolo: one song on its own.
+ *  - Album / EP: several songs in order, taken from files on the device, from singles you already
+ *    published, or both (a single stays a single AND becomes part of the album).
+ */
 @Composable
 fun PublishScreen() {
+    val nav = LocalApp.current.nav
+    var mode by remember { mutableStateOf<String?>(null) }
+    androidx.activity.compose.BackHandler(mode != null) { mode = null }
+    when (mode) {
+        null -> GradientBackground(tint = Color(0xFFFF8A2B)) {
+            Column(Modifier.fillMaxSize().padding(ScreenPadding)) {
+                Row(Modifier.statusBarsPadding().padding(4.dp), verticalAlignment = Alignment.CenterVertically) {
+                    IconButton(onClick = { nav.back() }) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Indietro") }
+                    Text("Cosa pubblichi?", style = MaterialTheme.typography.headlineSmall)
+                }
+                Spacer(Modifier.height(10.dp))
+                PublishChoice("🎵", "Singolo", "Un brano da solo. Lo potrai mettere in un album anche più avanti.", Color(0xFFFF8A2B)) { mode = "single" }
+                PublishChoice("💿", "Album / EP", "Più brani in ordine: file nuovi dal dispositivo, singoli che hai già pubblicato, o tutti e due.", Color(0xFF8A5CFF)) { mode = "album" }
+                PublishChoice("📊", "Statistiche", "Ascolti, ascoltatori, salvati e preferiti dei tuoi brani.", Color(0xFF2BB6FF)) { nav.open(Route.StudioStats) }
+            }
+        }
+        else -> PublishForm(album = mode == "album")
+    }
+}
+
+@Composable
+private fun PublishChoice(emoji: String, title: String, sub: String, color: Color, onClick: () -> Unit) {
+    Row(Modifier.padding(horizontal = 16.dp, vertical = 7.dp).fillMaxWidth().glass(RoundedCornerShape(22.dp), tint = color)
+        .background(Brush.horizontalGradient(listOf(color.copy(alpha = 0.35f), Color.Transparent))).bouncy(onClick).padding(18.dp),
+        verticalAlignment = Alignment.CenterVertically) {
+        Text(emoji, fontSize = 34.sp)
+        Spacer(Modifier.width(16.dp))
+        Column(Modifier.weight(1f)) {
+            Text(title, style = MaterialTheme.typography.titleLarge)
+            Text(sub, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+    }
+}
+
+@Composable
+private fun PublishForm(album: Boolean) {
     val app = LocalApp.current
     val nav = app.nav
     val context = LocalContext.current
@@ -396,26 +464,32 @@ fun PublishScreen() {
     val tracks = remember { mutableStateListOf<DraftTrack>() }
     var cover by remember { mutableStateOf<Uri?>(null) }
     var artist by remember { mutableStateOf(me?.name ?: "") }
-    var album by remember { mutableStateOf("") }
+    var title by remember { mutableStateOf("") }
     var genre by remember { mutableStateOf("") }
     var description by remember { mutableStateOf("") }
     var tags by remember { mutableStateOf("") }
     var followersOnly by remember { mutableStateOf(false) }
     var explicit by remember { mutableStateOf(false) }
     var progress by remember { mutableStateOf<String?>(null) }
+    var pickSingles by remember { mutableStateOf(false) }
     val audioPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
-        uris.forEach { u ->
+        val take = if (album) uris else uris.take(1)
+        if (!album) tracks.clear()
+        take.forEach { u ->
             val (t, d) = audioMeta(context, u)
-            tracks += DraftTrack(u, t ?: fileName(context, u), d)
+            tracks += DraftTrack.File(u, t ?: fileName(context, u), d)
         }
+        if (!album && title.isBlank()) tracks.firstOrNull()?.let { title = it.title }
     }
     val coverPicker = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { u -> if (u != null) cover = u }
-    GradientBackground(tint = Color(0xFFFF8A2B)) {
+    val canPublish = artist.isNotBlank() && if (album) tracks.size >= 2 && title.isNotBlank() else tracks.size == 1
+
+    GradientBackground(tint = if (album) Color(0xFF8A5CFF) else Color(0xFFFF8A2B)) {
         LazyColumn(Modifier.imePadding(), contentPadding = ScreenPadding) {
             item {
                 Row(Modifier.statusBarsPadding().padding(4.dp), verticalAlignment = Alignment.CenterVertically) {
                     IconButton(onClick = { nav.back() }) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Indietro") }
-                    Text("Pubblica la tua musica", style = MaterialTheme.typography.headlineSmall)
+                    Text(if (album) "Pubblica un album" else "Pubblica un singolo", style = MaterialTheme.typography.headlineSmall)
                 }
             }
             item {
@@ -428,26 +502,45 @@ fun PublishScreen() {
                     }
                     Spacer(Modifier.width(14.dp))
                     Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        VibesField(title, { title = it }, if (album) "Titolo dell'album / EP" else "Titolo del brano")
                         VibesField(artist, { artist = it }, "Nome artista")
-                        VibesField(album, { album = it }, if (tracks.size > 1) "Titolo album/EP" else "Album (facoltativo)")
                         VibesField(genre, { genre = it }, "Genere (es. trap, pop)")
                     }
                 }
             }
             item {
                 Row(Modifier.padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Text("Brani (${tracks.size})", style = MaterialTheme.typography.titleLarge, modifier = Modifier.weight(1f))
-                    Pill("+ Aggiungi audio", true, { audioPicker.launch(arrayOf("audio/*")) })
+                    Text(if (album) "Brani (${tracks.size})" else "Audio", style = MaterialTheme.typography.titleLarge, modifier = Modifier.weight(1f))
                 }
-                Text("MP3, M4A, WAV, FLAC… Più file = un album. Pubblica solo musica tua.", style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp))
+                Row(Modifier.padding(horizontal = 16.dp, vertical = 6.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Pill(if (album) "+ File dal dispositivo" else if (tracks.isEmpty()) "+ Scegli il file audio" else "Cambia file", true, { audioPicker.launch(arrayOf("audio/*")) })
+                    if (album) Pill("+ Dai tuoi singoli", true, { pickSingles = true })
+                }
+                Text(if (album) "Almeno 2 brani. Puoi mischiare file nuovi e singoli già pubblicati, e cambiare l'ordine con le frecce. Pubblica solo musica tua."
+                    else "MP3, M4A, WAV, FLAC… Pubblica solo musica tua.",
+                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp))
             }
             itemsIndexed(tracks) { i, t ->
-                Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Text("${i + 1}", style = MaterialTheme.typography.titleMedium, modifier = Modifier.width(26.dp))
-                    VibesField(t.title, { v -> tracks[i] = t.copy(title = v) }, "Titolo", Modifier.weight(1f))
-                    Text(fmtTime(t.durationMs), style = MaterialTheme.typography.labelMedium, modifier = Modifier.padding(horizontal = 8.dp))
-                    IconButton(onClick = { tracks.removeAt(i) }) { Icon(Icons.Rounded.Delete, "Togli") }
+                Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                    if (album) Text("${i + 1}", style = MaterialTheme.typography.titleMedium, modifier = Modifier.width(24.dp))
+                    when (t) {
+                        is DraftTrack.File -> if (album) VibesField(t.title, { v -> tracks[i] = t.copy(title = v) }, "Titolo", Modifier.weight(1f))
+                            else Text("🎧 " + fileName(context, t.uri), Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        is DraftTrack.Existing -> Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically) {
+                            Cover(t.upload.cover, Modifier.size(36.dp))
+                            Spacer(Modifier.width(8.dp))
+                            Column {
+                                Text(t.title, style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                Text("Singolo già pubblicato", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                        }
+                    }
+                    Text(fmtTime(t.durationMs), style = MaterialTheme.typography.labelMedium, modifier = Modifier.padding(horizontal = 6.dp))
+                    if (album) {
+                        IconButton(onClick = { if (i > 0) tracks.add(i - 1, tracks.removeAt(i)) }, enabled = i > 0, modifier = Modifier.size(34.dp)) { Icon(Icons.Rounded.KeyboardArrowUp, "Su") }
+                        IconButton(onClick = { if (i < tracks.size - 1) tracks.add(i + 1, tracks.removeAt(i)) }, enabled = i < tracks.size - 1, modifier = Modifier.size(34.dp)) { Icon(Icons.Rounded.KeyboardArrowDown, "Giù") }
+                    }
+                    IconButton(onClick = { tracks.removeAt(i) }, modifier = Modifier.size(38.dp)) { Icon(Icons.Rounded.Delete, "Togli") }
                 }
             }
             item {
@@ -470,38 +563,91 @@ fun PublishScreen() {
                         Text(it, style = MaterialTheme.typography.bodyMedium)
                         LinearProgressIndicator(Modifier.fillMaxWidth().padding(vertical = 8.dp))
                     }
-                    BigButton("Pubblica", {
+                    BigButton(if (album) "Pubblica l'album" else "Pubblica il singolo", {
                         progress = "Preparo…"
                         scope.launch {
                             runCatching {
                                 progress = "Carico la copertina…"
+                                val name = title.ifBlank { tracks.firstOrNull()?.title ?: "Vibes" }
                                 val jpeg = cover?.let { c -> withContext(Dispatchers.IO) { squareJpeg(context, c, 1000) } }
-                                    ?: withContext(Dispatchers.IO) { generatedCover(album.ifBlank { tracks.firstOrNull()?.title ?: "Vibes" }, artist) }
+                                    ?: withContext(Dispatchers.IO) { generatedCover(name, artist) }
                                 val coverUrl = app.social.uploadPublicImage(jpeg, "release")
-                                val albumId = if (tracks.size > 1 || album.isNotBlank()) java.util.UUID.randomUUID().toString() else null
-                                val ups = tracks.mapIndexed { i, t ->
-                                    progress = "Carico ${i + 1}/${tracks.size}: ${t.title}"
+                                val albumId = if (album) java.util.UUID.randomUUID().toString() else null
+                                val tagList = tags.split(',').map { it.trim() }.filter { it.isNotBlank() }.take(10)
+                                val vis = if (followersOnly) "followers" else "public"
+                                val files = tracks.withIndex().filter { it.value is DraftTrack.File }
+                                val fresh = files.mapIndexed { n, (i, t) ->
+                                    t as DraftTrack.File
+                                    progress = "Carico ${n + 1}/${files.size}: ${t.title}"
                                     val mime = context.contentResolver.getType(t.uri) ?: "audio/mpeg"
                                     val ext = android.webkit.MimeTypeMap.getSingleton().getExtensionFromMimeType(mime) ?: "mp3"
                                     val f = withContext(Dispatchers.IO) { copyToCache(context, t.uri, ext) }
                                     if (f.length() > 100L * 1024 * 1024) { f.delete(); error("\"${t.title}\" è più di 100 MB") }
                                     val url = app.social.uploadAsset(f, ext, mime)
                                     f.delete()
-                                    Upload(title = t.title.ifBlank { "Senza titolo" }, artist = artist, album = album.ifBlank { null }, albumId = albumId,
-                                        trackNo = i + 1, cover = coverUrl, url = url, durationMs = t.durationMs, genre = genre,
-                                        description = description.trim(), tags = tags.split(',').map { it.trim() }.filter { it.isNotBlank() }.take(10),
-                                        visibility = if (followersOnly) "followers" else "public", explicit = explicit)
+                                    i to Upload(title = (if (album) t.title else title).ifBlank { "Senza titolo" }, artist = artist,
+                                        album = if (album) title else null, albumId = albumId, trackNo = i + 1, cover = coverUrl, url = url,
+                                        durationMs = t.durationMs, genre = genre, description = description.trim(), tags = tagList,
+                                        visibility = vis, explicit = explicit)
                                 }
                                 progress = "Pubblico…"
-                                app.social.publishUploads(ups)
-                            }.onSuccess { nav.toast("Pubblicato! 🎉"); nav.back() }
+                                val saved = if (fresh.isEmpty()) emptyList() else app.social.publishUploads(fresh.map { it.second })
+                                if (album) {
+                                    // the album keeps the order chosen here, new files and singles mixed
+                                    val byTrackNo = saved.associateBy { it.trackNo }
+                                    val ids = tracks.mapIndexedNotNull { i, t ->
+                                        when (t) { is DraftTrack.Existing -> t.upload.id; is DraftTrack.File -> byTrackNo[i + 1]?.id }
+                                    }
+                                    app.social.publishAlbum(VibesAlbum(id = albumId!!, title = title.trim(), artist = artist, cover = coverUrl,
+                                        genre = genre, description = description.trim(), tracks = ids, visibility = vis))
+                                }
+                            }.onSuccess { nav.toast(if (album) "Album pubblicato! 🎉" else "Singolo pubblicato! 🎉"); nav.back() }
                                 .onFailure { nav.toast(it.message ?: "Pubblicazione non riuscita") }
                             progress = null
                         }
-                    }, Modifier.fillMaxWidth(), enabled = tracks.isNotEmpty() && artist.isNotBlank(), loading = progress != null)
+                    }, Modifier.fillMaxWidth(), enabled = canPublish, loading = progress != null)
+                    if (album && tracks.size < 2) Text("Aggiungi almeno 2 brani e il titolo dell'album.", style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 6.dp))
                 }
             }
         }
+    }
+    if (pickSingles) SinglesPicker(already = tracks.filterIsInstance<DraftTrack.Existing>().map { it.upload.id }.toSet(),
+        onDismiss = { pickSingles = false }) { picked -> tracks += picked.map { DraftTrack.Existing(it) }; pickSingles = false }
+}
+
+/** Your published songs, to put in the album being made. */
+@Composable
+private fun SinglesPicker(already: Set<String>, onDismiss: () -> Unit, onDone: (List<Upload>) -> Unit) {
+    val app = LocalApp.current
+    var mine by remember { mutableStateOf<List<Upload>?>(null) }
+    val chosen = remember { mutableStateListOf<Upload>() }
+    LaunchedEffect(Unit) { mine = app.social.uid?.let { runCatching { app.social.uploadsOf(it) }.getOrNull() }.orEmpty() }
+    VibesSheet(onDismiss) {
+        Text("I tuoi brani pubblicati", style = MaterialTheme.typography.titleLarge, modifier = Modifier.padding(16.dp))
+        val list = mine
+        when {
+            list == null -> Box(Modifier.fillMaxWidth().padding(30.dp), contentAlignment = Alignment.Center) { androidx.compose.material3.CircularProgressIndicator() }
+            list.isEmpty() -> EmptyState("🎵", "Nessun brano ancora", "Pubblica prima qualche singolo, oppure aggiungi file dal dispositivo.")
+            else -> LazyColumn(Modifier.weight(1f, fill = false)) {
+                items(list.filter { it.id !in already }, key = { it.id }) { u ->
+                    val on = chosen.any { it.id == u.id }
+                    Row(Modifier.fillMaxWidth().clickable { if (on) chosen.removeAll { it.id == u.id } else chosen += u }.padding(horizontal = 16.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically) {
+                        Cover(u.cover, Modifier.size(46.dp))
+                        Spacer(Modifier.width(12.dp))
+                        Column(Modifier.weight(1f)) {
+                            Text(u.title, style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            Text(listOfNotNull(u.album, fmtTime(u.durationMs)).joinToString(" · "), style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                        androidx.compose.material3.Checkbox(on, { if (on) chosen.removeAll { it.id == u.id } else chosen += u })
+                    }
+                }
+            }
+        }
+        BigButton(if (chosen.isEmpty()) "Scegli i brani" else "Aggiungi ${chosen.size}", { onDone(chosen.toList()) },
+            Modifier.fillMaxWidth().padding(16.dp), enabled = chosen.isNotEmpty())
     }
 }
 

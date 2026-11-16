@@ -237,6 +237,11 @@ fun DeskHome() {
         if (filter != 2) recs.forEach { sec ->
             item { Shelf(sec.title, sec.songs, sec.subtitle) { s, w -> SongCard(s, w, sec.songs) } }
         }
+        // music published by Vibes users + podcasts (same shelves as the phone)
+        if (filter != 2) {
+            item { Box(Modifier.padding(horizontal = 8.dp)) { dev.brahmkshatriya.echo.vibes.ui.VibesCommunityShelves() } }
+            item { Box(Modifier.padding(horizontal = 8.dp)) { dev.brahmkshatriya.echo.vibes.ui.PodcastHomeShelf() } }
+        }
         if (filter != 1) {
             val listening = friends.filter { it.liveNow?.playing == true }
             if (listening.isNotEmpty()) item {

@@ -440,9 +440,10 @@ class Social(context: Context, val supa: Supa) {
         return "${Supa.URL}/storage/v1/object/public/vibes-uploads/$path"
     }
 
-    suspend fun publishUploads(list: List<Upload>) {
+    /** Publishes the songs and returns them as saved (with their ids). */
+    suspend fun publishUploads(list: List<Upload>): List<Upload> {
         val id = uid ?: error("Non sei connesso")
-        supa.insert("vibes_uploads", kotlinx.serialization.json.JsonArray(list.map { u ->
+        return supa.insert("vibes_uploads", kotlinx.serialization.json.JsonArray(list.map { u ->
             buildJsonObject {
                 put("user_id", id); put("title", u.title); put("artist", u.artist)
                 u.album?.let { put("album", it) }; u.albumId?.let { put("album_id", it) }
@@ -451,8 +452,66 @@ class Social(context: Context, val supa: Supa) {
                 put("description", u.description); put("visibility", u.visibility); put("explicit", u.explicit)
                 put("tags", kotlinx.serialization.json.JsonArray(u.tags.map { kotlinx.serialization.json.JsonPrimitive(it) }))
             }
-        }), false)
+        }), true).map { json.decodeFromJsonElement<Upload>(it) }
     }
+
+    /** A play of a song published on Vibes, sent only after a third of it was really heard. */
+    fun countUploadPlay(uploadId: String, listenedMs: Long) {
+        scope.launch {
+            runCatching { supa.rpc("vibes_upload_play", buildJsonObject { put("item", uploadId); put("listened_ms", listenedMs) }) }
+        }
+    }
+
+    /** Songs published on Vibes matching a search (title, artist, album, genre). */
+    suspend fun searchUploads(q: String, limit: Int = 20): List<Upload> {
+        if (q.isBlank()) return emptyList()
+        val t = enc("*${q.trim().replace("*", "").replace(",", " ").replace("(", " ").replace(")", " ")}*")
+        return supa.select("vibes_uploads", "or=(title.ilike.$t,artist.ilike.$t,album.ilike.$t,genre.ilike.$t)&select=*&order=plays.desc&limit=$limit")
+            .map { json.decodeFromJsonElement<Upload>(it) }
+    }
+
+    suspend fun uploadsByIds(ids: Collection<String>): List<Upload> =
+        if (ids.isEmpty()) emptyList() else
+            supa.select("vibes_uploads", "id=in.(${ids.joinToString(",")})&select=*").map { json.decodeFromJsonElement<Upload>(it) }
+
+    // ------------------------------------------------------------------ albums (ordered lists of published songs)
+
+    suspend fun publishAlbum(a: VibesAlbum): VibesAlbum {
+        val id = uid ?: error("Non sei connesso")
+        return supa.insert("vibes_albums", buildJsonObject {
+            put("user_id", id); put("title", a.title); put("artist", a.artist); a.cover?.let { put("cover", it) }
+            put("genre", a.genre); put("description", a.description); put("visibility", a.visibility)
+            a.id.takeIf { it.isNotBlank() }?.let { put("id", it) }
+            put("tracks", kotlinx.serialization.json.JsonArray(a.tracks.map { kotlinx.serialization.json.JsonPrimitive(it) }))
+        }, true).first().let { json.decodeFromJsonElement<VibesAlbum>(it) }
+    }
+
+    suspend fun albumsOf(userId: String): List<VibesAlbum> =
+        supa.select("vibes_albums", "user_id=eq.$userId&select=*&order=created_at.desc").map { json.decodeFromJsonElement<VibesAlbum>(it) }
+
+    suspend fun latestAlbums(limit: Int = 12): List<VibesAlbum> =
+        supa.select("vibes_albums", "select=*&order=created_at.desc&limit=$limit").map { json.decodeFromJsonElement<VibesAlbum>(it) }
+
+    suspend fun deleteAlbum(id: String) = supa.delete("vibes_albums", "id=eq.$id")
+
+    suspend fun albumById(id: String): VibesAlbum? =
+        supa.select("vibes_albums", "id=eq.$id&select=*&limit=1").firstOrNull()?.let { json.decodeFromJsonElement<VibesAlbum>(it) }
+
+    // ------------------------------------------------------------------ saves + studio analytics
+
+    suspend fun mySaves(): List<String> {
+        val id = uid ?: return emptyList()
+        return supa.select("vibes_upload_saves", "user_id=eq.$id&select=upload_id&order=created_at.desc").mapNotNull { (it as JsonObject).str("upload_id") }
+    }
+
+    suspend fun save(uploadId: String, on: Boolean) {
+        val id = uid ?: return
+        if (on) supa.insertIgnore("vibes_upload_saves", buildJsonObject { put("upload_id", uploadId); put("user_id", id) })
+        else supa.delete("vibes_upload_saves", "upload_id=eq.$uploadId&user_id=eq.$id")
+    }
+
+    suspend fun studioStats(days: Int = 28): StudioStats? =
+        supa.rpc("vibes_studio_stats", buildJsonObject { put("ndays", days) })?.let { json.decodeFromJsonElement<StudioStats>(it) }
 
     suspend fun uploadsOf(userId: String): List<Upload> =
         supa.select("vibes_uploads", "user_id=eq.$userId&select=*&order=created_at.desc,track_no.asc")

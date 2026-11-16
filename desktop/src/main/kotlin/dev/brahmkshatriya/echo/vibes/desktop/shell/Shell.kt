@@ -231,7 +231,7 @@ private fun CenterRoute(route: Route) {
         }
         // the phone's screens, centred at a comfortable width
         Route.Games, is Route.Guess, is Route.BlindTest, Route.Layers -> Wide(900) { Screen(route) }
-        Route.Studio, Route.Publish, Route.Samples -> Wide(1100) { Screen(route) }
+        Route.Studio, Route.Publish, Route.Samples, Route.StudioStats, Route.Podcasts, is Route.VibesRelease -> Wide(1100) { Screen(route) }
         is Route.Chat -> Wide(900) { Screen(route) }
         else -> Wide { Screen(route) }
     }

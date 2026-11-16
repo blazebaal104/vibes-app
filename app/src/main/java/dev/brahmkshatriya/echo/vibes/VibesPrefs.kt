@@ -29,6 +29,8 @@ data class VibesSettings(
     val gameVolumeBoost: Boolean = false,
     val homeRecommendations: Boolean = true,
     val homeFriends: Boolean = true,
+    val homeCommunity: Boolean = true, // songs published by Vibes users
+    val homePodcasts: Boolean = true,
     val explicitFilter: Boolean = false,
     val startTab: String = "home",
     /** New account: show the favourite-artists questionnaire once. */

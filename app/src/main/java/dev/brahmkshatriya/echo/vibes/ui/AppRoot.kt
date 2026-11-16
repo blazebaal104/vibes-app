@@ -159,11 +159,14 @@ fun VibesApp(engine: MusicEngine, pendingLink: MutableStateFlow<Uri?>) {
                 runCatching { state.library.migrateAlbums(state.deezer) }
                 // the library of the account: what was made on the other devices arrives here
                 runCatching { dev.brahmkshatriya.echo.vibes.VibesGraph.librarySync.sync() }
+                // listening time of the account: what the other devices heard counts here too
+                runCatching { dev.brahmkshatriya.echo.vibes.VibesGraph.listenSync.sync(); dev.brahmkshatriya.echo.vibes.VibesGraph.onListened(true) }
                 // keep friends' live "now playing" fresh in lists
                 var tick = 0
                 while (true) {
                     delay(30_000); runCatching { state.social.refreshFriends() }
                     runCatching { dev.brahmkshatriya.echo.vibes.VibesGraph.librarySync.sync() }
+                    if (tick % 2 == 0) runCatching { dev.brahmkshatriya.echo.vibes.VibesGraph.listenSync.sync() }
                     if (++tick % 4 == 0) runCatching { dev.brahmkshatriya.echo.vibes.VibesGraph.collab.refresh() }
                 }
             }
@@ -369,6 +372,9 @@ fun Screen(route: Route) {
         Route.Studio -> StudioScreen()
         Route.Publish -> PublishScreen()
         Route.Samples -> SamplesScreen()
+        Route.StudioStats -> StudioStatsScreen()
+        Route.Podcasts -> PodcastsScreen()
+        is Route.VibesRelease -> VibesReleaseScreen(route.id)
         Route.Layers -> LayersGameScreen()
         is Route.Stories -> StoryViewerScreen(route.userId)
         is Route.NewStory -> NewStoryScreen(route.song)

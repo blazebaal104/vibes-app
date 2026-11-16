@@ -152,6 +152,19 @@ fun LibraryScreen() {
                     }
                 ) { nav.open(Route.Downloads) }
             }
+            if (filter != 2 && filter != 4) item {
+                // songs published on Vibes that you saved (bookmark)
+                val saved by VibesUploadSaves.ids.collectAsState()
+                LaunchedEffect(Unit) { VibesUploadSaves.ensure() }
+                if (saved.isNotEmpty()) LibraryRow(
+                    title = "Salvati su Vibes", subtitle = "Dalla community · ${saved.size} brani",
+                    art = {
+                        Box(Modifier.size(64.dp).clip(RoundedCornerShape(6.dp))
+                            .background(Brush.linearGradient(listOf(Color(0xFFFF8A2B), Color(0xFFC2187A)))),
+                            contentAlignment = Alignment.Center) { Text("🎙️", fontSize = 26.sp) }
+                    }
+                ) { nav.open(Route.VibesRelease(SAVED_VIBES)) }
+            }
             val shown = when (filter) {
                 2 -> playlists.filter { it.from != null }
                 3, 4 -> emptyList()

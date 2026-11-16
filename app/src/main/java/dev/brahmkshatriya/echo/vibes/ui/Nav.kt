@@ -39,6 +39,10 @@ sealed interface Route {
     data object Studio : Route
     data object Publish : Route
     data object Samples : Route
+    data object StudioStats : Route
+    data object Podcasts : Route
+    /** An album published on Vibes. */
+    data class VibesRelease(val id: String) : Route
     data object Layers : Route
     data class DzArtist(val id: Long, val name: String = "") : Route
     data class DzAlbum(val id: Long) : Route

@@ -59,6 +59,8 @@ class ListenTracker(private val player: Player, context: Context) : Player.Liste
             // offline) is not "listening" to it
             if (VibesGraph.listens.add(l, length)) {
                 VibesGraph.library.countPlay(song)
+                // a song published on Vibes: the artist gets the play (a third heard, checked again server-side)
+                if (VibesUploads.isUpload(song.id)) VibesGraph.social.countUploadPlay(song.id.removePrefix(VibesUploads.PREFIX), ms)
                 VibesGraph.onListened()
             }
         }

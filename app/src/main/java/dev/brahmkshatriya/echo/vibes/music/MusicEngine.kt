@@ -284,7 +284,8 @@ class MusicEngine(
 
     fun playAll(songs: List<SongRef>, index: Int = 0, shuffle: Boolean = false, ctx: VibesPlaylist? = null) {
         if (songs.isEmpty()) return
-        if (songs.any { it.ext == DEEZER } && !DeezerAuth.canPlay()) return
+        // songs published on Vibes ("vup:") don't need a Deezer account
+        if (songs.any { it.ext == DEEZER && !VibesUploads.isUpload(it.id) } && !DeezerAuth.canPlay()) return
         runCatching { if (dev.brahmkshatriya.echo.vibes.VibesGraph.studio.isActive) dev.brahmkshatriya.echo.vibes.VibesGraph.studio.stop() }
         dev.brahmkshatriya.echo.vibes.VibesGraph.playContext = ctx?.let {
             PlayContext(it.id, it.name, it.cover ?: it.songs.firstOrNull()?.cover, it.songs.map { s -> s.key }.toSet())

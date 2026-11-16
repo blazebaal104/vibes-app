@@ -41,6 +41,8 @@ object VibesGraph {
     val webSamples by lazy { dev.brahmkshatriya.echo.vibes.music.WebSamples(supa.http).also { it.init(app) } }
     val search by lazy { dev.brahmkshatriya.echo.vibes.music.VibesSearch(deezer) }
     val listens by lazy { dev.brahmkshatriya.echo.vibes.music.ListenLog(app, deezer) }
+    /** Listening history of the account: phone + PC add up. */
+    val listenSync by lazy { dev.brahmkshatriya.echo.vibes.backend.ListenSync(supa, listens, app.filesDir) }
     val updater by lazy { dev.brahmkshatriya.echo.vibes.update.Updater(app, supa.http) }
 
     /** Set when a Vibes playlist starts playing (stats: most played playlists). */

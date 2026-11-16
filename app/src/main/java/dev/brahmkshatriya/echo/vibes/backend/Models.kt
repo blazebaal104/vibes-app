@@ -276,7 +276,40 @@ data class Upload(
     val visibility: String = "public",
     val explicit: Boolean = false,
     val likes: Int = 0,
+    val saves: Int = 0,
     @SerialName("created_at") val createdAt: String? = null,
+)
+
+/** An album/EP published on Vibes: an ordered list of published songs (new files and/or singles). */
+@Serializable
+data class VibesAlbum(
+    val id: String = "",
+    @SerialName("user_id") val userId: String = "",
+    val title: String,
+    val artist: String = "",
+    val cover: String? = null,
+    val genre: String = "",
+    val description: String = "",
+    val tracks: List<String> = emptyList(),
+    val visibility: String = "public",
+    @SerialName("created_at") val createdAt: String? = null,
+)
+
+@Serializable
+data class StudioDay(val day: String, val plays: Int = 0)
+
+@Serializable
+data class StudioTrackStats(val period: Int = 0, val listeners: Int = 0)
+
+/** What the creator sees in Studio > Statistiche (computed on the server from real plays). */
+@Serializable
+data class StudioStats(
+    val daily: List<StudioDay> = emptyList(),
+    val listeners: Int = 0,
+    @SerialName("listeners_period") val listenersPeriod: Int = 0,
+    @SerialName("plays_period") val playsPeriod: Int = 0,
+    val minutes: Long = 0,
+    @SerialName("per_track") val perTrack: Map<String, StudioTrackStats> = emptyMap(),
 )
 
 /** A loop / one-shot shared in the sample library. */

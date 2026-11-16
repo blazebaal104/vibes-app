@@ -214,6 +214,8 @@ fun LazyListScope.vibesSettings() {
     item { Header("Home", "🏠") }
     item { val s = LocalSettings.current; SwitchRow("Consigliati per te", "Sezioni basate su cosa ascolti", s.homeRecommendations) { b -> upd { it.copy(homeRecommendations = b) } } }
     item { val s = LocalSettings.current; SwitchRow("Cosa ascoltano gli amici", null, s.homeFriends) { b -> upd { it.copy(homeFriends = b) } } }
+    item { val s = LocalSettings.current; SwitchRow("Musica della community", "Brani e album pubblicati da chi usa Vibes", s.homeCommunity) { b -> upd { it.copy(homeCommunity = b) } } }
+    item { val s = LocalSettings.current; SwitchRow("Podcast", "I podcast del momento", s.homePodcasts) { b -> upd { it.copy(homePodcasts = b) } } }
     item {
         val s = LocalSettings.current
         ChoiceRow("Scheda all'avvio", null, listOf("home" to "Home", "search" to "Cerca", "library" to "Libreria", "studio" to "Studio", "friends" to "Amici", "games" to "Giochi"), s.startTab) { k -> upd { it.copy(startTab = k) } }

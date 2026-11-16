@@ -73,8 +73,30 @@ class ListenLog(context: Context, private val deezer: DeezerPublic) {
         return true
     }
 
+    /** Called after [clear], so the account's copy (other devices) is wiped too. */
+    var onCleared: (() -> Unit)? = null
+
     fun clear() {
         data = data.copy(listens = emptyList()); _listens.value = emptyList(); save()
+        onCleared?.invoke()
+    }
+
+    /** Everything heard on this device, oldest first (the account sync uploads it). */
+    fun all(): List<Listen> = data.listens
+
+    /**
+     * Listens from the account's other devices (phone + PC): added if not already here, so
+     * minutes, plays, tops and records are the account's total. Returns how many were new.
+     */
+    fun merge(remote: List<Listen>): Int {
+        if (remote.isEmpty()) return 0
+        val have = data.listens.mapTo(HashSet()) { it.at to it.song.key }
+        val fresh = remote.filter { (it.at to it.song.key) !in have }.distinctBy { it.at to it.song.key }
+        if (fresh.isEmpty()) return 0
+        data = data.copy(listens = (data.listens + fresh).sortedBy { it.at }.takeLast(25_000))
+        _listens.value = data.listens
+        save()
+        return fresh.size
     }
 
     private fun save() = scope.launch {

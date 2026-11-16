@@ -9,6 +9,7 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.longOrNull
@@ -280,6 +281,28 @@ class DeezerPublic(private val http: OkHttpClient) {
     suspend fun searchAlbums(q: String, limit: Int = 20): List<AlbumBrief> =
         get("https://api.deezer.com/search/album?limit=$limit&q=" + URLEncoder.encode(q, "UTF-8"))
             ?.get("data")?.jsonArray?.mapNotNull { (it as? JsonObject)?.toAlbumBrief() }.orEmpty()
+
+    /** A Deezer podcast ("show"). */
+    data class PodcastInfo(val id: Long, val title: String, val description: String, val picture: String?, val fans: Int)
+
+    private fun JsonObject.toPodcast(): PodcastInfo? {
+        val id = this["id"]?.jsonPrimitive?.longOrNull ?: return null
+        if (this["available"]?.jsonPrimitive?.booleanOrNull == false) return null
+        return PodcastInfo(id, this["title"]?.jsonPrimitive?.contentOrNull ?: return null,
+            this["description"]?.jsonPrimitive?.contentOrNull.orEmpty(),
+            this["picture_xl"]?.jsonPrimitive?.contentOrNull ?: this["picture_big"]?.jsonPrimitive?.contentOrNull,
+            this["fans"]?.jsonPrimitive?.intOrNull ?: 0)
+    }
+
+    /** Top podcasts on Deezer (for the country the request comes from). */
+    suspend fun podcastChart(limit: Int = 30): List<PodcastInfo> =
+        get("https://api.deezer.com/chart/0/podcasts?limit=$limit")?.get("data")?.jsonArray
+            ?.mapNotNull { (it as? JsonObject)?.toPodcast() }.orEmpty()
+
+    suspend fun searchPodcasts(q: String, limit: Int = 20): List<PodcastInfo> =
+        if (q.isBlank()) emptyList() else
+            get("https://api.deezer.com/search/podcast?q=${java.net.URLEncoder.encode(q.trim(), "UTF-8")}&limit=$limit")?.get("data")?.jsonArray
+                ?.mapNotNull { (it as? JsonObject)?.toPodcast() }.orEmpty()
 
     suspend fun artistInfo(id: Long): ArtistInfo? {
         val o = get("https://api.deezer.com/artist/$id") ?: return null

@@ -153,6 +153,8 @@ fun HomeScreen() {
                     }
                 }
             }
+            if (prefs.homeCommunity) item(key = "community") { VibesCommunityShelves() }
+            if (prefs.homePodcasts) item(key = "podcasts") { PodcastHomeShelf() }
             when {
                 shelves == null -> item {
                     Box(Modifier.fillMaxWidth().padding(48.dp), contentAlignment = Alignment.Center) {
