@@ -41,7 +41,14 @@ class Importer(private val deezer: DeezerPublic, private val libraryProvider: ()
     private val youtubeRe = Regex("""(?:youtube\.com|youtu\.be)(?:.*[?&]list=|/browse/VL)([A-Za-z0-9_-]+)""")
 
     /** Name of the service if the text contains a link Vibes can import, else null. */
+    private val spotifyTrackRe = Regex("""open\.spotify\.com/(?:intl-[a-z]{2}/)?track/([A-Za-z0-9]{22})""")
+    private val listLineRe = Regex("""^\s*(?:\d+[.)]\s*)?(.+?)\s+[-–—]\s+(.+?)\s*$""")
+
     fun detect(raw: String): String? {
+        // several song links copied from the Spotify app (Ctrl+A, Ctrl+C): any length
+        if (spotifyTrackRe.findAll(raw).map { it.groupValues[1] }.distinct().count() >= 2) return "Brani Spotify"
+        // a written list, one "Artist - Title" per line
+        if (!raw.contains("http") && raw.lines().count { listLineRe.matches(it) } >= 2) return "Lista"
         val url = Regex("""https?://\S+""").find(raw)?.value ?: raw
         return when {
             deezerRe.containsMatchIn(url) || url.contains("link.deezer.com") || url.contains("deezer.page.link") -> "Deezer"
@@ -54,6 +61,10 @@ class Importer(private val deezer: DeezerPublic, private val libraryProvider: ()
 
     /** Reads the playlist and matches every song, WITHOUT saving: the user checks it first. */
     suspend fun preview(rawUrl: String, onProgress: (Progress) -> Unit, onPartial: (List<PreviewItem?>) -> Unit = {}): Preview {
+        when (detect(rawUrl)) {
+            "Brani Spotify" -> return previewSource("Spotify", fromSpotifyTracks(rawUrl, onProgress), onProgress, onPartial)
+            "Lista" -> return previewSource("Lista", fromList(rawUrl), onProgress, onPartial)
+        }
         var url = Regex("""https?://\S+""").find(rawUrl)?.value ?: rawUrl.trim()
         if (url.contains("link.deezer.com") || url.contains("spotify.link") || url.contains("deezer.page.link"))
             url = deezer.resolveUrl(url)
@@ -76,6 +87,123 @@ class Importer(private val deezer: DeezerPublic, private val libraryProvider: ()
         val p = library.createPlaylist(name = name.ifBlank { "Playlist importata" }, emoji = "📥", color = "#1ED760", songs = songs.distinctBy { it.key })
         if (cover != null) library.setPlaylistCover(p.id, cover)
         return library.playlist(p.id) ?: p
+    }
+
+    /** Preview of a source already read (pasted songs, a list, a file). */
+    suspend fun previewSource(service: String, source: Source, onProgress: (Progress) -> Unit, onPartial: (List<PreviewItem?>) -> Unit = {}): Preview {
+        val items = source.deezerTracks?.map { PreviewItem(it.title, it.artist, it.toSongRef()) }
+            ?: matchItems(source.items.orEmpty(), onProgress, onPartial)
+        if (items.isEmpty()) throw IllegalStateException("Non ho trovato nessun brano")
+        return Preview(service, source.name.ifBlank { "Playlist importata" }, source.cover, items, source.partial)
+    }
+
+    // ------------------------------------------------------------------ long playlists: pasted songs, lists, files
+
+    /** Song links copied from Spotify (Ctrl+A, Ctrl+C in the app): each song's public page gives title, artists, duration. */
+    suspend fun fromSpotifyTracks(raw: String, onProgress: (Progress) -> Unit): Source = coroutineScope {
+        val ids = spotifyTrackRe.findAll(raw).map { it.groupValues[1] }.distinct().toList()
+        val done = AtomicInteger(0)
+        val sem = Semaphore(8)
+        onProgress(Progress(0, ids.size, 0, "Leggo i brani copiati da Spotify…"))
+        val wants = ids.map { id ->
+            async {
+                sem.withPermit {
+                    var w: SongMatcher.Want? = null
+                    repeat(3) { attempt ->
+                        if (w != null) return@repeat
+                        w = runCatching { spotifyTrack(id) }.getOrNull()
+                        if (w == null) kotlinx.coroutines.delay(500L * (attempt + 1))
+                    }
+                    onProgress(Progress(done.incrementAndGet(), ids.size, 0, "Leggo i brani copiati da Spotify…"))
+                    w
+                }
+            }
+        }.awaitAll().filterNotNull()
+        if (wants.isEmpty()) throw IllegalStateException("Non riesco a leggere i brani copiati da Spotify")
+        Source("Da Spotify", null, wants, null)
+    }
+
+    private suspend fun spotifyTrack(id: String): SongMatcher.Want? {
+        val html = deezer.fetchText("https://open.spotify.com/embed/track/$id") ?: return null
+        val raw = Regex("""<script id="__NEXT_DATA__" type="application/json">(.*?)</script>""", RegexOption.DOT_MATCHES_ALL)
+            .find(html)?.groupValues?.get(1) ?: return null
+        fun find(e: kotlinx.serialization.json.JsonElement): JsonObject? = when (e) {
+            is JsonObject -> if (e.s("uri") == "spotify:track:$id" && (e.s("name") ?: e.s("title")) != null) e else e.values.firstNotNullOfOrNull { find(it) }
+            is JsonArray -> e.firstNotNullOfOrNull { find(it) }
+            else -> null
+        }
+        val o = find(Supa.json.parseToJsonElement(raw)) ?: return null
+        val artists = (o["artists"] as? JsonArray)?.mapNotNull { (it as? JsonObject)?.s("name") }?.joinToString(", ")
+        return SongMatcher.Want(o.s("name") ?: o.s("title")!!, artists ?: o.s("subtitle") ?: "", o.s("duration")?.toLongOrNull())
+    }
+
+    /** A written list: one "Artist - Title" per line (the order of the two is guessed by the search). */
+    fun fromList(raw: String): Source {
+        val wants = raw.lines().mapNotNull { l ->
+            listLineRe.matchEntire(l)?.let { m -> SongMatcher.Want(m.groupValues[2], m.groupValues[1], swappable = true) }
+        }
+        return Source("La mia playlist", null, wants, null)
+    }
+
+    /**
+     * A file: CSV (Exportify, TuneMyMusic, Soundiiz...) or the JSON of Spotify's official data download
+     * (all your playlists: one Source each).
+     */
+    fun fromFile(fileName: String, text: String): List<Source> {
+        val name = fileName.substringBeforeLast('.').ifBlank { "Playlist importata" }
+        val t = text.trimStart('\uFEFF').trim()
+        if (t.startsWith("{") || t.startsWith("[")) {
+            val root = Supa.json.parseToJsonElement(t)
+            val lists = ((root as? JsonObject)?.get("playlists") as? JsonArray) ?: (root as? JsonArray) ?: JsonArray(emptyList())
+            val out = lists.mapNotNull { e ->
+                val o = e as? JsonObject ?: return@mapNotNull null
+                val items = (o["items"] as? JsonArray)?.mapNotNull { it2 ->
+                    val tr = ((it2 as? JsonObject)?.get("track") as? JsonObject) ?: return@mapNotNull null
+                    SongMatcher.Want(tr.s("trackName") ?: return@mapNotNull null, tr.s("artistName") ?: "")
+                }.orEmpty()
+                if (items.isEmpty()) null else Source(o.s("name") ?: name, null, items, null)
+            }
+            if (out.isEmpty()) throw IllegalStateException("Nel file non ci sono playlist")
+            return out
+        }
+        val rows = csv(t)
+        if (rows.size < 2) throw IllegalStateException("Il file è vuoto")
+        val head = rows.first().map { it.trim().lowercase() }
+        fun col(vararg names: String) = head.indexOfFirst { h -> names.any { h == it } }.takeIf { it >= 0 }
+            ?: head.indexOfFirst { h -> names.any { h.contains(it) } }.takeIf { it >= 0 }
+        val ti = col("track name", "title", "titolo", "song", "track", "name", "nome") ?: throw IllegalStateException("Non trovo la colonna dei titoli nel file")
+        val ai = col("artist name(s)", "artist name", "artist", "artists", "artista", "artisti")
+        val di = col("duration (ms)", "track duration (ms)", "duration_ms")
+        val ii = col("isrc")
+        val pi = col("playlist name", "playlist")
+        val wants = rows.drop(1).mapNotNull { r ->
+            val title = r.getOrNull(ti)?.trim().orEmpty(); if (title.isBlank()) return@mapNotNull null
+            pi?.let { r.getOrNull(it) } to SongMatcher.Want(title, ai?.let { r.getOrNull(it) }?.replace(";", ", ")?.trim().orEmpty(),
+                di?.let { r.getOrNull(it)?.trim()?.toLongOrNull() }, ii?.let { r.getOrNull(it)?.trim()?.takeIf { s -> s.length >= 10 } })
+        }
+        // TuneMyMusic / Soundiiz put several playlists in one file: one Source each
+        return wants.groupBy({ it.first ?: name }, { it.second }).map { (n, w) -> Source(n, null, w, null) }
+    }
+
+    private fun csv(t: String): List<List<String>> {
+        val sep = if (t.lineSequence().first().count { it == ';' } > t.lineSequence().first().count { it == ',' }) ';' else ','
+        val rows = mutableListOf<List<String>>(); var row = mutableListOf<String>(); val cell = StringBuilder(); var q = false; var i = 0
+        while (i < t.length) {
+            val c = t[i]
+            when {
+                q && c == '"' && i + 1 < t.length && t[i + 1] == '"' -> { cell.append('"'); i++ }
+                c == '"' -> q = !q
+                !q && c == sep -> { row.add(cell.toString()); cell.clear() }
+                !q && (c == '\n' || c == '\r') -> {
+                    if (c == '\r' && i + 1 < t.length && t[i + 1] == '\n') i++
+                    row.add(cell.toString()); cell.clear(); if (row.any { it.isNotBlank() }) rows.add(row); row = mutableListOf()
+                }
+                else -> cell.append(c)
+            }
+            i++
+        }
+        row.add(cell.toString()); if (row.any { it.isNotBlank() }) rows.add(row)
+        return rows
     }
 
     /**

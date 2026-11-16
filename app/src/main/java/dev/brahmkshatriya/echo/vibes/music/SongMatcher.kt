@@ -24,7 +24,7 @@ import java.util.concurrent.ConcurrentHashMap
 class SongMatcher(private val deezer: DeezerPublic, private val supa: Supa?) {
 
     /** A song to find. */
-    data class Want(val title: String, val artist: String, val durationMs: Long? = null, val isrc: String? = null)
+    data class Want(val title: String, val artist: String, val durationMs: Long? = null, val isrc: String? = null, val swappable: Boolean = false)
     data class Found(val song: SongRef, val score: Double)
 
     /** Set by the app: search with the user's Deezer account (null / empty when not connected). */
@@ -176,7 +176,9 @@ class SongMatcher(private val deezer: DeezerPublic, private val supa: Supa?) {
                 if ((top?.score ?: 0.0) >= good) break
             }
         }
-        val f = top?.takeIf { it.score >= accept } ?: return null
+        val f = top?.takeIf { it.score >= accept }
+            // a written list may be "Title - Artist" instead of "Artist - Title"
+            ?: return if (w.swappable) match(w.copy(title = w.artist, artist = w.title, swappable = false), relaxed) else null
         remember(w, f.song)
         return f
     }

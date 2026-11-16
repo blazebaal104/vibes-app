@@ -1,5 +1,9 @@
 package dev.brahmkshatriya.echo.vibes.ui
 
+import androidx.compose.foundation.layout.heightIn
+
+import androidx.compose.ui.text.font.FontWeight
+
 import android.content.ClipboardManager
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
@@ -87,19 +91,45 @@ fun ImportScreen() {
     var saving by remember { mutableStateOf(false) }
     val service = VibesGraph.importer.detect(link)
 
-    // reads the playlist as soon as a supported link is pasted
-    LaunchedEffect(link) {
+    // the "playlist longer than 100" help page, and playlists read from a file
+    var longHelp by remember { mutableStateOf(false) }
+    var fileChoices by remember { mutableStateOf<List<Importer.Source>>(emptyList()) }
+    var job by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
+    fun run(block: suspend () -> Importer.Preview) {
+        job?.cancel()
         preview = null; error = null; progress = null; items.clear(); included.clear(); partial = emptyList()
-        if (service == null) return@LaunchedEffect
-        delay(500)
-        runCatching { VibesGraph.importer.preview(link, { p -> progress = p }) { l -> partial = l } }
-            .onSuccess { p ->
-                preview = p; name = p.name; cover = p.cover
-                items.addAll(p.items); included.addAll(p.items.map { it.match != null })
-            }
-            .onFailure { error = it.message ?: "Non riesco a leggere questa playlist" }
-        progress = null
+        job = scope.launch {
+            runCatching { block() }
+                .onSuccess { p ->
+                    preview = p; name = p.name; cover = p.cover
+                    items.addAll(p.items); included.addAll(p.items.map { it.match != null })
+                    // Spotify showed only the first 100: explain how to bring the whole playlist
+                    if (p.partial) longHelp = true
+                }
+                .onFailure { if (it !is kotlinx.coroutines.CancellationException) error = it.message ?: "Non riesco a leggere questa playlist" }
+            progress = null
+        }
     }
+    fun runSource(src: Importer.Source) = run { VibesGraph.importer.previewSource("File", src, { p -> progress = p }) { l -> partial = l } }
+    // reads the playlist as soon as a supported link (or copied songs / a list) is pasted
+    LaunchedEffect(link) {
+        if (service == null) { if (link.isNotBlank()) { job?.cancel(); preview = null; progress = null }; return@LaunchedEffect }
+        delay(500)
+        run { VibesGraph.importer.preview(link, { p -> progress = p }) { l -> partial = l } }
+    }
+    val filePicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { u ->
+        if (u != null) scope.launch {
+            runCatching {
+                val text = withContext(Dispatchers.IO) { context.contentResolver.openInputStream(u)!!.use { it.readBytes().decodeToString() } }
+                val fname = u.lastPathSegment?.substringAfterLast('/') ?: "Playlist"
+                VibesGraph.importer.fromFile(fname, text)
+            }.onSuccess { list ->
+                longHelp = false; link = ""
+                if (list.size == 1) runSource(list.first()) else fileChoices = list
+            }.onFailure { error = "File non leggibile: ${it.message}" }
+        }
+    }
+    val uri = androidx.compose.ui.platform.LocalUriHandler.current
     val coverPicker = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { u ->
         if (u != null) scope.launch {
             runCatching {
@@ -138,6 +168,8 @@ fun ImportScreen() {
                     if (link.isNotBlank() && service == null) Text("Link non supportato: usa una playlist di Spotify, Deezer, YouTube Music o Apple Music.",
                         color = Color(0xFFFF7A8F), style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(top = 8.dp))
                     error?.let { Text(it, color = Color(0xFFFF7A8F), modifier = Modifier.padding(top = 10.dp)) }
+                    if (progress == null && preview == null) Text("Playlist lunga, un file o una lista di brani? Ecco come ›", style = MaterialTheme.typography.labelLarge,
+                        color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(top = 12.dp).clickable { longHelp = true })
                     AnimatedVisibility(progress != null) {
                         val p = progress
                         Column(Modifier.padding(top = 16.dp)) {
@@ -171,8 +203,9 @@ fun ImportScreen() {
             // ---------------------------------------------------------------- preview
             preview?.let { p ->
                 if (p.partial) item {
-                    Text("Spotify ci lascia leggere solo i primi 100 brani di questa playlist: questi sono stati cercati tutti. Per il resto, dividi la playlist su Spotify e importa anche l'altra parte.",
-                        style = MaterialTheme.typography.bodySmall, color = Color(0xFFFFB86B), modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp))
+                    Text("Qui ci sono solo i primi 100 brani: Spotify non ci fa leggere il resto. Tocca qui per portare la playlist intera ›",
+                        style = MaterialTheme.typography.bodySmall, color = Color(0xFFFFB86B),
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp).clickable { longHelp = true })
                 }
                 item {
                     Column(Modifier.padding(16.dp).fillMaxWidth().glass(RoundedCornerShape(22.dp), tint = accent).padding(16.dp)) {
@@ -253,5 +286,103 @@ fun ImportScreen() {
         GlobalSongPicker(onDismiss = { replacing = null }) { s: SongRef ->
             items[i] = items[i].copy(match = s); included[i] = true; replacing = null
         }
+    }
+    if (longHelp) LongPlaylistHelp(
+        partial = preview?.partial == true,
+        onClose = { longHelp = false },
+        onPaste = {
+            val cm = context.getSystemService(ClipboardManager::class.java)
+            cm.primaryClip?.getItemAt(0)?.coerceToText(context)?.toString()?.let { link = it }
+            longHelp = false
+        },
+        onFile = { filePicker.launch(arrayOf("text/*", "application/json", "application/octet-stream", "*/*")) },
+        onOpen = { runCatching { uri.openUri(it) } },
+    )
+    if (fileChoices.isNotEmpty()) VibesSheet({ fileChoices = emptyList() }) {
+        Text("Quale playlist importo?", style = MaterialTheme.typography.titleLarge, modifier = Modifier.padding(16.dp))
+        androidx.compose.foundation.lazy.LazyColumn(Modifier.heightIn(max = 520.dp)) {
+            items(fileChoices.size) { i ->
+                val src = fileChoices[i]
+                Row(Modifier.fillMaxWidth().clickable { fileChoices = emptyList(); runSource(src) }.padding(horizontal = 16.dp, vertical = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically) {
+                    Text("🎵", style = MaterialTheme.typography.titleLarge)
+                    Column(Modifier.weight(1f).padding(start = 12.dp)) {
+                        Text(src.name, style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Text("${src.items?.size ?: 0} brani", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
+            }
+        }
+    }
+}
+
+/**
+ * Shown when a Spotify playlist has more than 100 songs (or from "Playlist lunga?"): why only 100
+ * arrived, and three ways to bring the whole playlist, step by step.
+ */
+@Composable
+private fun LongPlaylistHelp(partial: Boolean, onClose: () -> Unit, onPaste: () -> Unit, onFile: () -> Unit, onOpen: (String) -> Unit) {
+    val green = Color(0xFF1ED760)
+    VibesSheet(onClose) {
+        androidx.compose.foundation.lazy.LazyColumn(Modifier.heightIn(max = 680.dp), contentPadding = androidx.compose.foundation.layout.PaddingValues(16.dp)) {
+            item {
+                Text(if (partial) "Questa playlist ha più di 100 brani" else "Playlist lunghe, file e liste", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+                Text("Spotify fa leggere a Vibes solo i primi 100 brani di una playlist. Le altre app ci riescono perché hanno un accordo speciale con Spotify. " +
+                    "Ma puoi portare la playlist intera in uno di questi modi:",
+                    style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 8.dp, bottom = 8.dp))
+            }
+            item {
+                HelpCard("1", "Il più semplice: passa da TuneMyMusic", "Funziona anche dal telefono", green, listOf(
+                    "Apri TuneMyMusic e scegli Spotify come origine",
+                    "Incolla il link della tua playlist e scegli Deezer (o YouTube Music) come destinazione",
+                    "Copia il link della nuova playlist Deezer e incollalo qui: Vibes la importa intera, a qualsiasi lunghezza",
+                )) { Pill("Apri TuneMyMusic", true, { onOpen("https://www.tunemymusic.com/it/transfer") }) }
+            }
+            item {
+                HelpCard("2", "Dal computer: copia tutti i brani", "Il più veloce se hai un PC", MaterialTheme.colorScheme.primary, listOf(
+                    "Apri la playlist nell'app Spotify per computer o su open.spotify.com",
+                    "Clicca su un brano, poi premi Ctrl + A (seleziona tutti) e Ctrl + C (copia)",
+                    "Torna qui e premi Incolla: Vibes legge ogni brano copiato",
+                )) { Pill("Incolla i brani copiati", true, onPaste) }
+            }
+            item {
+                HelpCard("3", "Da un file", "Esportazione di Spotify, Exportify, TuneMyMusic, Soundiiz", Color(0xFFFFB86B), listOf(
+                    "Esportazione ufficiale: su Spotify, Account → Privacy → Scarica i tuoi dati. Arriva per email: dentro c'è Playlist1.json con tutte le tue playlist",
+                    "Oppure un file CSV da Exportify, TuneMyMusic o Soundiiz",
+                    "Scegli il file qui: se ci sono più playlist, scegli quale importare",
+                )) {
+                    Pill("Scegli il file", true, onFile)
+                    Spacer(Modifier.width(8.dp))
+                    Pill("Exportify", false, { onOpen("https://exportify.app") })
+                }
+            }
+            item {
+                Text("Hai una lista scritta? Incolla le righe nel formato \"Artista - Titolo\", una per brano.",
+                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 4.dp, bottom = 8.dp))
+                if (partial) Pill("Va bene così, tengo i primi 100", false, onClose)
+            }
+        }
+    }
+}
+
+@Composable
+private fun HelpCard(n: String, title: String, subtitle: String, color: Color, steps: List<String>, actions: @Composable () -> Unit) {
+    Column(Modifier.padding(vertical = 6.dp).fillMaxWidth().clip(RoundedCornerShape(20.dp)).background(color.copy(alpha = 0.12f)).padding(14.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Box(Modifier.size(30.dp).clip(CircleShape).background(color), contentAlignment = Alignment.Center) {
+                Text(n, color = Color.Black, fontWeight = FontWeight.Bold)
+            }
+            Column(Modifier.padding(start = 10.dp)) {
+                Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        }
+        steps.forEachIndexed { i, st ->
+            Row(Modifier.padding(top = 8.dp)) {
+                Text("${i + 1}.", style = MaterialTheme.typography.bodyMedium, color = color, fontWeight = FontWeight.Bold, modifier = Modifier.width(22.dp))
+                Text(st, style = MaterialTheme.typography.bodyMedium)
+            }
+        }
+        Row(Modifier.padding(top = 12.dp), verticalAlignment = Alignment.CenterVertically) { actions() }
     }
 }
