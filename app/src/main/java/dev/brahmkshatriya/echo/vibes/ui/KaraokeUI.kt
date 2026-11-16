@@ -558,16 +558,19 @@ object KaraokeFade {
         job = scope.launch {
             try {
                 val b = app.engine.player.browser.value
-                val v0 = b?.volume ?: 1f
+                if (b != null && b.volume < 0.05f) b.volume = 1f // never leave the player muted
                 if (KaraokeHD.active.value) {
-                    // the normal player starts again where HD is, silent, then the two swap
+                    // One source at a time (playing the normal player while HD was still open left it
+                    // stuck at the entry point): the normal player takes over WITH the quick filter at
+                    // full strength (still no voice), then the filter fades out = the voice comes back.
                     val at = KaraokeHD.positionMs()
-                    Karaoke.enabled = false
-                    b?.volume = 0f
-                    app.engine.seekTo(at); app.engine.player.setPlaying(true)
-                    kotlinx.coroutines.delay(250)
-                    ramp(ms.coerceAtLeast(300)) { t -> KaraokeHD.gain = 1f - t; b?.volume = v0 * t }
+                    ramp(150) { t -> KaraokeHD.gain = 1f - t }
                     KaraokeHD.close()
+                    Karaoke.strength = 1f; Karaoke.enabled = true
+                    app.engine.seekTo(at); app.engine.player.setPlaying(true)
+                    kotlinx.coroutines.delay(300)
+                    ramp(ms.coerceAtLeast(300)) { t -> Karaoke.strength = 1f - t }
+                    Karaoke.strength = 0.9f
                 } else {
                     KaraokeHD.close()?.let { at -> app.engine.seekTo(at); app.engine.player.setPlaying(true) }
                     if (Karaoke.enabled) {
@@ -576,7 +579,6 @@ object KaraokeFade {
                         Karaoke.strength = s0
                     }
                 }
-                b?.volume = v0
             } finally {
                 // only if karaoke was not reopened meanwhile (that one owns the state now)
                 if (my == gen) {

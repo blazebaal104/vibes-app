@@ -1,9 +1,7 @@
 {
-  "title": "Karaoke con dissolvenza 🎤",
+  "title": "Fix uscita dal karaoke",
   "notes": [
-    "Karaoke: la voce sfuma nella base entrando e torna piano piano uscendo (durata nelle impostazioni)",
-    "PC: schermo intero solo per la finestra (e si esce davvero); la vista del brano si apre dalla copertina",
-    "Notifiche: interruttore generale e avviso quando qualcuno inizia a seguirti",
-    "Chat e impostazioni a tutta larghezza su PC, logo Vibes all'avvio su Android"
+    "Uscendo dal karaoke la voce torna piano piano e il brano continua da dove eri",
+    "Il player non resta più bloccato nel punto in cui eri entrato"
   ]
 }
