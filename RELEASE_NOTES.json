@@ -1,7 +1,7 @@
 {
-  "title": "Fix uscita dal karaoke",
+  "title": "Karaoke: uscita con dissolvenza vera",
   "notes": [
-    "Uscendo dal karaoke la voce torna piano piano e il brano continua da dove eri",
-    "Il player non resta più bloccato nel punto in cui eri entrato"
+    "PC: il brano resta in riproduzione (muto) sotto la versione HD, così uscendo la base sfuma e la voce torna senza fermarsi",
+    "Qualsiasi modo di uscire (freccia, Esc, tasto microfono) fa la dissolvenza"
   ]
 }

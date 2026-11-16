@@ -142,14 +142,13 @@ fun KaraokeScreen(song: SongRef, playing: Boolean, onClose: () -> Unit) {
             // HD reached the end of the song: hand back to the normal player, which goes to the next one
             scope.launch {
                 KaraokeHD.close()
-                app.engine.next(); app.engine.player.setPlaying(true)
+                if (PlatformUI.isDesktop) Karaoke.duck = 1f // the normal player is already there, in sync
+                else { app.engine.next(); app.engine.player.setPlaying(true) }
             }
         }
         onDispose {
-            if (KaraokeFade.exiting) return@onDispose
-            Karaoke.enabled = false
-            KaraokeHD.onEnded = null
-            KaraokeHD.close()?.let { at -> app.engine.seekTo(at); app.engine.player.setPlaying(true) }
+            // every way out (arrow, Esc, the mic button, the song ending) goes through the same fade
+            if (!KaraokeFade.exiting) KaraokeFade.exit(app, fadeMs)
         }
     }
     BackHandler { leave() }
@@ -178,6 +177,7 @@ fun KaraokeScreen(song: SongRef, playing: Boolean, onClose: () -> Unit) {
             }.getOrNull()
             val mainPlaying = app.engine.player.playerState.current.value?.isPlaying == true
             if (mainPlaying) wantPlay = true
+            if (!KaraokeHD.active.value && !switching && Karaoke.duck < 1f) Karaoke.duck = 1f // never silent without HD
             if (KaraokeHD.active.value) hdPos = KaraokeHD.positionMs()
             else if (wantPlay && !switching && KaraokeHD.readyAtMs(app.engine.position())) {
                 // smooth hand-over: HD fades in from the same point while the normal player fades out
@@ -187,11 +187,18 @@ fun KaraokeScreen(song: SongRef, playing: Boolean, onClose: () -> Unit) {
                     // cross-fade (length in Settings): the song with its voice fades out while the
                     // backing track fades in, from the same point, so you HEAR the voice disappear
                     switching = true
-                    val b = app.engine.player.browser.value
-                    val v0 = b?.volume ?: 1f
-                    KaraokeFade.ramp(fadeMs.coerceAtLeast(300)) { t -> KaraokeHD.gain = t; b?.volume = v0 * (1f - t) }
-                    app.engine.pause()
-                    b?.volume = v0
+                    if (PlatformUI.isDesktop) {
+                        // PC: the normal player KEEPS PLAYING, silenced, in step with HD: leaving karaoke
+                        // is then a true cross-fade back to the voice, with nothing to restart
+                        KaraokeFade.ramp(fadeMs.coerceAtLeast(300)) { t -> KaraokeHD.gain = t; Karaoke.duck = 1f - t }
+                        Karaoke.duck = 0f
+                    } else {
+                        val b = app.engine.player.browser.value
+                        val v0 = b?.volume ?: 1f
+                        KaraokeFade.ramp(fadeMs.coerceAtLeast(300)) { t -> KaraokeHD.gain = t; b?.volume = v0 * (1f - t) }
+                        app.engine.pause()
+                        b?.volume = v0
+                    }
                     KaraokeHD.gain = 1f
                     switching = false
                 } else KaraokeHD.gain = 1f
@@ -288,27 +295,30 @@ fun KaraokeScreen(song: SongRef, playing: Boolean, onClose: () -> Unit) {
             }
             // where we are in the song (drag to move)
             KaraokeProgress(pos, mainDur.takeIf { it > 0 } ?: song.duration ?: 0L) { to ->
-                if (hdActive) KaraokeHD.seekTo(to) else app.engine.seekTo(to)
+                if (hdActive) { KaraokeHD.seekTo(to); if (PlatformUI.isDesktop) app.engine.seekTo(to) } else app.engine.seekTo(to)
             }
             KaraokeControls(
                 playing = isPlaying,
                 onPrev = {
-                    if (hdActive && KaraokeHD.positionMs() > 3000) KaraokeHD.seekTo(0)
-                    else { KaraokeHD.stopPlayback(); app.engine.previous(); app.engine.player.setPlaying(true) }
+                    if (hdActive && KaraokeHD.positionMs() > 3000) { KaraokeHD.seekTo(0); if (PlatformUI.isDesktop) app.engine.seekTo(0) }
+                    else { KaraokeHD.stopPlayback(); Karaoke.duck = 1f; app.engine.previous(); app.engine.player.setPlaying(true) }
                 },
                 onToggle = {
                     when {
-                        hdActive -> KaraokeHD.toggle()
+                        hdActive -> {
+                            KaraokeHD.toggle()
+                            if (PlatformUI.isDesktop) app.engine.player.setPlaying(KaraokeHD.playing.value)
+                        }
                         isPlaying -> { wantPlay = false; app.engine.togglePlay() }
                         KaraokeHD.readyAtMs(app.engine.position()) -> { wantPlay = true; KaraokeHD.play(app.engine.position()) }
                         else -> { wantPlay = true; app.engine.togglePlay() }
                     }
                 },
-                onNext = { KaraokeHD.stopPlayback(); app.engine.next(); app.engine.player.setPlaying(true) },
+                onNext = { KaraokeHD.stopPlayback(); Karaoke.duck = 1f; app.engine.next(); app.engine.player.setPlaying(true) },
                 onStop = {
                     // stop: everything paused and back to the start of the song
                     wantPlay = false
-                    if (hdActive) { KaraokeHD.seekTo(0); KaraokeHD.pause() }
+                    if (hdActive) { KaraokeHD.seekTo(0); KaraokeHD.pause(); if (PlatformUI.isDesktop) { app.engine.pause(); app.engine.seekTo(0) } }
                     else { app.engine.pause(); app.engine.seekTo(0) }
                 }
             )
@@ -544,7 +554,7 @@ object KaraokeFade {
 
     @Volatile private var gen = 0
 
-    fun cancelExit() { if (exiting) { gen++; job?.cancel(); exiting = false } }
+    fun cancelExit() { if (exiting) { gen++; job?.cancel(); exiting = false; Karaoke.duck = 1f } }
 
     fun filterIn(ms: Long) {
         val target = Karaoke.strength.takeIf { it > 0.05f } ?: 0.9f
@@ -559,7 +569,30 @@ object KaraokeFade {
             try {
                 val b = app.engine.player.browser.value
                 if (b != null && b.volume < 0.05f) b.volume = 1f // never leave the player muted
-                if (KaraokeHD.active.value) {
+                if (PlatformUI.isDesktop && KaraokeHD.active.value) {
+                    // PC: the song has been playing silently under HD all along. If it drifted (or was
+                    // paused), put it back in step first while HD is still audible, then cross-fade:
+                    // the backing track fades out and the voice comes back, nothing stops.
+                    val at = KaraokeHD.positionMs()
+                    val hdOn = KaraokeHD.playing.value
+                    val engPlaying = app.engine.player.playerState.current.value?.isPlaying == true
+                    if (kotlin.math.abs(app.engine.position() - at) > 400 || (hdOn && !engPlaying)) {
+                        Karaoke.duck = 0f
+                        app.engine.seekTo(KaraokeHD.positionMs())
+                        if (hdOn) app.engine.player.setPlaying(true)
+                        val until = System.currentTimeMillis() + 4000
+                        while (System.currentTimeMillis() < until) {
+                            kotlinx.coroutines.delay(60)
+                            val ok = app.engine.player.playerState.current.value?.isPlaying == true &&
+                                    kotlin.math.abs(app.engine.position() - KaraokeHD.positionMs()) < 300
+                            if (ok || !hdOn) break
+                        }
+                    }
+                    Karaoke.enabled = false
+                    ramp(ms.coerceAtLeast(300)) { t -> KaraokeHD.gain = 1f - t; Karaoke.duck = t }
+                    KaraokeHD.close()
+                    Karaoke.duck = 1f
+                } else if (KaraokeHD.active.value) {
                     // One source at a time (playing the normal player while HD was still open left it
                     // stuck at the entry point): the normal player takes over WITH the quick filter at
                     // full strength (still no voice), then the filter fades out = the voice comes back.
@@ -582,6 +615,7 @@ object KaraokeFade {
             } finally {
                 // only if karaoke was not reopened meanwhile (that one owns the state now)
                 if (my == gen) {
+                    Karaoke.duck = 1f
                     Karaoke.enabled = false
                     KaraokeHD.gain = 1f
                     KaraokeHD.onEnded = null

@@ -20,6 +20,11 @@ object Karaoke {
     @Volatile var enabled = false
     /** 0..1, how much of the centred vocal is taken out (UI slider "Voce"). */
     @Volatile var strength = 0.9f
+    /**
+     * 0..1 level of the normal player, applied here (not the player's volume, which the user sees).
+     * PC karaoke keeps the song playing silently under the HD backing track and fades between the two.
+     */
+    @Volatile var duck = 1f
 }
 
 /**
@@ -92,7 +97,7 @@ class KaraokeProcessor : BaseAudioProcessor() {
         val want = Karaoke.enabled
         if (!running && !want) { // passthrough
             val out = replaceOutputBuffer(inputBuffer.remaining())
-            out.put(inputBuffer); out.flip(); return
+            out.put(inputBuffer); out.flip(); applyDuck(out); return
         }
         if (!running && want) { resetState(); running = true; fadeIn = 0f }
         val src = inputBuffer.order(ByteOrder.nativeOrder())
@@ -119,7 +124,27 @@ class KaraokeProcessor : BaseAudioProcessor() {
             }
         }
         out.flip()
+        applyDuck(out)
         // anything left in the input after `running` turned false is emitted untouched next call
+    }
+
+    private var lastDuck = 1f
+
+    /** Scales the block by [Karaoke.duck], ramping from the previous level (no zipper clicks). */
+    private fun applyDuck(buf: ByteBuffer) {
+        val target = Karaoke.duck.coerceIn(0f, 1f)
+        val from = lastDuck
+        lastDuck = target
+        if (from >= 0.999f && target >= 0.999f) return
+        val b = buf.duplicate().order(ByteOrder.nativeOrder())
+        val n = b.remaining() / 2
+        if (n == 0) return
+        val start = b.position()
+        for (i in 0 until n) {
+            val g = from + (target - from) * (i.toFloat() / n)
+            val at = start + i * 2
+            b.putShort(at, (b.getShort(at) * g).toInt().toShort())
+        }
     }
 
     private fun toPcm(v: Float): Short = (v.coerceIn(-1f, 1f) * 32767f).toInt().toShort()
