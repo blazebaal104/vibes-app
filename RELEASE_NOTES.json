@@ -1,8 +1,8 @@
 {
-  "title": "Playlist lunghe da Spotify 📥",
+  "title": "Deezer resta collegato 🔗",
   "notes": [
-    "Playlist Spotify oltre 100 brani: una pagina ti spiega come portarle intere",
-    "TuneMyMusic dentro Vibes: sposti la playlist su Deezer e Vibes la importa da sola",
-    "Nuovo: incolla i brani copiati da Spotify, una lista scritta o importa un file"
+    "Risolto: ogni 2-3 giorni Vibes diceva \"Deezer non collegato\" anche se lo era",
+    "Ora Vibes rinnova da solo la sessione di Deezer in background, senza chiederti niente",
+    "Il pannello per ricollegarsi appare solo se Deezer ha davvero chiuso l'accesso"
   ]
 }
