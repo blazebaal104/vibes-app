@@ -37,6 +37,7 @@ jobs:
         run: |
           mkdir -p out
           chmod +x gradlew
+          set -o pipefail
           if [[ "$MSG" == *"[shots]"* ]]; then TASK=packageUberJarForCurrentOS; else TASK=compileKotlin; fi
           ./gradlew -p desktop $TASK --build-cache --parallel --continue 2>&1 | tee desktop.log && echo "PC: OK" >> out/status.txt || echo "PC: FAILED" >> out/status.txt
           grep -E "^e: " desktop.log | sed 's|file://.*/desktop/build/shared/|SHARED/|; s|file://.*/desktop/src/main/kotlin/|DESKTOP/|' | sort -u | head -300 > out/desktop-errors.txt || true
