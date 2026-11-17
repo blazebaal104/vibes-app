@@ -374,6 +374,7 @@ fun Screen(route: Route) {
         Route.Samples -> SamplesScreen()
         Route.StudioStats -> StudioStatsScreen()
         Route.Podcasts -> PodcastsScreen()
+        is Route.Podcast -> PodcastShowScreen(route.id, route.title, route.picture)
         is Route.VibesRelease -> VibesReleaseScreen(route.id)
         Route.Layers -> LayersGameScreen()
         is Route.Stories -> StoryViewerScreen(route.userId)

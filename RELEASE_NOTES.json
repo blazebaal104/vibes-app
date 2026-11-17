@@ -1,7 +1,9 @@
 {
-  "title": "Karaoke: uscita con dissolvenza vera",
+  "title": "Podcast sistemati + scarica album 🎙️",
   "notes": [
-    "PC: il brano resta in riproduzione (muto) sotto la versione HD, così uscendo la base sfuma e la voce torna senza fermarsi",
-    "Qualsiasi modo di uscire (freccia, Esc, tasto microfono) fa la dissolvenza"
+    "Nuova pagina per ogni podcast: copertina, descrizione ed episodi con data e durata",
+    "Tocchi un episodio e parte, con il resto del podcast in coda",
+    "Album: nuovo tasto per scaricare tutto l'album in un colpo (finisce in Scaricati)",
+    "PC: tasto scarica anche nelle playlist"
   ]
 }

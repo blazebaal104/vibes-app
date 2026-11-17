@@ -294,6 +294,25 @@ class DeezerPublic(private val http: OkHttpClient) {
             this["fans"]?.jsonPrimitive?.intOrNull ?: 0)
     }
 
+    /** A podcast's own page (works without a Deezer account). */
+    suspend fun podcastInfo(id: Long): PodcastInfo? = get("https://api.deezer.com/podcast/$id")?.toPodcast()
+
+    /** One episode as listed by the public API (the audio itself comes from the Deezer engine). */
+    data class EpisodeInfo(val id: Long, val title: String, val description: String, val durationSec: Int, val date: String, val picture: String?)
+
+    suspend fun podcastEpisodes(id: Long, limit: Int = 100): List<EpisodeInfo> =
+        get("https://api.deezer.com/podcast/$id/episodes?limit=$limit")?.get("data")?.jsonArray?.mapNotNull { e ->
+            val o = e as? JsonObject ?: return@mapNotNull null
+            EpisodeInfo(
+                o["id"]?.jsonPrimitive?.longOrNull ?: return@mapNotNull null,
+                o["title"]?.jsonPrimitive?.contentOrNull.orEmpty(),
+                o["description"]?.jsonPrimitive?.contentOrNull.orEmpty(),
+                o["duration"]?.jsonPrimitive?.intOrNull ?: 0,
+                o["release_date"]?.jsonPrimitive?.contentOrNull.orEmpty(),
+                o["picture_xl"]?.jsonPrimitive?.contentOrNull ?: o["picture_big"]?.jsonPrimitive?.contentOrNull,
+            )
+        }.orEmpty()
+
     /** Top podcasts on Deezer (for the country the request comes from). */
     suspend fun podcastChart(limit: Int = 30): List<PodcastInfo> =
         get("https://api.deezer.com/chart/0/podcasts?limit=$limit")?.get("data")?.jsonArray

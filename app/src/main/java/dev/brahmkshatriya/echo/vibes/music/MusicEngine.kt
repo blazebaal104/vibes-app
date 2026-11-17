@@ -232,6 +232,16 @@ class MusicEngine(
 
     suspend fun extensionId() = extension().id
 
+    /**
+     * The playable episodes of a podcast, from the Deezer engine (needs the linked account).
+     * Unlike [open] this does not hide the error, so the podcast page can say what went wrong.
+     */
+    suspend fun showEpisodes(id: String, title: String, cover: String?): List<Track> = withContext(Dispatchers.IO) {
+        val ext = extension()
+        val show = Album(id = id, title = title, type = Album.Type.Show, cover = cover?.let { with(dev.brahmkshatriya.echo.common.models.ImageHolder) { it.toImageHolder() } }, trackCount = 500, extras = mapOf("__TYPE__" to "show"))
+        ext.getAs<AlbumClient, List<Track>> { loadTracks(show)?.pagedDataOfFirst()?.loadAll().orEmpty() }.getOrThrow()
+    }
+
     fun play(extId: String, tracks: List<Track>, index: Int = 0, context: EchoMediaItem? = null) {
         if (tracks.isEmpty()) return
         if (extId == DEEZER && !DeezerAuth.canPlay()) return

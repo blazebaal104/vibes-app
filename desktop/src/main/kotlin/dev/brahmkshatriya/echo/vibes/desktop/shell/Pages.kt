@@ -452,6 +452,7 @@ fun DeskPlaylistPage(id: String) {
                         if (p.songs.isNotEmpty()) { app.engine.playAll(p.songs, shuffle = true, ctx = p); app.library.touch("pl:$id") }
                     }
                     DeskIcon(Icons.AutoMirrored.Rounded.PlaylistAdd, "Aggiungi alla coda", size = 44.dp, iconSize = 28.dp) { Actions.queue(app, p.songs, false) }
+                    if (p.songs.isNotEmpty()) dev.brahmkshatriya.echo.vibes.ui.DownloadAllButton(p.songs, p.name)
                     ContextMenuBox(items = { playlistMenu(app, p, scope, { editing = true }, { deleting = true }) }) { open ->
                         DeskIcon(Icons.Rounded.MoreHoriz, "Altre opzioni per ${p.name}", size = 44.dp, iconSize = 30.dp) { open() }
                     }
@@ -560,6 +561,8 @@ fun DeskAlbumPage(id: Long) {
                         if (saved) { app.library.removeAlbum(id); nav.toast("Rimosso dalla libreria") }
                         else { app.library.saveAlbum(SavedAlbum(id, a.title, a.artist, a.cover, a.artistId)); nav.toast("Salvato nella libreria") }
                     }
+                    // the whole album offline in one click (it lands in Scaricati)
+                    if (songs.isNotEmpty()) dev.brahmkshatriya.echo.vibes.ui.DownloadAllButton(songs, a.title)
                     ContextMenuBox(items = {
                         listOf(
                             MenuItem("Aggiungi alla coda", Icons.AutoMirrored.Rounded.QueueMusic) { Actions.queue(app, songs, false) },

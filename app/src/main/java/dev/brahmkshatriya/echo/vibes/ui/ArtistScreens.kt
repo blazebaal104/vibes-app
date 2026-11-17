@@ -205,6 +205,8 @@ fun DzAlbumScreen(id: Long) {
                             }
                         }) { Icon(if (saved) Icons.Rounded.CheckCircle else Icons.Rounded.AddCircleOutline, if (saved) "Togli dalla libreria" else "Salva nella libreria",
                             tint = if (saved) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface) }
+                        // the whole album offline in one tap (it lands in Scaricati)
+                        if (songs.isNotEmpty()) DownloadAllButton(songs, a?.title ?: "Album")
                     }
                 )
             }

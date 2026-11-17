@@ -240,7 +240,7 @@ private fun CenterRoute(route: Route) {
         is Route.Guess, is Route.BlindTest, Route.Layers -> Wide(900) { Screen(route) }
         // artist pages: as wide as the centre (the banner used to stop with dark strips at the sides)
         is Route.DzArtist -> Wide(1600) { Screen(route) }
-        Route.Studio, Route.Publish, Route.Samples, Route.StudioStats, Route.Podcasts, is Route.VibesRelease -> Wide(1300) { Screen(route) }
+        Route.Studio, Route.Publish, Route.Samples, Route.StudioStats, Route.Podcasts, is Route.Podcast, is Route.VibesRelease -> Wide(1300) { Screen(route) }
         // chat and settings use the whole centre (they were a narrow column with empty sides)
         is Route.Chat, Route.Settings -> Wide(4000) { Screen(route) }
         else -> Wide { Screen(route) }
