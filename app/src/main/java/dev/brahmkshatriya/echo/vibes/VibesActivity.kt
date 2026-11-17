@@ -45,8 +45,18 @@ class VibesActivity : ComponentActivity() {
     private val notifPermission = registerForActivityResult(ActivityResultContracts.RequestPermission()) {}
 
     // the app is on screen or not: background syncs pause while it isn't (saves mobile data)
-    override fun onStart() { super.onStart(); dev.brahmkshatriya.echo.vibes.ui.Perf.visible = true }
-    override fun onStop() { super.onStop(); dev.brahmkshatriya.echo.vibes.ui.Perf.visible = false }
+    private var started = false
+    override fun onStart() {
+        super.onStart(); dev.brahmkshatriya.echo.vibes.ui.Perf.visible = true
+        // back in front: take what the PC changed meanwhile (the first start is handled by AppRoot)
+        if (started) runCatching { VibesGraph.syncNow() }
+        started = true
+    }
+    override fun onStop() {
+        super.onStop(); dev.brahmkshatriya.echo.vibes.ui.Perf.visible = false
+        // leaving the app: what changed here goes to the account now, not "later"
+        runCatching { VibesGraph.flushSync() }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)

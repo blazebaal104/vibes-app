@@ -126,6 +126,8 @@ class ExoPlayer private constructor(private val processors: List<AudioProcessor>
     private fun order(): List<Int> = if (shuffle && shuffleOrder.size == items.size) shuffleOrder else items.indices.toList()
 
     private fun loop() {
+        // Windows multimedia scheduler: on time even with a game using every core (no clicks)
+        dev.brahmkshatriya.echo.vibes.desktop.WinPerf.registerAudioThread()
         val frames = 1024
         val decodeBuf = ShortArray(8192)
         val mix = FloatArray(frames * 2)

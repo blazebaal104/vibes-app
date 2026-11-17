@@ -113,7 +113,16 @@ dependencies {
 compose.desktop {
     application {
         mainClass = "dev.brahmkshatriya.echo.vibes.desktop.MainKt"
-        jvmArgs += listOf("-Xmx1g", "-Dsun.java2d.uiScale.enabled=true", "-Dfile.encoding=UTF-8")
+        jvmArgs += listOf(
+            "-Xmx1g", "-Dsun.java2d.uiScale.enabled=true", "-Dfile.encoding=UTF-8",
+            // behind a game: the garbage collector uses 2 threads (not one per core) and short pauses,
+            // so it never steals the cores the game is using; memory goes back to Windows when idle
+            "-XX:+UseG1GC", "-XX:ParallelGCThreads=2", "-XX:ConcGCThreads=1", "-XX:MaxGCPauseMillis=20",
+            "-XX:G1PeriodicGCInterval=60000",
+            // the window is drawn by the integrated GPU when the PC has one (laptops): the Nvidia/AMD
+            // card stays all for the game. Without one, the only GPU is used as before.
+            "-Dskiko.gpu.priority=integrated",
+        )
         nativeDistributions {
             targetFormats(TargetFormat.Exe, TargetFormat.Msi)
             packageName = "Vibes"

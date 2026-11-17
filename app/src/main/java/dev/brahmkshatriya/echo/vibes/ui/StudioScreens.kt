@@ -675,8 +675,11 @@ private object FavSamples {
     private fun file(ctx: android.content.Context) = java.io.File(ctx.filesDir, "fav_samples.json")
     fun load(ctx: android.content.Context): List<FavSample> =
         runCatching { dev.brahmkshatriya.echo.vibes.backend.Supa.json.decodeFromString<List<FavSample>>(file(ctx).readText()) }.getOrDefault(emptyList())
-    fun save(ctx: android.content.Context, list: List<FavSample>) =
+    fun save(ctx: android.content.Context, list: List<FavSample>) {
         runCatching { file(ctx).writeText(dev.brahmkshatriya.echo.vibes.backend.Supa.json.encodeToString(list)) }
+        // the same favourites on the phone and on the PC
+        runCatching { dev.brahmkshatriya.echo.vibes.VibesGraph.userState.changed(dev.brahmkshatriya.echo.vibes.backend.UserStateSync.FAV_SAMPLES) }
+    }
     fun toggle(ctx: android.content.Context, r: SampleRow, on: Boolean) {
         val cur = load(ctx).filter { it.id != r.id }
         save(ctx, if (on) listOf(FavSample(r.id, r.name, r.sub, r.url, r.bpm, r.key, r.loop)) + cur else cur)
@@ -707,6 +710,9 @@ fun SamplesScreen() {
     var filters by remember { mutableStateOf(false) }
     val st by VibesGraph.studio.state.collectAsState()
     val favCache = remember { mutableStateMapOf<String, SampleRow>() }
+    // favourites arriving from the other device
+    val syncedVersion by dev.brahmkshatriya.echo.vibes.VibesGraph.userState.version.collectAsState()
+    LaunchedEffect(syncedVersion) { if (syncedVersion > 0) { favCount = FavSamples.load(context).size; refresh++ } }
 
     LaunchedEffect(q, kind, genre, key, bpm, sort, source, refresh, recordCat) {
         rows = null

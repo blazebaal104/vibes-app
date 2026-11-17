@@ -70,8 +70,9 @@ class AudioOut {
     companion object {
         const val RATE = 44100
         private val FORMAT = AudioFormat(RATE.toFloat(), 16, 2, true, false)
-        /** ~120 ms device buffer: responsive pause/seek, no crackles */
-        private const val BUFFER_BYTES = RATE * 4 / 8
+        /** ~300 ms device buffer: with a game hogging the CPU/GPU the decoder can be late for a moment
+         *  without the speakers running dry (no clicks); pause/seek flush it, so they stay instant */
+        private const val BUFFER_BYTES = RATE * 4 * 3 / 10
         private val dump: RandomAccessFile? by lazy {
             System.getenv("VIBES_AUDIO_DUMP")?.let { p ->
                 RandomAccessFile(File(p), "rw").apply { setLength(0); write(ByteArray(44)) }.also { f ->

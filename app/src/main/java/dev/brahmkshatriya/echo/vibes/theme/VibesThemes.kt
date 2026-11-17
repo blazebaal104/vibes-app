@@ -113,11 +113,15 @@ object VibesThemes {
         prefs.edit(commit = true) { putString(THEME_ID_KEY, theme.id) }
     }
 
+    /** A theme chosen/made/deleted by the user (the account sync uploads it to the other devices). */
+    @Volatile var onUserChange: (() -> Unit)? = null
+
     fun saveCustom(context: Context, theme: VibesTheme) {
         val list = custom(context).filter { it.id != theme.id } + theme
         context.getSettings().edit {
             putString(CUSTOM_THEMES_KEY, JSONArray(list.map { it.toJson() }).toString())
         }
+        onUserChange?.invoke()
     }
 
     fun deleteCustom(context: Context, id: String) {
@@ -128,6 +132,7 @@ object VibesThemes {
             putString(CUSTOM_THEMES_KEY, JSONArray(list.map { it.toJson() }).toString())
         }
         if (wasActive) apply(prefs, presets.first())
+        onUserChange?.invoke()
     }
 
     /**

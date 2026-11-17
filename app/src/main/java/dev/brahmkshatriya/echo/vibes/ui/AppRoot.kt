@@ -135,6 +135,11 @@ fun VibesApp(engine: MusicEngine, pendingLink: MutableStateFlow<Uri?>) {
         AppState(engine, nav, VibesThemes.current(context) ?: VibesThemes.presets.first())
     }
     LocalAppHolder.app = state
+    // a theme chosen on the other device arrives with the account sync
+    val synced by dev.brahmkshatriya.echo.vibes.VibesGraph.userState.version.collectAsState()
+    androidx.compose.runtime.LaunchedEffect(synced) {
+        if (synced > 0) VibesThemes.current(context)?.let { if (it != state.theme) state.theme = it }
+    }
     VibesMaterial(state.theme) {
         androidx.compose.runtime.CompositionLocalProvider(LocalApp provides state) {
             val session by state.supa.session.collectAsState()
@@ -159,6 +164,8 @@ fun VibesApp(engine: MusicEngine, pendingLink: MutableStateFlow<Uri?>) {
                 runCatching { state.library.migrateAlbums(state.deezer) }
                 // the library of the account: what was made on the other devices arrives here
                 runCatching { dev.brahmkshatriya.echo.vibes.VibesGraph.librarySync.sync() }
+                // settings and Studio favourite samples of the account
+                runCatching { dev.brahmkshatriya.echo.vibes.VibesGraph.userState.sync() }
                 // listening time of the account: what the other devices heard counts here too
                 runCatching { dev.brahmkshatriya.echo.vibes.VibesGraph.listenSync.sync(); dev.brahmkshatriya.echo.vibes.VibesGraph.onListened(true) }
                 // keep friends' live "now playing" fresh in lists
@@ -170,6 +177,7 @@ fun VibesApp(engine: MusicEngine, pendingLink: MutableStateFlow<Uri?>) {
                     Perf.awaitVisible()
                     runCatching { state.social.refreshFriends() }
                     runCatching { dev.brahmkshatriya.echo.vibes.VibesGraph.librarySync.sync() }
+                    runCatching { dev.brahmkshatriya.echo.vibes.VibesGraph.userState.sync() }
                     if (tick % 2 == 0) runCatching { dev.brahmkshatriya.echo.vibes.VibesGraph.listenSync.sync() }
                     if (++tick % 4 == 0) runCatching { dev.brahmkshatriya.echo.vibes.VibesGraph.collab.refresh() }
                 }
@@ -189,7 +197,14 @@ fun VibesApp(engine: MusicEngine, pendingLink: MutableStateFlow<Uri?>) {
                     LocalSettings.current.needsOnboarding && System.getenv("VIBES_UITEST") == null -> OnboardingScreen()
                     else -> {
                         val desk = PlatformUI.desktopScaffold
-                        if (desk != null) desk(pendingLink) else MainScaffold(pendingLink)
+                        // PC minimized / in the tray: nothing on screen at all. The whole window content
+                        // leaves the composition (no layout, no drawing, no GPU), the music keeps playing
+                        // in the player; it all comes back as it was when the window is restored.
+                        // (Karaoke stays mounted: its screen drives the HD playback.)
+                        val karaokeOn by dev.brahmkshatriya.echo.vibes.karaoke.KaraokeHD.active.collectAsState()
+                        if (desk != null && !Perf.visible && !karaokeOn && !dev.brahmkshatriya.echo.playback.renderer.Karaoke.enabled)
+                            androidx.compose.foundation.layout.Box(Modifier.fillMaxSize())
+                        else if (desk != null) desk(pendingLink) else MainScaffold(pendingLink)
                     }
                 }
             }

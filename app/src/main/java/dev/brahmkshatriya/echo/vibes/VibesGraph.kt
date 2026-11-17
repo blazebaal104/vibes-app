@@ -43,6 +43,34 @@ object VibesGraph {
     val listens by lazy { dev.brahmkshatriya.echo.vibes.music.ListenLog(app, deezer) }
     /** Listening history of the account: phone + PC add up. */
     val listenSync by lazy { dev.brahmkshatriya.echo.vibes.backend.ListenSync(supa, listens, app.filesDir) }
+    /** Settings + Studio favourite samples: the same on phone and PC. */
+    val userState by lazy { dev.brahmkshatriya.echo.vibes.backend.UserStateSync(supa, prefs, app) }
+
+    /** App opened / back in front: pull what the other device changed, right away. */
+    fun syncNow() {
+        scope.launch {
+            runCatching { userState.sync() }
+            runCatching { librarySync.sync() }
+            runCatching { listenSync.sync() }
+        }
+    }
+
+    /** App going to the background or closing: send everything still waiting. */
+    fun flushSync() = syncNow()
+
+    /** The app is closing (PC): send what is waiting, at most ~3 seconds. */
+    fun flushBlocking() {
+        runCatching {
+            kotlinx.coroutines.runBlocking(kotlinx.coroutines.Dispatchers.IO) {
+                kotlinx.coroutines.withTimeoutOrNull(3000) {
+                    runCatching { userState.sync() }
+                    runCatching { librarySync.sync() }
+                    runCatching { listenSync.sync() }
+                }
+            }
+        }
+    }
+
     val updater by lazy { dev.brahmkshatriya.echo.vibes.update.Updater(app, supa.http) }
 
     /** Set when a Vibes playlist starts playing (stats: most played playlists). */

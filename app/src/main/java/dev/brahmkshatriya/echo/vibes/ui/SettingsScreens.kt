@@ -73,6 +73,7 @@ fun SettingsScreen() {
     fun choose(t: VibesTheme) {
         VibesThemes.apply(context.getSettings(), t)
         app.theme = t
+        VibesThemes.onUserChange?.invoke()
     }
 
     GradientBackground {

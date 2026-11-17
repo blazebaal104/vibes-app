@@ -59,9 +59,21 @@ class VibesPrefs(context: Context) {
     val value get() = _state.value
     val privateSession get() = value.privateSession
 
+    /** Called after a change made by the user (the account sync uploads it). */
+    @Volatile var onUserChange: (() -> Unit)? = null
+
     fun update(block: (VibesSettings) -> VibesSettings) {
-        _state.value = block(_state.value)
+        val before = _state.value
+        _state.value = block(before)
         sp.edit().putString("s", Supa.json.encodeToString(VibesSettings.serializer(), _state.value)).apply()
+        if (_state.value != before) onUserChange?.invoke()
+    }
+
+    /** Settings arriving from the other device: applied without echoing them back. */
+    fun setFromSync(s: VibesSettings) {
+        if (s == _state.value) return
+        _state.value = s
+        sp.edit().putString("s", Supa.json.encodeToString(VibesSettings.serializer(), s)).apply()
     }
 
     /** Custom background image lives in filesDir. */

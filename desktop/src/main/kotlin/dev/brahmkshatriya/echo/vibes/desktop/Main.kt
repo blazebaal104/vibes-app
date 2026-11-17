@@ -126,7 +126,11 @@ private fun start(args: Array<String>) {
         }
         val icon = painterResource("icon.png")
         Window(
-            onCloseRequest = ::exitApplication,
+            onCloseRequest = {
+                // closing: what changed on this PC reaches the account before the app goes away
+                VibesGraph.flushBlocking()
+                exitApplication()
+            },
             title = "Vibes",
             icon = icon,
             state = state,
@@ -141,8 +145,13 @@ private fun start(args: Array<String>) {
                 // no progress ticking; another app in front = animations paused
                 val perf = dev.brahmkshatriya.echo.vibes.ui.Perf
                 fun updatePerf() {
+                    val wasVisible = perf.visible
                     perf.visible = window.isVisible && (window.extendedState and java.awt.Frame.ICONIFIED) == 0
                     perf.focused = perf.visible && window.isActive
+                    // another app in front (a game): Vibes steps back, the audio thread keeps its MMCSS slot
+                    dev.brahmkshatriya.echo.vibes.desktop.WinPerf.background(!perf.focused)
+                    // account sync: hiding the window sends what changed, showing it takes the phone's changes
+                    if (wasVisible != perf.visible) runCatching { if (perf.visible) VibesGraph.syncNow() else VibesGraph.flushSync() }
                 }
                 window.addWindowStateListener { updatePerf() }
                 window.addWindowFocusListener(object : java.awt.event.WindowFocusListener {
