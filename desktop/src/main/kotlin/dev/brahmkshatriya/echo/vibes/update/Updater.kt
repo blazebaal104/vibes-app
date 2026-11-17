@@ -41,6 +41,9 @@ class Updater(private val context: Context, private val http: OkHttpClient) {
         const val LATEST = "${Supa.URL}/storage/v1/object/public/vibes-updates/latest.json"
     }
 
+    /** PC: always a fixed connection (no mobile-data warning). */
+    val onWifi: Boolean get() = true
+
     sealed interface Phase {
         data object Idle : Phase
         data class Downloading(val progress: Float) : Phase
