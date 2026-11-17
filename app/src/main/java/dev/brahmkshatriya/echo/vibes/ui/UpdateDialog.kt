@@ -154,8 +154,14 @@ fun UpdateHost() {
                         style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.padding(bottom = 8.dp)
                     )
+                    // on mobile data say how much it costs, so nobody burns 45 MB without knowing
+                    if (p !is Updater.Phase.Ready && !updater.onWifi && u.bytes > 0) Text(
+                        "Sei su rete mobile: l'aggiornamento usa circa ${u.bytes / 1_000_000} MB di dati. Col Wi-Fi si scarica da solo.",
+                        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(bottom = 8.dp)
+                    )
                     BigButton(
-                        "Installa ora",
+                        if (p !is Updater.Phase.Ready && !updater.onWifi && u.bytes > 0) "Scarica e installa (${u.bytes / 1_000_000} MB)" else "Installa ora",
                         {
                             if (p is Updater.Phase.Ready) installNow(u)
                             else { wantInstall = true; scope.launch { updater.download(u) } }

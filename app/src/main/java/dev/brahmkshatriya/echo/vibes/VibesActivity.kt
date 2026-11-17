@@ -44,6 +44,10 @@ class VibesActivity : ComponentActivity() {
 
     private val notifPermission = registerForActivityResult(ActivityResultContracts.RequestPermission()) {}
 
+    // the app is on screen or not: background syncs pause while it isn't (saves mobile data)
+    override fun onStart() { super.onStart(); dev.brahmkshatriya.echo.vibes.ui.Perf.visible = true }
+    override fun onStop() { super.onStop(); dev.brahmkshatriya.echo.vibes.ui.Perf.visible = false }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         VibesGraph.init(this)

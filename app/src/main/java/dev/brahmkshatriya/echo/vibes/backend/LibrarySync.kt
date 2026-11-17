@@ -39,18 +39,34 @@ class LibrarySync(private val supa: Supa, private val library: VibesLibrary) {
         }
     }
 
+    // DATA: the library is ~250 KB for a big one, and it used to be downloaded every 30 seconds
+    // whether anything had changed or not. Now each check asks only "when was it last changed?"
+    // (a few bytes); the whole thing moves only when the other device changed it, or this one did.
+    @Volatile private var seenStamp: String? = null
+    @Volatile private var lastLocal: LibrarySyncDoc? = null
+
     suspend fun sync() = mutex.withLock {
         val me = supa.userId ?: return@withLock
-        val row = supa.select("vibes_library_sync", "user_id=eq.$me&select=doc").firstOrNull() as? JsonObject
+        val stamp = (supa.select("vibes_library_sync", "user_id=eq.$me&select=updated_at").firstOrNull() as? JsonObject)?.str("updated_at")
+        val localNow = library.syncDoc()
+        if (stamp != null && stamp == seenStamp && localNow == lastLocal) return@withLock
+        val row = supa.select("vibes_library_sync", "user_id=eq.$me&select=doc,updated_at").firstOrNull() as? JsonObject
         val remote = row?.get("doc")?.let { runCatching { json.decodeFromJsonElement<LibrarySyncDoc>(it) }.getOrNull() }
         val local = library.syncDoc()
         val merged = if (remote == null) local else merge(local, remote)
         if (merged != local) library.applySync(merged)
-        if (merged != remote) supa.upsert("vibes_library_sync", buildJsonObject {
-            put("user_id", me)
-            put("doc", json.encodeToJsonElement(merged))
-            put("updated_at", java.time.Instant.now().toString())
-        })
+        var newStamp = row?.str("updated_at")
+        if (merged != remote) {
+            val now = java.time.Instant.now().toString()
+            supa.upsert("vibes_library_sync", buildJsonObject {
+                put("user_id", me)
+                put("doc", json.encodeToJsonElement(merged))
+                put("updated_at", now)
+            })
+            newStamp = (supa.select("vibes_library_sync", "user_id=eq.$me&select=updated_at").firstOrNull() as? JsonObject)?.str("updated_at")
+        }
+        seenStamp = newStamp
+        lastLocal = library.syncDoc()
     }
 
     companion object {

@@ -32,7 +32,8 @@ class ListenSync(private val supa: Supa, private val log: ListenLog, private val
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     @Serializable
-    private data class State(val user: String = "", val pushedAt: Long = 0, val pulledId: Long = 0)
+    private data class State(val user: String = "", val pushedAt: Long = 0, val pulledId: Long = 0,
+                             val sentCount: Int = 0, val sentFirstAt: Long = 0)
 
     private val file get() = File(dir, "vibes_listen_sync.json")
     private fun load() = runCatching { json.decodeFromString(State.serializer(), file.readText()) }.getOrDefault(State())
@@ -60,7 +61,11 @@ class ListenSync(private val supa: Supa, private val log: ListenLog, private val
         var st = load().let { if (it.user != me) State(me) else it }
 
         // up: what this device heard since the last upload (a little overlap: duplicates are ignored)
-        val mine = log.all().filter { it.at > st.pushedAt - 3_600_000 }
+        // only listens not sent yet (the list keeps the order they were saved in: [sentCount] of
+        // them already went up). It used to re-send the last whole hour every minute.
+        val all = log.all()
+        val mine = if (st.sentCount in 1..all.size && st.sentFirstAt == all.first().at) all.drop(st.sentCount)
+            else all.filter { it.at > st.pushedAt - 3_600_000 }
         mine.chunked(400).forEach { part ->
             supa.insertIgnore("vibes_listens", JsonArray(part.map { l ->
                 buildJsonObject {
@@ -71,6 +76,7 @@ class ListenSync(private val supa: Supa, private val log: ListenLog, private val
             }))
         }
         if (mine.isNotEmpty()) st = st.copy(pushedAt = maxOf(st.pushedAt, mine.maxOf { it.at }))
+        st = st.copy(sentCount = all.size, sentFirstAt = all.firstOrNull()?.at ?: 0)
         store(st)
 
         // down: what the other devices heard

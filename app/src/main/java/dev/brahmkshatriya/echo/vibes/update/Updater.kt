@@ -11,6 +11,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.Serializable
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -75,7 +77,21 @@ class Updater(private val context: Context, private val http: OkHttpClient) {
         info
     }
 
-    fun show(info: UpdateInfo) { _phase.value = if (apkFile(info).length() == info.bytes && info.bytes > 0) Phase.Ready else Phase.Idle; _pending.value = info }
+    private val bg = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + Dispatchers.IO)
+
+    /** On Wi-Fi (or any unmetered network). */
+    val onWifi: Boolean get() = runCatching {
+        val cm = context.getSystemService(android.net.ConnectivityManager::class.java)
+        !cm.isActiveNetworkMetered
+    }.getOrDefault(false)
+
+    fun show(info: UpdateInfo) {
+        _phase.value = if (apkFile(info).length() == info.bytes && info.bytes > 0) Phase.Ready else Phase.Idle
+        _pending.value = info
+        // DATA: on Wi-Fi the update downloads by itself in the background, so pressing
+        // "Installa" never spends mobile data (it is ~45 MB each time)
+        if (_phase.value == Phase.Idle && onWifi) bg.launch { download(info) }
+    }
 
     fun close() { _pending.value = null }
 
@@ -87,8 +103,14 @@ class Updater(private val context: Context, private val http: OkHttpClient) {
 
     private fun apkFile(info: UpdateInfo) = File(File(context.cacheDir, "apks").apply { mkdirs() }, "Vibes-${info.versionCode}.apk")
 
-    suspend fun download(info: UpdateInfo) = withContext(Dispatchers.IO) {
+    private val dlLock = kotlinx.coroutines.sync.Mutex()
+
+    // one download at a time (the Wi-Fi background one and the button share it)
+    suspend fun download(info: UpdateInfo) = dlLock.withLock { downloadNow(info) }
+
+    private suspend fun downloadNow(info: UpdateInfo) = withContext(Dispatchers.IO) {
         val file = apkFile(info)
+        if (info.bytes > 0 && file.length() == info.bytes) { _phase.value = Phase.Ready; return@withContext }
         runCatching {
             _phase.value = Phase.Downloading(0f)
             http.newCall(Request.Builder().url(info.url).build()).execute().use { r ->

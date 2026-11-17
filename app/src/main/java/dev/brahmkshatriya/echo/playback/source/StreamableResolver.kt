@@ -26,7 +26,13 @@ class StreamableResolver(
                 context.saveToCache(it.uri.toString(), dataSpec.uri.toString(), "player")
             it.uri
         }
-        return dataSpec.copy(uri = uri.getOrNull(), customData = streamable)
+        // Vibes: a STABLE cache key. The default key is the resolved uri, and Deezer hands out a
+        // freshly signed URL (new token in the query) every time a song is resolved - so every replay
+        // of a song missed the cache and downloaded it again. The key is now the item + source + the
+        // URL without its query (same song, same format = same key), so a song heard before plays
+        // from the cache with no data at all. Different quality = different path = different key.
+        val stable = streamable.getOrNull()?.let { src -> "vibes:$id:$index:" + src.id.substringBefore('?') }
+        return dataSpec.copy(uri = uri.getOrNull(), customData = streamable, key = stable)
     }
 
     companion object {

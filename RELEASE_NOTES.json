@@ -1,9 +1,9 @@
 {
-  "title": "Podcast sistemati + scarica album 🎙️",
+  "title": "Molti meno dati 📉",
   "notes": [
-    "Nuova pagina per ogni podcast: copertina, descrizione ed episodi con data e durata",
-    "Tocchi un episodio e parte, con il resto del podcast in coda",
-    "Album: nuovo tasto per scaricare tutto l'album in un colpo (finisce in Scaricati)",
-    "PC: tasto scarica anche nelle playlist"
+    "I brani già ascoltati ripartono dalla memoria del telefono: zero dati (prima si riscaricavano ogni volta)",
+    "In sottofondo Vibes non sincronizza più niente: niente dati con lo schermo spento",
+    "La libreria si scarica solo quando è cambiata (prima ogni 30 secondi)",
+    "Aggiornamenti: col Wi-Fi si scaricano da soli, su rete mobile ti dice quanti MB costano"
   ]
 }

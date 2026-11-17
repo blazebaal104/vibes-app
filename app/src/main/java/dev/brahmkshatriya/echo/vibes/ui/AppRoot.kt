@@ -164,7 +164,11 @@ fun VibesApp(engine: MusicEngine, pendingLink: MutableStateFlow<Uri?>) {
                 // keep friends' live "now playing" fresh in lists
                 var tick = 0
                 while (true) {
-                    delay(30_000); runCatching { state.social.refreshFriends() }
+                    delay(30_000)
+                    // DATA: only while Vibes is on screen. With the phone in your pocket (music playing,
+                    // app in background) this loop used to keep downloading friends and library forever.
+                    Perf.awaitVisible()
+                    runCatching { state.social.refreshFriends() }
                     runCatching { dev.brahmkshatriya.echo.vibes.VibesGraph.librarySync.sync() }
                     if (tick % 2 == 0) runCatching { dev.brahmkshatriya.echo.vibes.VibesGraph.listenSync.sync() }
                     if (++tick % 4 == 0) runCatching { dev.brahmkshatriya.echo.vibes.VibesGraph.collab.refresh() }
