@@ -48,6 +48,7 @@ import androidx.compose.material.icons.rounded.CheckCircle
 import dev.brahmkshatriya.echo.vibes.games.GameSource
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.Search
+import androidx.compose.material.icons.rounded.Pause
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
@@ -652,7 +653,8 @@ fun GuessGameScreen(lobbyId: String?, source: GameSource? = null) {
                         else -> GuessBoard(
                             difficulty = difficulty, color = color, step = step, attempts = attempts,
                             playing = clipPlaying, position = { clip.position() }, roundLabel = "Brano ${round + 1} di 4" + if (src.kind != GameSource.RANDOM) " · ${src.label}" else "",
-                            onPlay = { clip.playClip(clipSteps[step]) },
+                            // play / stop: pressing while it plays stops it (it does not restart)
+                            onPlay = { if (clipPlaying) clip.stop() else clip.playClip(clipSteps[step]) },
                             query = query, onQuery = { query = it }, suggestions = suggestions,
                             onPick = { onGuess(it) },
                             onSkip = { skipOrFail("⏭ Saltato") },
@@ -763,7 +765,10 @@ private fun GuessBoard(
             Box(
                 Modifier.size(78.dp).scale(s).clip(CircleShape).background(color).bouncy(onPlay),
                 contentAlignment = Alignment.Center
-            ) { Icon(Icons.Rounded.PlayArrow, "Ascolta", tint = Color(0xFF111111), modifier = Modifier.size(46.dp)) }
+            ) {
+                Icon(if (playing) Icons.Rounded.Pause else Icons.Rounded.PlayArrow, if (playing) "Stop" else "Ascolta",
+                    tint = Color(0xFF111111), modifier = Modifier.size(46.dp))
+            }
             Box(Modifier.weight(1f), contentAlignment = Alignment.CenterEnd) {
                 Text(fmtStep(clipSteps[step]), style = MaterialTheme.typography.titleLarge, color = color)
             }
@@ -830,9 +835,9 @@ private fun ClipTimeline(step: Int, color: Color, playing: Boolean, position: ()
     val dim = androidx.compose.ui.graphics.lerp(color, Color(0xFF0E0E12), 0.62f)
     val locked = LocalVibes.current.cardHigh
     val tick = MaterialTheme.colorScheme.onSurfaceVariant
-    // thin bar (6 dp) with a round playhead, drawn in the draw phase only (no recomposition per frame)
-    androidx.compose.foundation.Canvas(Modifier.fillMaxWidth().height(20.dp)) {
-        val h = 6.dp.toPx()
+    // 15 dp bar with a round playhead, drawn in the draw phase only (no recomposition per frame)
+    androidx.compose.foundation.Canvas(Modifier.fillMaxWidth().height(28.dp)) {
+        val h = 15.dp.toPx()
         val top = (size.height - h) / 2
         val r = androidx.compose.ui.geometry.CornerRadius(h / 2, h / 2)
         val bar = androidx.compose.ui.graphics.Path().apply {
@@ -856,7 +861,7 @@ private fun ClipTimeline(step: Int, color: Color, playing: Boolean, position: ()
         // playhead
         if (playing || progress.value > 0f) {
             val x = (size.width * progress.value).coerceIn(0f, size.width)
-            drawCircle(if (playing) Color.White else color, radius = 7.dp.toPx(), center = androidx.compose.ui.geometry.Offset(x, size.height / 2))
+            drawCircle(if (playing) Color.White else color, radius = 12.dp.toPx(), center = androidx.compose.ui.geometry.Offset(x, size.height / 2))
         }
     }
     Row(Modifier.fillMaxWidth().padding(top = 6.dp)) {

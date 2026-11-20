@@ -1,10 +1,7 @@
 {
-  "title": "Indovina il brano, rifatto bene 🎯",
+  "title": "Indovina il brano: fix 🎯",
   "notes": [
-    "Barra del brano più sottile e fluida, si ferma esattamente al punto giusto",
-    "Se salti mentre il brano suona, va avanti fino al nuovo punto invece di fermarsi a quello vecchio",
-    "Scegliendo un artista, il più famoso compare grande in cima",
-    "Giocando con un artista ti suggerisce solo i suoi brani (anche i feat), con gli errori di battitura perdonati",
-    "Tutti i risultati si possono scorrere e la tastiera si chiude quando scorri, premi Fatto o indovini"
+    "Il tasto play torna play/stop: se premi mentre suona, si ferma",
+    "Barra del brano più spessa (2,5 volte), sempre fluida"
   ]
 }
