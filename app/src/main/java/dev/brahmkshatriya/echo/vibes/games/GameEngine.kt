@@ -139,6 +139,29 @@ class TrackPicker(private val deezer: DeezerPublic, private val library: VibesLi
         return list
     }
 
+    /**
+     * Songs to suggest while you type a guess. Playing with an artist: ONLY songs by that artist (as
+     * main artist or featured), never other songs that just have the same title. Results are sorted by
+     * how well they match what you typed, with typos tolerated.
+     */
+    suspend fun suggest(query: String, src: GameSource): List<GameTrack> = withContext(Dispatchers.IO) {
+        if (query.isBlank()) return@withContext emptyList()
+        fun rank(list: List<GameTrack>) = list.map { it to Matching.score(query, it) }.filter { it.second > 0 }
+            .sortedWith(compareByDescending<Pair<GameTrack, Double>> { it.second }.thenByDescending { it.first.rank })
+            .map { it.first }.distinctBy { Matching.normalize(it.title) + "|" + Matching.normalize(it.artist) }
+        if (src.kind == GameSource.ARTIST) {
+            val pool = runCatching { mutex.withLock { sourcePool(src) } }.getOrDefault(emptyList())
+            val ids = pool.map { it.id }.toHashSet()
+            val remote = runCatching { deezer.search("${src.name} $query", 50) }.getOrDefault(emptyList())
+                .filter { it.artistId == src.id || it.id in ids }
+            return@withContext rank(pool + remote).take(30)
+        }
+        val remote = runCatching { deezer.search(query, 25) }.getOrDefault(emptyList())
+        val ranked = rank(remote)
+        // nothing matched well (a typo Deezer did not forgive): show what Deezer found anyway
+        (if (ranked.size >= 3) ranked else (ranked + remote).distinctBy { it.id }).take(25)
+    }
+
     /** How many playable songs a source has (to warn before starting). */
     suspend fun count(src: GameSource): Int = if (src.kind == GameSource.RANDOM) 100 else mutex.withLock {
         withContext(Dispatchers.IO) { runCatching { sourcePool(src).size }.getOrDefault(0) }
@@ -193,9 +216,58 @@ object Matching {
 
     fun isCorrect(guess: GameTrack, target: GameTrack): Boolean {
         if (guess.id == target.id) return true
-        val sameTitle = normalize(guess.title) == normalize(target.title)
-        val artistOk = normalize(guess.artist).let { g -> val a = normalize(target.artist); g == a || g.contains(a) || a.contains(g) }
+        val gt = normalize(guess.title); val tt = normalize(target.title)
+        // same song in another release (remaster, live, single vs album): same title, or 1 typo per 8 letters
+        val sameTitle = gt == tt || (tt.length >= 4 && distance(gt, tt) <= tt.length / 8)
+        val artistOk = guess.artistId != 0L && guess.artistId == target.artistId ||
+            normalize(guess.artist).let { g -> val a = normalize(target.artist); g == a || g.contains(a) || a.contains(g) }
         return sameTitle && artistOk
+    }
+
+    /** Edit distance (typos). */
+    fun distance(a: String, b: String): Int {
+        if (a == b) return 0
+        if (a.isEmpty()) return b.length
+        if (b.isEmpty()) return a.length
+        var prev = IntArray(b.length + 1) { it }
+        var cur = IntArray(b.length + 1)
+        for (i in 1..a.length) {
+            cur[0] = i
+            for (j in 1..b.length) {
+                val c = if (a[i - 1] == b[j - 1]) 0 else 1
+                cur[j] = minOf(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + c)
+            }
+            val t = prev; prev = cur; cur = t
+        }
+        return prev[b.length]
+    }
+
+    /**
+     * How well what you typed matches a song (0 = not at all). Every word you typed must be found in the
+     * title (or artist), as a start of a word or with a small typo: "bohemian rapsody" finds
+     * "Bohemian Rhapsody", "blinding lig" finds "Blinding Lights".
+     */
+    fun score(query: String, t: GameTrack): Double {
+        val q = normalize(query).split(' ').filter { it.isNotBlank() }
+        if (q.isEmpty()) return 0.0
+        val title = normalize(t.title)
+        val words = (title + " " + normalize(t.artist)).split(' ').filter { it.isNotBlank() }
+        var total = 0.0
+        for (w in q) {
+            val best = words.maxOfOrNull { x ->
+                when {
+                    x == w -> 1.0
+                    x.startsWith(w) -> 0.9
+                    w.length >= 3 && distance(x.take(w.length), w) <= (if (w.length >= 6) 2 else 1) -> 0.7
+                    w.length >= 4 && distance(x, w) <= (if (w.length >= 7) 2 else 1) -> 0.7
+                    else -> 0.0
+                }
+            } ?: 0.0
+            if (best == 0.0) return 0.0
+            total += best
+        }
+        // the title starting with what you typed counts more than a match on the artist name
+        return total / q.size + (if (title.startsWith(q.joinToString(" "))) 0.5 else 0.0)
     }
 }
 
@@ -346,16 +418,31 @@ class EngineClip(private val engine: dev.brahmkshatriya.echo.vibes.music.MusicEn
         return player.isPlaying
     }
 
+    /** Where the clip being played stops (moved forward by [extendTo] when you skip while it plays). */
+    @Volatile private var stopAt = 0L
+
     fun playClip(ms: Long) {
         job?.cancel()
+        stopAt = ms
         job = scope.launch {
             if (!startFromZero()) { player.pause(); return@launch }
             setPlaying(true)
-            while (player.currentPosition < ms && player.isPlaying) delay(5)
+            // stop exactly on the mark: sleep until just before it, then check every millisecond
+            while (player.isPlaying) {
+                val rem = stopAt - player.currentPosition
+                if (rem <= 0) break
+                delay(if (rem > 60) rem - 40 else 1)
+            }
             player.pause()
             setPlaying(false)
         }
     }
+
+    /**
+     * You skipped (unlocked more seconds) while the clip is playing: it keeps going up to the new
+     * mark instead of stopping on the old one.
+     */
+    fun extendTo(ms: Long) { if (playing && ms > stopAt) stopAt = ms }
 
     fun playFull(onEnd: () -> Unit = {}) {
         job?.cancel()

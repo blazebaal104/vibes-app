@@ -48,6 +48,7 @@ import androidx.compose.material.icons.rounded.CheckCircle
 import dev.brahmkshatriya.echo.vibes.games.GameSource
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.Search
+import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -177,7 +178,9 @@ private fun GameSetupSheet(onDismiss: () -> Unit, action: String, onStart: (Game
     LaunchedEffect(query) {
         if (query.isBlank()) { artists = emptyList(); return@LaunchedEffect }
         kotlinx.coroutines.delay(300)
-        artists = runCatching { VibesGraph.deezer.searchArtists(query) }.getOrDefault(emptyList())
+        // the most famous first (the one you almost always mean), the small homonyms below
+        artists = runCatching { VibesGraph.deezer.searchArtists(query, 20) }.getOrDefault(emptyList())
+            .sortedByDescending { it.fans }
     }
     val accent = when (tab) { 1 -> Color(0xFFFF2E97); 2 -> Color(0xFF35D0F5); else -> GameColors.Easy }
     VibesSheet(onDismiss, LocalVibes.current.card) {
@@ -218,17 +221,41 @@ private fun GameSetupSheet(onDismiss: () -> Unit, action: String, onStart: (Game
                     }
                     1 -> Column(Modifier.fillMaxWidth().height(300.dp)) {
                         SearchField(query, { query = it }, "Cerca un artista…")
+                        val kb = androidx.compose.ui.platform.LocalSoftwareKeyboardController.current
                         LazyColumn(Modifier.padding(top = 8.dp)) {
-                            items(artists, key = { it.id }) { a ->
+                            artists.firstOrNull()?.let { top ->
+                                item(key = "top") {
+                                    val sel = source.kind == GameSource.ARTIST && source.id == top.id
+                                    // the most famous: big, on top
+                                    Row(
+                                        Modifier.fillMaxWidth().padding(bottom = 6.dp).clip(RoundedCornerShape(18.dp))
+                                            .background(if (sel) accent.copy(alpha = 0.28f) else LocalVibes.current.cardHigh)
+                                            .border(if (sel) 2.dp else 0.dp, accent, RoundedCornerShape(18.dp))
+                                            .bouncy({ kb?.hide(); source = GameSource(GameSource.ARTIST, top.id, top.name, top.picture); warn = null })
+                                            .padding(12.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Cover(top.picture, Modifier.size(84.dp), CircleShape)
+                                        Spacer(Modifier.width(14.dp))
+                                        Column(Modifier.weight(1f)) {
+                                            Text(top.name, style = MaterialTheme.typography.headlineSmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                                            Text("${"%,d".format(top.fans).replace(',', '.')} fan", style = MaterialTheme.typography.bodyMedium,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        }
+                                        if (sel) Icon(Icons.Rounded.CheckCircle, null, tint = accent, modifier = Modifier.size(30.dp))
+                                    }
+                                }
+                            }
+                            items(artists.drop(1), key = { it.id }) { a ->
                                 val sel = source.kind == GameSource.ARTIST && source.id == a.id
                                 Row(
                                     Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp))
                                         .background(if (sel) accent.copy(alpha = 0.22f) else Color.Transparent)
-                                        .bouncy({ source = GameSource(GameSource.ARTIST, a.id, a.name, a.picture); warn = null })
+                                        .bouncy({ kb?.hide(); source = GameSource(GameSource.ARTIST, a.id, a.name, a.picture); warn = null })
                                         .padding(8.dp),
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
-                                    Cover(a.picture, Modifier.size(48.dp), CircleShape)
+                                    Cover(a.picture, Modifier.size(42.dp), CircleShape)
                                     Spacer(Modifier.width(12.dp))
                                     Column(Modifier.weight(1f)) {
                                         Text(a.name, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -539,8 +566,18 @@ fun GuessGameScreen(lobbyId: String?, source: GameSource? = null) {
 
     fun skipOrFail(label: String) { attempts += label; advance() }
 
+    val keyboard = androidx.compose.ui.platform.LocalSoftwareKeyboardController.current
+    val focus = androidx.compose.ui.platform.LocalFocusManager.current
+    fun hideKeyboard() { keyboard?.hide(); focus.clearFocus(force = true) }
+
+    // skipped while the clip plays: it goes on to the new mark instead of stopping on the old one
+    LaunchedEffect(step) { clip.extendTo(clipSteps[step]) }
+    // guessed / lost: the keyboard goes away at once, the reveal is not covered
+    LaunchedEffect(state) { if (state != RoundState.PLAYING) hideKeyboard() }
+
     fun onGuess(g: GameTrack) {
         val t = track ?: return
+        hideKeyboard()
         query = ""; suggestions = emptyList()
         if (Matching.isCorrect(g, t)) {
             clip.stop()
@@ -554,7 +591,8 @@ fun GuessGameScreen(lobbyId: String?, source: GameSource? = null) {
     LaunchedEffect(query) {
         if (query.length < 2) { suggestions = emptyList(); return@LaunchedEffect }
         delay(250)
-        suggestions = app.deezer.search(query, 6)
+        // playing with an artist: only their songs (main or feat); typos forgiven
+        suggestions = VibesGraph.picker.suggest(query, src)
     }
 
     // advance to the next multiplayer round a few seconds after the reveal
@@ -679,7 +717,32 @@ private fun GuessBoard(
                 }
             }
         } }
-        Spacer(Modifier.weight(1f))
+        // suggestions: ALL of them, in a scrollable list right above the controls (or right above the
+        // field while the keyboard is open). The keyboard goes down with the phone's back/down arrow or
+        // when you scroll the list, so every result can be reached.
+        val kb = androidx.compose.ui.platform.LocalSoftwareKeyboardController.current
+        val listState = androidx.compose.foundation.lazy.rememberLazyListState()
+        LaunchedEffect(listState.isScrollInProgress) { if (listState.isScrollInProgress) kb?.hide() }
+        LaunchedEffect(suggestions) { listState.scrollToItem(0) }
+        Box(Modifier.weight(1f).fillMaxWidth().padding(vertical = 8.dp), contentAlignment = Alignment.BottomCenter) {
+            if (suggestions.isNotEmpty()) LazyColumn(
+                Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(LocalVibes.current.cardHigh),
+                state = listState,
+            ) {
+                items(suggestions, key = { it.id }) { g ->
+                    Row(Modifier.fillMaxWidth().clickable { onPick(g) }.padding(10.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Cover(g.cover, Modifier.size(38.dp))
+                        Spacer(Modifier.width(10.dp))
+                        Column {
+                            Text(g.title, style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            Text(g.artist, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
+                        }
+                    }
+                }
+            }
+        }
+        // with the keyboard open the controls step aside: the results sit right on the field
+        AnimatedVisibility(!ime || suggestions.isEmpty()) { Column {
         // timeline 0..10 s with markers at each unlock
         ClipTimeline(step, color, playing, position)
         Spacer(Modifier.height(14.dp))
@@ -706,20 +769,7 @@ private fun GuessBoard(
             }
         }
         Spacer(Modifier.height(16.dp))
-        // suggestions above the field
-        Column(Modifier.clip(RoundedCornerShape(12.dp)).background(LocalVibes.current.cardHigh)) {
-            suggestions.take(if (ime) 3 else 5).forEach { g ->
-                Row(Modifier.fillMaxWidth().clickable { onPick(g) }.padding(10.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Cover(g.cover, Modifier.size(38.dp))
-                    Spacer(Modifier.width(10.dp))
-                    Column {
-                        Text(g.title, style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        Text(g.artist, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
-                    }
-                }
-            }
-        }
-        Spacer(Modifier.height(8.dp))
+        } }
         Row(
             Modifier.fillMaxWidth().height(52.dp).glass(RoundedCornerShape(12.dp))
                 .border(1.5.dp, color, RoundedCornerShape(12.dp)).padding(horizontal = 12.dp),
@@ -731,8 +781,13 @@ private fun GuessBoard(
                 if (query.isEmpty()) Text("Scrivi il titolo…", color = MaterialTheme.colorScheme.onSurfaceVariant)
                 BasicTextField(query, onQuery, singleLine = true,
                     textStyle = MaterialTheme.typography.bodyLarge.copy(color = MaterialTheme.colorScheme.onSurface),
-                    cursorBrush = SolidColor(color), modifier = Modifier.fillMaxWidth())
+                    cursorBrush = SolidColor(color), modifier = Modifier.fillMaxWidth(),
+                    // the keyboard's "done" key just closes it, to look through the results
+                    keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(imeAction = androidx.compose.ui.text.input.ImeAction.Done),
+                    keyboardActions = androidx.compose.foundation.text.KeyboardActions(onDone = { kb?.hide() }))
             }
+            if (query.isNotEmpty()) Icon(Icons.Rounded.Close, "Cancella", tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.clip(CircleShape).clickable { onQuery("") }.padding(6.dp))
         }
         if (onGiveUp != null) {
             Spacer(Modifier.height(10.dp))
@@ -753,58 +808,55 @@ private fun ClipTimeline(step: Int, color: Color, playing: Boolean, position: ()
     val max = clipSteps.last().toFloat()
     // unlocked region grows with a springy animation when you skip
     val unlocked by animateFloatAsState(clipSteps[step] / max, spring(dampingRatio = 0.55f, stiffness = 220f), label = "unl")
-    // follows the REAL playback position (so bar and sound always match)
+    val limit by androidx.compose.runtime.rememberUpdatedState(clipSteps[step] / max)
+    // Smooth like YouTube: the player reports its position in steps, so between two reports the bar
+    // keeps moving with the clock (one value per frame) and never goes back. When the clip stops,
+    // the bar stays exactly where the sound stopped.
     var progressValue by remember { mutableStateOf(0f) }
-    LaunchedEffect(playing, step) {
-        if (playing) {
-            progressValue = 0f
-            while (true) {
-                androidx.compose.runtime.withFrameMillis { }
-                progressValue = (position() / max).coerceIn(0f, clipSteps[step] / max)
-            }
+    LaunchedEffect(playing) {
+        if (!playing) { progressValue = (position() / max).coerceIn(0f, limit); return@LaunchedEffect }
+        progressValue = 0f
+        var lastPos = -1L; var lastAt = 0L
+        while (true) {
+            val frame = androidx.compose.runtime.withFrameMillis { it }
+            val p = position()
+            if (p != lastPos) { lastPos = p; lastAt = frame }
+            val est = (lastPos + (frame - lastAt).coerceAtMost(250)) / max
+            progressValue = maxOf(progressValue, est.coerceIn(0f, limit))
         }
     }
     val progress = object { val value get() = progressValue }
     // dark, desaturated version of the difficulty colour for the "not played yet" part
     val dim = androidx.compose.ui.graphics.lerp(color, Color(0xFF0E0E12), 0.62f)
-    val locked = LocalVibes.current.card
-    val glow by androidx.compose.animation.core.rememberInfiniteTransition(label = "g")
-        .animateFloat(0.35f, 0.8f, androidx.compose.animation.core.infiniteRepeatable(tween(700), androidx.compose.animation.core.RepeatMode.Reverse), label = "ga")
+    val locked = LocalVibes.current.cardHigh
     val tick = MaterialTheme.colorScheme.onSurfaceVariant
-    androidx.compose.foundation.Canvas(Modifier.fillMaxWidth().height(30.dp)) {
-        val h = size.height
+    // thin bar (6 dp) with a round playhead, drawn in the draw phase only (no recomposition per frame)
+    androidx.compose.foundation.Canvas(Modifier.fillMaxWidth().height(20.dp)) {
+        val h = 6.dp.toPx()
+        val top = (size.height - h) / 2
         val r = androidx.compose.ui.geometry.CornerRadius(h / 2, h / 2)
         val bar = androidx.compose.ui.graphics.Path().apply {
-            addRoundRect(androidx.compose.ui.geometry.RoundRect(0f, 0f, size.width, h, r))
+            addRoundRect(androidx.compose.ui.geometry.RoundRect(0f, top, size.width, top + h, r))
         }
         clipPath(bar) {
-            // whole song length (locked)
-            drawRect(locked)
-            // unlocked so far: dim colour
-            drawRect(dim, size = androidx.compose.ui.geometry.Size(size.width * unlocked, h))
-            // what is playing / was played: full colour with soft gloss
+            drawRect(locked, topLeft = androidx.compose.ui.geometry.Offset(0f, top), size = androidx.compose.ui.geometry.Size(size.width, h))
+            drawRect(dim, topLeft = androidx.compose.ui.geometry.Offset(0f, top), size = androidx.compose.ui.geometry.Size(size.width * unlocked, h))
             val pw = size.width * progress.value
-            if (pw > 0f) {
-                drawRect(
-                    androidx.compose.ui.graphics.Brush.verticalGradient(listOf(color, androidx.compose.ui.graphics.lerp(color, Color.Black, 0.18f))),
-                    size = androidx.compose.ui.geometry.Size(pw, h)
-                )
-            }
-            // segment dividers at each unlock point
+            if (pw > 0f) drawRect(color, topLeft = androidx.compose.ui.geometry.Offset(0f, top), size = androidx.compose.ui.geometry.Size(pw, h))
+            // small gaps at each unlock point
             clipSteps.dropLast(1).forEachIndexed { i, ms ->
                 val x = size.width * (ms / max)
                 drawRect(
-                    if (i < step) Color.Black.copy(alpha = 0.35f) else tick.copy(alpha = 0.25f),
-                    topLeft = androidx.compose.ui.geometry.Offset(x - 1.5f, 0f),
-                    size = androidx.compose.ui.geometry.Size(3f, h)
+                    if (i < step) Color.Black.copy(alpha = 0.45f) else tick.copy(alpha = 0.35f),
+                    topLeft = androidx.compose.ui.geometry.Offset(x - 1f, top),
+                    size = androidx.compose.ui.geometry.Size(2f, h)
                 )
             }
         }
         // playhead
-        if (playing) {
-            val x = (size.width * progress.value).coerceIn(h / 2, size.width - h / 2)
-            drawCircle(color.copy(alpha = glow * 0.5f), radius = h * 0.75f, center = androidx.compose.ui.geometry.Offset(x, h / 2))
-            drawCircle(Color.White, radius = h * 0.36f, center = androidx.compose.ui.geometry.Offset(x, h / 2))
+        if (playing || progress.value > 0f) {
+            val x = (size.width * progress.value).coerceIn(0f, size.width)
+            drawCircle(if (playing) Color.White else color, radius = 7.dp.toPx(), center = androidx.compose.ui.geometry.Offset(x, size.height / 2))
         }
     }
     Row(Modifier.fillMaxWidth().padding(top = 6.dp)) {
