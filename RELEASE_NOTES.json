@@ -1,9 +1,10 @@
 {
-  "title": "Tutto sincronizzato + PC leggero 🎮",
+  "title": "Artisti giusti e lobby stabili 🎧",
   "notes": [
-    "Impostazioni, tema e sample preferiti dello Studio ora sono gli stessi su telefono e PC",
-    "Ogni modifica va sul tuo account subito e anche quando chiudi l'app; riaprendola trovi quelle fatte sull'altro dispositivo",
-    "PC: minimizzato Vibes non disegna più niente, suona e basta",
-    "PC: con un gioco aperto Vibes si fa da parte (meno scatti) e l'audio ha la priorità multimediale di Windows: niente click o buchi"
+    "Il nome di chi ha caricato un brano su Vibes ora apre il suo profilo, non un artista con lo stesso nome",
+    "Nei brani con feat puoi toccare ogni artista: si apre proprio quello",
+    "Statistiche: gli artisti sono riconosciuti per ID, non più per nome (niente scambi tra omonimi) e puoi aprirli",
+    "Lobby: skippare non la manda più in tilt, se scegli altra musica esci dalla lobby invece di essere riportato indietro",
+    "Sample preferiti: telefono e PC ora si uniscono invece di sovrascriversi"
   ]
 }

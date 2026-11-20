@@ -4,6 +4,7 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -182,8 +183,10 @@ fun WeekFull(w: WeekSummary, index: Int, inset: Boolean = true) {
         w.artists.firstOrNull()?.let { top ->
             val grow = remember { Animatable(0.8f) }
             LaunchedEffect(top.name) { grow.animateTo(1f, tween(700, easing = FastOutSlowInEasing)) }
+            val statsNav = LocalApp.current.nav
             Column(
-                Modifier.fillMaxWidth().clip(RoundedCornerShape(24.dp)).background(Brush.verticalGradient(listOf(a, b))).padding(22.dp),
+                Modifier.fillMaxWidth().clip(RoundedCornerShape(24.dp)).background(Brush.verticalGradient(listOf(a, b)))
+                    .clickable(enabled = top.id != null || top.userId != null) { openRanked(statsNav, top) }.padding(22.dp),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
                 Text("Il tuo artista più ascoltato", style = MaterialTheme.typography.labelLarge, color = Color.White.copy(alpha = 0.85f))
@@ -233,7 +236,10 @@ fun WeekFull(w: WeekSummary, index: Int, inset: Boolean = true) {
             LazyRow(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
                 items(w.artists.take(8).size) { i ->
                     val ar = w.artists[i]
-                    Column(Modifier.width(92.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                    val listNav = LocalApp.current.nav
+                    Column(Modifier.width(92.dp).clip(RoundedCornerShape(12.dp))
+                        .clickable(enabled = ar.id != null || ar.userId != null) { openRanked(listNav, ar) },
+                        horizontalAlignment = Alignment.CenterHorizontally) {
                         Box {
                             Cover(ar.image, Modifier.size(92.dp), CircleShape)
                             Box(Modifier.align(Alignment.BottomStart).size(26.dp).clip(CircleShape).background(a), contentAlignment = Alignment.Center) {
@@ -474,4 +480,13 @@ fun HistoryScreen() {
         confirmButton = { TextButton(onClick = { clearing = false; VibesGraph.listens.clear(); VibesGraph.onListened(force = true) }) { Text("Cancella") } },
         dismissButton = { TextButton(onClick = { clearing = false }) { Text("Annulla") } }
     )
+}
+
+
+/** A ranked artist of the stats → its page (the exact Deezer artist, or the Vibes user who published). */
+private fun openRanked(nav: Navigator, a: dev.brahmkshatriya.echo.vibes.backend.RankedArtist) {
+    when {
+        a.userId != null -> nav.open(Route.Profile(a.userId))
+        a.id != null -> nav.open(Route.DzArtist(a.id, a.name))
+    }
 }

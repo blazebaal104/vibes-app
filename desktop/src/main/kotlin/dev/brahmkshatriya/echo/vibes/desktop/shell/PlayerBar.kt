@@ -174,7 +174,7 @@ fun PlayerBar() {
                     LinkText(song.title, color = Color.White, style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold)) {
                         scope.launch { Actions.openAlbum(app, song) }
                     }
-                    LinkText(song.artist, style = MaterialTheme.typography.bodySmall) { scope.launch { openArtistOf(app, song) } }
+                    ArtistLinkText(song, style = MaterialTheme.typography.bodySmall) { i -> scope.launch { openArtistOf(app, song, i) } }
                 }
                 val isLiked = liked.any { it.key == song.key }
                 Spacer(Modifier.width(10.dp))

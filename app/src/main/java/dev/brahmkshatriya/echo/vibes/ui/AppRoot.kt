@@ -135,6 +135,8 @@ fun VibesApp(engine: MusicEngine, pendingLink: MutableStateFlow<Uri?>) {
         AppState(engine, nav, VibesThemes.current(context) ?: VibesThemes.presets.first())
     }
     LocalAppHolder.app = state
+    // the listening lobby says why it took you out (kicked, closed, you chose other music)
+    dev.brahmkshatriya.echo.vibes.VibesGraph.lobbies.onAutoLeave = { msg -> runCatching { state.nav.toast(msg) } }
     // a theme chosen on the other device arrives with the account sync
     val synced by dev.brahmkshatriya.echo.vibes.VibesGraph.userState.version.collectAsState()
     androidx.compose.runtime.LaunchedEffect(synced) {

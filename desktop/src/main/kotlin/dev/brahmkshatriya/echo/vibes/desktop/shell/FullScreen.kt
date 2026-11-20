@@ -164,8 +164,8 @@ fun FullScreenPlayer() {
                         }
                         Spacer(Modifier.height(24.dp))
                         Text(song.title, color = Color.White, fontSize = 56.sp, lineHeight = 60.sp, fontWeight = FontWeight.ExtraBold, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                        LinkText(song.artist, color = Color.White.copy(alpha = 0.8f), style = MaterialTheme.typography.headlineSmall) {
-                            scope.launch { close(); openArtistOf(app, song) }
+                        ArtistLinkText(song, color = Color.White.copy(alpha = 0.8f), style = MaterialTheme.typography.headlineSmall) { i ->
+                            scope.launch { close(); openArtistOf(app, song, i) }
                         }
                     }
                     if (side) LyricsLines(song, pos, big = false, Modifier.weight(1f).fillMaxHeight().padding(start = 40.dp)) {

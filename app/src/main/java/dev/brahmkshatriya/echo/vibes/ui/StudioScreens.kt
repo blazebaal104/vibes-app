@@ -677,12 +677,12 @@ private object FavSamples {
         runCatching { dev.brahmkshatriya.echo.vibes.backend.Supa.json.decodeFromString<List<FavSample>>(file(ctx).readText()) }.getOrDefault(emptyList())
     fun save(ctx: android.content.Context, list: List<FavSample>) {
         runCatching { file(ctx).writeText(dev.brahmkshatriya.echo.vibes.backend.Supa.json.encodeToString(list)) }
-        // the same favourites on the phone and on the PC
-        runCatching { dev.brahmkshatriya.echo.vibes.VibesGraph.userState.changed(dev.brahmkshatriya.echo.vibes.backend.UserStateSync.FAV_SAMPLES) }
     }
     fun toggle(ctx: android.content.Context, r: SampleRow, on: Boolean) {
         val cur = load(ctx).filter { it.id != r.id }
         save(ctx, if (on) listOf(FavSample(r.id, r.name, r.sub, r.url, r.bpm, r.key, r.loop)) + cur else cur)
+        // the same favourites on the phone and on the PC (merged, never replaced)
+        runCatching { dev.brahmkshatriya.echo.vibes.VibesGraph.userState.favToggled(r.id, on) }
     }
 }
 

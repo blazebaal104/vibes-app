@@ -49,12 +49,15 @@ class UserStateSync(
     /** key -> when this device last changed it (or took the server's copy), and the server stamp seen. */
     private val local = HashMap<String, Long>()
     private val seen = HashMap<String, Long>()
+    /** Favourite samples: id -> when it was added (positive) or removed (negative). */
+    private val favMarks = HashMap<String, Long>()
 
     init {
         runCatching {
             val o = json.parseToJsonElement(stampsFile.readText()).jsonObject
             o["local"]?.jsonObject?.forEach { (k, v) -> v.jsonPrimitive.longOrNull?.let { local[k] = it } }
             o["seen"]?.jsonObject?.forEach { (k, v) -> v.jsonPrimitive.longOrNull?.let { seen[k] = it } }
+            o["favMarks"]?.jsonObject?.forEach { (k, v) -> v.jsonPrimitive.longOrNull?.let { favMarks[k] = it } }
         }
         prefs.onUserChange = { changed(SETTINGS) }
         dev.brahmkshatriya.echo.vibes.theme.VibesThemes.onUserChange = { changed(THEME) }
@@ -64,6 +67,7 @@ class UserStateSync(
         stampsFile.writeText(buildJsonObject {
             put("local", buildJsonObject { local.forEach { (k, v) -> put(k, v) } })
             put("seen", buildJsonObject { seen.forEach { (k, v) -> put(k, v) } })
+            put("favMarks", buildJsonObject { favMarks.forEach { (k, v) -> put(k, v) } })
         }.toString())
     }
 
@@ -72,6 +76,12 @@ class UserStateSync(
         synchronized(local) { local[key] = System.currentTimeMillis(); saveStamps() }
         pending?.cancel()
         pending = scope.launch { delay(1500); runCatching { sync() } }
+    }
+
+    /** A sample was added to / removed from the favourites on this device. */
+    fun favToggled(id: String, on: Boolean) {
+        synchronized(local) { val now = System.currentTimeMillis(); favMarks[id] = if (on) now else -now }
+        changed(FAV_SAMPLES)
     }
 
     fun flush() { pending?.cancel(); scope.launch { runCatching { sync() } } }
@@ -86,6 +96,7 @@ class UserStateSync(
         }.toMap()
         var got = false
         for (key in KEYS) {
+            if (key == FAV_SAMPLES) { if (syncFavs(me, remote[key] ?: 0L)) got = true; continue }
             // first time on this account: what this device has becomes the account's copy
             if (remote[key] == null && (local[key] ?: 0L) == 0L) local[key] = System.currentTimeMillis()
             val l = local[key] ?: 0L
@@ -109,6 +120,53 @@ class UserStateSync(
         }
         saveStamps()
         if (got) version.value++
+    }
+
+    /**
+     * Favourite samples are merged, never replaced: what is favourite on either device stays favourite,
+     * a removal wins only over an add that came before it. (Replacing the whole list used to wipe the
+     * favourites of the phone with the PC's empty list the first time.)
+     */
+    private suspend fun syncFavs(me: String, r: Long): Boolean {
+        val l = local[FAV_SAMPLES] ?: 0L
+        val s = seen[FAV_SAMPLES] ?: 0L
+        if (r != 0L && r == s && l <= s) return false
+        val remoteVal = if (r != 0L) (supa.select("vibes_user_state", "user_id=eq.$me&key=eq.$FAV_SAMPLES&select=value")
+            .firstOrNull() as? JsonObject)?.get("value") else null
+        val remoteItems = when (remoteVal) {
+            is JsonArray -> remoteVal.toList()
+            is JsonObject -> (remoteVal["items"] as? JsonArray)?.toList().orEmpty()
+            else -> emptyList()
+        }
+        val remoteMarks = ((remoteVal as? JsonObject)?.get("marks") as? JsonObject)
+            ?.mapNotNull { (k, v) -> v.jsonPrimitive.longOrNull?.let { k to it } }?.toMap().orEmpty()
+        val localItems = runCatching { json.parseToJsonElement(favFile.readText()) as JsonArray }.getOrNull()?.toList().orEmpty()
+        val marks = HashMap(favMarks)
+        remoteMarks.forEach { (k, v) -> if (kotlin.math.abs(v) > kotlin.math.abs(marks[k] ?: 0L)) marks[k] = v }
+        fun idOf(e: JsonElement) = (e as? JsonObject)?.str("id")
+        val byId = LinkedHashMap<String, JsonElement>()
+        (localItems + remoteItems).forEach { e -> idOf(e)?.let { if (it !in byId) byId[it] = e } }
+        val items = byId.filter { (id, _) -> (marks[id] ?: 1L) > 0 }.values.toList()
+        val ids = items.mapNotNull(::idOf)
+        val changedHere = ids != localItems.mapNotNull(::idOf)
+        if (changedHere) {
+            runCatching { favFile.writeText(JsonArray(items).toString()) }
+            prefs.setFromSync(prefs.value.copy(favSamples = ids.toSet()))
+        } else if (prefs.value.favSamples != ids.toSet()) prefs.setFromSync(prefs.value.copy(favSamples = ids.toSet()))
+        favMarks.clear(); favMarks.putAll(marks)
+        val merged = buildJsonObject {
+            put("items", JsonArray(items))
+            put("marks", buildJsonObject { marks.forEach { (k, v) -> put(k, v) } })
+        }
+        val now = maxOf(System.currentTimeMillis(), r + 1)
+        val stamp = if (merged != remoteVal) {
+            supa.upsert("vibes_user_state", buildJsonObject {
+                put("user_id", me); put("key", FAV_SAMPLES); put("value", merged); put("updated_at", now)
+            })
+            now
+        } else r
+        local[FAV_SAMPLES] = stamp; seen[FAV_SAMPLES] = stamp
+        return changedHere
     }
 
     private fun read(key: String): JsonElement? = when (key) {
@@ -159,6 +217,7 @@ class UserStateSync(
         val DEVICE_ONLY = setOf(
             "textScale", "background", "backgroundDim", "backgroundBlur", "reduceMotion", "haptics",
             "needsOnboarding", "liquidGlass", "glassBlur", "glassShine", "autoUpdate",
+            "favSamples", // follows the merged favourite samples, not the settings
         )
     }
 }

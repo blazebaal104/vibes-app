@@ -184,14 +184,19 @@ class ListenLobbies(private val supa: Supa, private val context: Context) {
         refresh()
     }
 
-    fun leave() {
-        val l = _lobby.value
+    /** Shown when the app takes you out of the lobby by itself (kicked, closed, other music chosen). */
+    @Volatile var onAutoLeave: ((String) -> Unit)? = null
+
+    fun leave(reason: String? = null) {
+        val l = _lobby.value ?: return
         val me = uid
+        reason?.let { r -> runCatching { onAutoLeave?.invoke(r) } }
         val others = _members.value.filter { it.userId != me }
         stopLoops()
         _lobby.value = null; _members.value = emptyList(); _syncError.value = null
         restorePlayer()
-        if (l != null && me != null) scope.launch(Dispatchers.IO) {
+        loadedKey = null
+        if (me != null) scope.launch(Dispatchers.IO) {
             runCatching {
                 // the last host leaving hands the crown to someone else (or closes the lobby)
                 if (l.host == me && others.isNotEmpty() || l.host == me) {
@@ -291,17 +296,27 @@ class ListenLobbies(private val supa: Supa, private val context: Context) {
                 val cur = _lobby.value
                 _lobby.value = if (cur != null && cur.state.seq > l.state.seq) l.copy(state = cur.state) else l
             }
-            if (members || refreshes++ % 8 == 0L) _members.value = supa.select("vibes_listen_members", "lobby_id=eq.$id&select=lobby_id,user_id,seen_at&order=joined_at.asc")
-                .map { json.decodeFromJsonElement<LobbyMember>(it) }
+            if (members || refreshes++ % 8 == 0L) {
+                val list = supa.select("vibes_listen_members", "lobby_id=eq.$id&select=lobby_id,user_id,seen_at&order=joined_at.asc")
+                    .map { json.decodeFromJsonElement<LobbyMember>(it) }
+                _members.value = list
+                // kicked out (or the row vanished): stop following the group
+                val me = uid
+                if (me != null && list.isNotEmpty() && list.none { it.userId == me } && _lobby.value?.id == id) {
+                    leave("Non sei più nella lobby"); return
+                }
+            }
+            // the lobby was closed: back to your own music
+            if (_lobby.value?.id == id && _lobby.value?.active == false) leave("La lobby è stata chiusa")
         }
     }
 
     suspend fun enter(lobbyId: String, engine: MusicEngine) {
         this.engine = engine
-        if (_lobby.value?.id != lobbyId) {
-            stopLoops()
-            _lobby.value = ListenLobby(id = lobbyId)
-        }
+        // never two follow loops at once: re-opening the lobby screen used to start a second pair of
+        // loops (the old ones were never cancelled) and they fought each other at every skip
+        stopLoops()
+        if (_lobby.value?.id != lobbyId) _lobby.value = ListenLobby(id = lobbyId)
         // crossfade swaps players at song changes: off while in the lobby, restored on leave
         val sp = context.getSettings()
         if (savedFade == null) {
@@ -339,6 +354,8 @@ class ListenLobbies(private val supa: Supa, private val context: Context) {
     // A member: pausing (or skipping) means "I want to stop listening": they leave the lobby.
     // Commands the lobby itself sends to the player are marked with [own] so they are not mistaken
     // for the user's.
+    /** Song the lobby itself last loaded in the player (so its own load is not taken for the user's). */
+    @Volatile private var loadedKey: String? = null
     private var ownUntil = 0L
     private fun own() { ownUntil = SystemClock.elapsedRealtime() + 1200 }
     private fun isOwn() = SystemClock.elapsedRealtime() < ownUntil
@@ -357,9 +374,23 @@ class ListenLobbies(private val supa: Supa, private val context: Context) {
         }
 
         override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
-            if (_lobby.value == null || isOwn() || reason != Player.MEDIA_ITEM_TRANSITION_REASON_SEEK) return
+            val l = _lobby.value ?: return
+            if (isOwn()) return
             val key = mediaItem?.let { runCatching { "${it.extensionId}:${it.track.id}" }.getOrNull() } ?: return
-            if (isHost) scope.launch(start = kotlinx.coroutines.CoroutineStart.UNDISPATCHED) { jumpTo(key) } else leave()
+            when (reason) {
+                // next/previous/tap on a song of the queue
+                Player.MEDIA_ITEM_TRANSITION_REASON_SEEK ->
+                    if (isHost) scope.launch(start = kotlinx.coroutines.CoroutineStart.UNDISPATCHED) { jumpTo(key) }
+                    else leave("Sei uscito dalla lobby: hai cambiato brano")
+                // a new playlist/album/song started from the app (not by the lobby)
+                Player.MEDIA_ITEM_TRANSITION_REASON_PLAYLIST_CHANGED -> {
+                    if (key == loadedKey) return
+                    if (isHost) scope.launch(start = kotlinx.coroutines.CoroutineStart.UNDISPATCHED) { hostPlaysFromPlayer() }
+                    // a member choosing other music: they leave, instead of being dragged back to the
+                    // group's song a few seconds later (and never being able to play anything else)
+                    else if (l.state.queue.none { it.key == key }) leave("Sei uscito dalla lobby: hai scelto altra musica")
+                }
+            }
         }
     }
 
@@ -395,6 +426,19 @@ class ListenLobbies(private val supa: Supa, private val context: Context) {
 
     private fun detach() { LobbyGate.handler = null; listening?.removeListener(listener); listening = null }
 
+    /** The king started other music from the app (a playlist, an album...): the whole group follows. */
+    private suspend fun hostPlaysFromPlayer() {
+        if (!isHost) return
+        val b = engine?.player?.browser?.value ?: return
+        val songs = (0 until b.mediaItemCount).mapNotNull { i ->
+            runCatching { val m = b.getMediaItemAt(i); SongRef.from(m.extensionId, m.track) }.getOrNull()
+        }
+        if (songs.isEmpty()) return
+        val idx = b.currentMediaItemIndex.coerceIn(0, songs.size - 1)
+        loadedKey = songs[idx].key
+        play(songs.take(200), idx)
+    }
+
     /** Host skipped (next/previous) from outside the lobby: the whole group goes to that song. */
     private suspend fun jumpTo(key: String) {
         if (!isHost) return
@@ -406,6 +450,13 @@ class ListenLobbies(private val supa: Supa, private val context: Context) {
 
     private fun currentKey(e: MusicEngine): String? =
         e.player.playerState.current.value?.let { "${it.mediaItem.extensionId}:${it.track.id}" }
+
+    /** The player is on [want]: same id, or (once loaded by us) the same title, if the source renamed the id. */
+    private fun isOn(e: MusicEngine, want: SongRef): Boolean {
+        if (currentKey(e) == want.key) return true
+        val cur = e.player.playerState.current.value ?: return false
+        return loadedKey == want.key && cur.track.title.equals(want.title, true)
+    }
 
     /**
      * Same loop for everyone, two roles:
@@ -439,10 +490,17 @@ class ListenLobbies(private val supa: Supa, private val context: Context) {
             if (p.ended) { if (browser.playWhenReady) { own(); e.player.setPlaying(false) }; _syncError.value = null; continue }
             val want = s.queue[p.index]
 
-            // the right song loaded (with the rest of the queue, so the next one preloads)
-            if (currentKey(e) != want.key) {
-                if (SystemClock.elapsedRealtime() - lastLoadAt > 2500) {
-                    own(); e.player.setQueue(want.ext, s.queue.drop(p.index).map { it.toTrack() }, 0, null)
+            // the right song loaded (with the rest of the queue, so the next one preloads).
+            // ONE load per song: a slow Deezer answer used to make this reload the queue every 2.5 s,
+            // piling loads on the player until it jammed (skip = "the lobby explodes", and nothing
+            // played any more even after leaving). Now it waits for that load; it retries only if the
+            // player gave up (idle) or after 15 s.
+            if (!isOn(e, want)) {
+                val since = SystemClock.elapsedRealtime() - lastLoadAt
+                val stuck = browser.playbackState == Player.STATE_IDLE && since > 4000
+                if (loadedKey != want.key || since > 15_000 || stuck) {
+                    loadedKey = want.key
+                    own(); e.player.setQueue(want.ext, s.queue.drop(p.index).take(50).map { it.toTrack() }, 0, null)
                     own(); e.player.setPlaying(false)
                     lastLoadAt = SystemClock.elapsedRealtime()
                     startedSeq = -1

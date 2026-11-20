@@ -207,12 +207,10 @@ fun FullPlayer() {
                 Column(Modifier.weight(1f)) {
                     Text(song.title, style = MaterialTheme.typography.headlineSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     val artistScope = androidx.compose.runtime.rememberCoroutineScope()
-                    Text(song.artist, style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 1, overflow = TextOverflow.Ellipsis,
-                        // like Spotify: the artist's name opens their page
-                        modifier = Modifier.clip(RoundedCornerShape(6.dp)).clickable {
-                            artistScope.launch { openArtistOf(app, song) }
-                        })
+                    // like Spotify: each artist's name opens their page (feats too)
+                    ArtistLinks(song, MaterialTheme.typography.bodyLarge, MaterialTheme.colorScheme.onSurfaceVariant) { i ->
+                        artistScope.launch { openArtistOf(app, song, i) }
+                    }
                 }
                 val heart by animateFloatAsState(if (isLiked) 1.15f else 1f, spring(dampingRatio = 0.35f), label = "heart")
                 IconButton(onClick = { app.library.toggleLike(song) }) {
@@ -305,17 +303,46 @@ fun FullPlayer() {
 }
 
 
-/** Opens the page of the (first) artist of [song]: the Deezer id from the track if there is one, else by name. */
-suspend fun openArtistOf(app: AppState, song: SongRef) {
-    val name = song.artist.split(", ").firstOrNull { it.isNotBlank() } ?: return
-    val fromTrack = runCatching {
-        app.engine.player.playerState.current.value?.track?.takeIf { it.id == song.id }
-            ?.artists?.firstOrNull()?.id?.toLongOrNull()
-    }.getOrNull()
-    val id = fromTrack ?: runCatching {
-        val dz = dev.brahmkshatriya.echo.vibes.VibesGraph.deezer
-        dz.searchArtists(name, 3).let { l -> l.firstOrNull { it.name.equals(name, true) } ?: l.firstOrNull() }?.id
-    }.getOrNull() ?: run { app.nav.toast("Artista non trovato"); return }
-    app.nav.playerOpen = false
-    app.nav.open(Route.DzArtist(id, name))
+/**
+ * Opens the page of the artist number [index] of [song] (0 = main artist, then the feats), found by
+ * ID: the Deezer artist of that very track, or for songs published on Vibes the profile of the user
+ * who uploaded it (never "the first artist with that name").
+ */
+suspend fun openArtistOf(app: AppState, song: SongRef, index: Int = 0) {
+    val a = dev.brahmkshatriya.echo.vibes.music.ArtistIds.at(song, index) ?: run { app.nav.toast("Artista non trovato"); return }
+    when {
+        a.userId != null -> { app.nav.playerOpen = false; app.nav.open(Route.Profile(a.userId)) }
+        a.id > 0 -> { app.nav.playerOpen = false; app.nav.open(Route.DzArtist(a.id, a.name)) }
+        else -> app.nav.toast("Artista non trovato")
+    }
+}
+
+/**
+ * The artist line of a song ("A, B, C") where each name is its own link: tapping a featured artist
+ * opens that artist, not the main one.
+ */
+@Composable
+fun ArtistLinks(
+    song: SongRef,
+    style: androidx.compose.ui.text.TextStyle,
+    color: Color,
+    hoverColor: Color = color,
+    modifier: Modifier = Modifier,
+    onOpen: (Int) -> Unit,
+) {
+    val names = dev.brahmkshatriya.echo.vibes.music.ArtistIds.names(song)
+    val text = androidx.compose.ui.text.buildAnnotatedString {
+        names.forEachIndexed { i, n ->
+            if (i > 0) append(", ")
+            withLink(androidx.compose.ui.text.LinkAnnotation.Clickable(
+                "artist$i",
+                androidx.compose.ui.text.TextLinkStyles(
+                    style = androidx.compose.ui.text.SpanStyle(color = color),
+                    hoveredStyle = androidx.compose.ui.text.SpanStyle(color = hoverColor, textDecoration = androidx.compose.ui.text.style.TextDecoration.Underline),
+                ),
+            ) { onOpen(i) }) { append(n) }
+        }
+        if (names.isEmpty()) append(song.artist)
+    }
+    Text(text, style = style, color = color, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = modifier)
 }

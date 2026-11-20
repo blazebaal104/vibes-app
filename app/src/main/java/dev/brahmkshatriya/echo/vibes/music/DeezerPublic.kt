@@ -323,6 +323,20 @@ class DeezerPublic(private val http: OkHttpClient) {
             get("https://api.deezer.com/search/podcast?q=${java.net.URLEncoder.encode(q.trim(), "UTF-8")}&limit=$limit")?.get("data")?.jsonArray
                 ?.mapNotNull { (it as? JsonObject)?.toPodcast() }.orEmpty()
 
+    /** The artists of a track by its Deezer id: main artist first, then the featured ones (exact ids). */
+    suspend fun trackArtists(trackId: Long): List<ArtistInfo> {
+        val o = get("https://api.deezer.com/track/$trackId") ?: return emptyList()
+        if (o["error"] != null) return emptyList()
+        fun info(e: JsonObject?) = e?.let {
+            val id = it["id"]?.jsonPrimitive?.longOrNull ?: return@let null
+            val name = it["name"]?.jsonPrimitive?.contentOrNull ?: return@let null
+            ArtistInfo(id, name, it["picture_xl"]?.jsonPrimitive?.contentOrNull ?: it["picture_big"]?.jsonPrimitive?.contentOrNull, 0)
+        }
+        val main = info(o["artist"] as? JsonObject)
+        val contrib = (o["contributors"] as? kotlinx.serialization.json.JsonArray)?.mapNotNull { info(it as? JsonObject) }.orEmpty()
+        return (listOfNotNull(main) + contrib).distinctBy { it.id }
+    }
+
     suspend fun artistInfo(id: Long): ArtistInfo? {
         val o = get("https://api.deezer.com/artist/$id") ?: return null
         if (o["error"] != null) return null

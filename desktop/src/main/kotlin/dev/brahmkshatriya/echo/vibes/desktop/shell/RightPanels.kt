@@ -202,7 +202,7 @@ fun NowPlayingPanel() {
                     LinkText(song.title, color = Color.White, style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.Bold)) {
                         scope.launch { Actions.openAlbum(app, song) }
                     }
-                    LinkText(song.artist, style = MaterialTheme.typography.bodyLarge) { scope.launch { openArtistOf(app, song) } }
+                    ArtistLinkText(song, style = MaterialTheme.typography.bodyLarge) { i -> scope.launch { openArtistOf(app, song, i) } }
                 }
                 DeskIcon(Icons.Rounded.Share, "Condividi") { nav.share = ShareItem.Song(song) }
                 DeskIcon(if (isLiked) Icons.Rounded.CheckCircle else Icons.Rounded.AddCircleOutline,

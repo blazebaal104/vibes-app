@@ -70,6 +70,8 @@ class ListenLog(context: Context, private val deezer: DeezerPublic) {
         data = data.copy(listens = (data.listens + l).takeLast(25_000))
         _listens.value = data.listens
         save()
+        // who made it, by ID (ready for the stats, asked once per song)
+        if (ArtistIds.cached(l.song) == null) scope.launch { runCatching { ArtistIds.of(l.song) } }
         return true
     }
 
@@ -134,10 +136,26 @@ class ListenLog(context: Context, private val deezer: DeezerPublic) {
             RankedSong(ls.last().song, ls.size, (ls.sumOf { it.ms } / 60_000).toInt())
         }.sortedWith(compareByDescending<RankedSong> { it.plays }.thenByDescending { it.minutes })
 
+        // Artists by ID, not by name: two artists with the same name are two artists, and the picture
+        // is the one of the artist who really made the songs. First a cheap grouping by name picks the
+        // candidates, then their songs are resolved to the artist id of each track (cached for good).
         val artistMs = mutableMapOf<String, Long>()
         list.forEach { l -> artistsOf(l.song).firstOrNull()?.let { artistMs[it] = (artistMs[it] ?: 0) + l.ms } }
-        val topArtists = artistMs.entries.sortedByDescending { it.value }.take(10)
-        val artists = topArtists.map { (name, ms) -> RankedArtist(name, artistImage(name), (ms / 60_000).toInt()) }
+        val candidates = artistMs.entries.sortedByDescending { it.value }.take(25).map { it.key }.toSet()
+        val byId = LinkedHashMap<String, Pair<ArtistRef, Long>>()
+        list.filter { artistsOf(it.song).firstOrNull() in candidates }.groupBy { it.song.key }.forEach { (_, ls) ->
+            val song = ls.first().song
+            val main = ArtistIds.cached(song)?.firstOrNull()
+                ?: runCatching { ArtistIds.of(song).firstOrNull() }.getOrNull()
+                ?: ArtistRef(name = artistsOf(song).firstOrNull() ?: return@forEach)
+            val ms = ls.sumOf { it.ms }
+            val cur = byId[main.key]
+            byId[main.key] = (cur?.first?.takeIf { it.picture != null } ?: main) to ((cur?.second ?: 0L) + ms)
+        }
+        val artists = byId.values.sortedByDescending { it.second }.take(10).map { (a, ms) ->
+            RankedArtist(a.name, a.picture ?: (if (a.id > 0) artistPicture(a.id) else null) ?: artistImage(a.name), (ms / 60_000).toInt(),
+                id = a.id.takeIf { it > 0 }, userId = a.userId)
+        }
 
         val playlists = list.filter { it.ctx != null }.groupBy { it.ctxId ?: it.ctx!! }.map { (_, ls) ->
             RankedName(ls.first().ctx!!, (ls.sumOf { it.ms } / 60_000).toInt(), ls.first().ctxCover, ls.first().ctxId)
@@ -179,6 +197,14 @@ class ListenLog(context: Context, private val deezer: DeezerPublic) {
     }
 
     // ---------------------------------------------------------------- Deezer lookups (cached)
+
+    private suspend fun artistPicture(id: Long): String? {
+        data.artistImages["id:$id"]?.let { return it.ifBlank { null } }
+        val img = runCatching { deezer.artistInfo(id)?.picture }.getOrNull()
+        data = data.copy(artistImages = data.artistImages + ("id:$id" to (img ?: "")))
+        save()
+        return img
+    }
 
     private suspend fun artistImage(name: String): String? {
         data.artistImages[name]?.let { return it.ifBlank { null } }

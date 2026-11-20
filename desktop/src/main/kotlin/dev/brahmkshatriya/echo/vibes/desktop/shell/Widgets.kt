@@ -302,7 +302,7 @@ fun TrackRow(
                 Column {
                     Text(s.title, color = if (now) MaterialTheme.colorScheme.primary else Desk.text, style = MaterialTheme.typography.bodyLarge,
                         maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    LinkText(s.artist, hoverParent = hover) { scope.launch { dev.brahmkshatriya.echo.vibes.ui.openArtistOf(app, s) } }
+                    ArtistLinkText(s, hoverParent = hover) { i -> scope.launch { dev.brahmkshatriya.echo.vibes.ui.openArtistOf(app, s, i) } }
                 }
             }
             if (showAlbum) Box(Modifier.weight(1f).padding(end = 8.dp)) {
@@ -326,6 +326,15 @@ fun TrackRow(
 }
 
 /** Grey text that underlines and turns white under the mouse (artist / album names). */
+/** Artist line of a song on the PC: each name is its own link (feats open the right artist). */
+@Composable
+fun ArtistLinkText(song: dev.brahmkshatriya.echo.vibes.backend.SongRef, hoverParent: Boolean = false,
+                   style: androidx.compose.ui.text.TextStyle = MaterialTheme.typography.bodyMedium, color: Color = Desk.sub,
+                   onOpen: (Int) -> Unit) {
+    dev.brahmkshatriya.echo.vibes.ui.ArtistLinks(song, style, if (hoverParent) Color.White else color, Color.White,
+        Modifier.pointerHoverIcon(HandCursor), onOpen)
+}
+
 @Composable
 fun LinkText(text: String, hoverParent: Boolean = false, style: androidx.compose.ui.text.TextStyle = MaterialTheme.typography.bodyMedium, color: Color = Desk.sub, onClick: () -> Unit) {
     var h by remember { mutableStateOf(false) }

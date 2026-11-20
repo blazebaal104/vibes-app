@@ -115,7 +115,12 @@ data class FavArtist(val id: Long = 0, val name: String, val image: String? = nu
 data class FavPlaylist(val sharedId: String, val name: String, val cover: String? = null, val count: Int = 0, val emoji: String = "🎵", val color: String = "#B84DFF")
 
 @Serializable
-data class RankedArtist(val name: String, val image: String? = null, val minutes: Int = 0)
+data class RankedArtist(
+    val name: String, val image: String? = null, val minutes: Int = 0,
+    /** Deezer artist id (or the Vibes user for songs published on Vibes): opens the right page. */
+    val id: Long? = null,
+    @SerialName("user_id") val userId: String? = null,
+)
 
 @Serializable
 data class RankedSong(val song: SongRef, val plays: Int = 0, val minutes: Int = 0)
