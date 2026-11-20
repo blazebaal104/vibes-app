@@ -1,5 +1,6 @@
 package dev.brahmkshatriya.echo.vibes.ui
 
+import androidx.compose.ui.text.withLink
 import androidx.compose.foundation.verticalScroll
 
 import android.os.Build
