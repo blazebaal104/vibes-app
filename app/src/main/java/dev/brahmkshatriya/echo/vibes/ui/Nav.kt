@@ -54,6 +54,8 @@ sealed interface Route {
     data class StoryRecap(val month: String) : Route
     data class Follows(val userId: String, val followers: Boolean) : Route
     data object History : Route
+    /** Who liked / saved your published songs. */
+    data object Activity : Route
 }
 
 val tabs = listOf(Route.Home, Route.Search, Route.Library, Route.Studio, Route.Friends, Route.Games)

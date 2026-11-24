@@ -333,3 +333,15 @@ data class Sample(
     val downloads: Int = 0,
     @SerialName("created_at") val createdAt: String? = null,
 )
+
+
+/** Someone liked or saved one of your published songs. */
+@Serializable
+data class UploadActivity(
+    val kind: String, // "like" | "save"
+    @SerialName("user_id") val userId: String,
+    @SerialName("upload_id") val uploadId: String,
+    val title: String = "",
+    val cover: String? = null,
+    @SerialName("created_at") val createdAt: String = "",
+)

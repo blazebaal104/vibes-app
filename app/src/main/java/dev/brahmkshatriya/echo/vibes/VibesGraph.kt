@@ -22,6 +22,8 @@ object VibesGraph {
     }
 
     private val app get() = ctx ?: error("VibesGraph.init not called")
+    /** The app's private files folder (small state files). */
+    val filesDir: java.io.File get() = app.filesDir
 
     val supa by lazy { Supa(app) }
     val social by lazy { Social(app, supa) }

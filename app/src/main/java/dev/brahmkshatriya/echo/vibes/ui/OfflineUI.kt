@@ -26,6 +26,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.width
 import dev.brahmkshatriya.echo.vibes.backend.SongRef
 import dev.brahmkshatriya.echo.vibes.music.VibesOffline
 
@@ -117,5 +121,34 @@ fun SongDownloadButton(song: SongRef) {
             st is VibesOffline.State.Queued -> CircularProgressIndicator(modifier = Modifier.size(24.dp), strokeWidth = 2.5.dp, color = OfflineGreen)
             else -> Icon(Icons.Rounded.Download, "Scarica")
         }
+    }
+}
+
+
+/**
+ * Shown on Home when the app opened without internet: only downloaded songs and albums can play,
+ * and one tap opens them.
+ */
+@androidx.compose.runtime.Composable
+fun OfflineBanner(modifier: androidx.compose.ui.Modifier = androidx.compose.ui.Modifier) {
+    val app = LocalApp.current
+    val off by app.social.offline.collectAsState()
+    if (!off) return
+    androidx.compose.foundation.layout.Row(
+        modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp)
+            .clip(androidx.compose.foundation.shape.RoundedCornerShape(16.dp))
+            .background(OfflineGreen.copy(alpha = 0.16f))
+            .clickable { app.nav.open(Route.Downloads) }
+            .padding(14.dp),
+        verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
+    ) {
+        Text("📴", fontSize = 22.sp)
+        androidx.compose.foundation.layout.Spacer(Modifier.width(12.dp))
+        androidx.compose.foundation.layout.Column(Modifier.weight(1f)) {
+            Text("Sei offline", style = MaterialTheme.typography.titleSmall)
+            Text("Puoi ascoltare i brani e gli album scaricati. Tocca per aprirli.", style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        Icon(Icons.Rounded.Download, null, tint = OfflineGreen)
     }
 }

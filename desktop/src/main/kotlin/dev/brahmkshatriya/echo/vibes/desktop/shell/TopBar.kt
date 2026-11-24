@@ -140,6 +140,9 @@ fun TopBar(searchFocus: FocusRequester, onBack: () -> Unit, onForward: () -> Uni
         Spacer(Modifier.width(10.dp))
         Row(Modifier.height(46.dp).deskGlass(CircleShape, dark = 0.3f).padding(horizontal = 6.dp), verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(2.dp)) {
+            Box(Modifier.size(36.dp), contentAlignment = androidx.compose.ui.Alignment.Center) {
+                dev.brahmkshatriya.echo.vibes.ui.ActivityHeart(36.dp) { nav.open(Route.Activity) }
+            }
             DeskIcon(Icons.Rounded.BarChart, "Le tue statistiche", active = nav.current == Route.Stats, size = 36.dp, iconSize = 21.dp) { nav.open(Route.Stats) }
             DeskIcon(Icons.Rounded.History, "Cronologia", active = nav.current == Route.History, size = 36.dp, iconSize = 21.dp) { nav.open(Route.History) }
             DeskIcon(Icons.Rounded.Settings, "Impostazioni", active = nav.current == Route.Settings, size = 36.dp, iconSize = 21.dp) { nav.open(Route.Settings) }

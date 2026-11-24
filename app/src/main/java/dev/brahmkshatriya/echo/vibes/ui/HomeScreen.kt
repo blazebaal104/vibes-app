@@ -109,9 +109,12 @@ fun HomeScreen() {
                     Avatar(me, 38.dp, Modifier.bouncy({ nav.open(Route.Profile(null)) }))
                     Spacer(Modifier.width(12.dp))
                     Text(greeting, style = MaterialTheme.typography.headlineMedium, modifier = Modifier.weight(1f))
+                    // like Instagram: who liked / saved your songs, red dot when there is something new
+                    ActivityHeart { nav.open(Route.Activity) }
                     IconButton(onClick = { nav.open(Route.Settings) }) { Icon(Icons.Rounded.Settings, "Impostazioni") }
                 }
             }
+            item(key = "offline") { OfflineBanner() }
             item(key = "stories") { StoriesRow() }
             item(key = "releases") { FollowedReleasesShelf() }
             if (!loggedIn) item {

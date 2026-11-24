@@ -1,7 +1,11 @@
 {
-  "title": "Indovina il brano: fix 🎯",
+  "title": "Studio sistemato + modalità offline 📴",
   "notes": [
-    "Il tasto play torna play/stop: se premi mentre suona, si ferma",
-    "Barra del brano più spessa (2,5 volte), sempre fluida"
+    "PC: Vibes non ti chiede più di ricollegare Deezer a ogni avvio",
+    "I tuoi album ora si vedono nello Studio e sul profilo, e appena pubblicato si apre l'album",
+    "Dentro un album tutti i brani hanno la copertina dell'album; caricamento più veloce",
+    "Puoi eliminare i brani pubblicati (Studio, profilo o pagina dell'album), con conferma",
+    "Nuovo cuore ❤️ in alto: chi ha messo mi piace o salvato i tuoi brani, con il pallino rosso",
+    "Senza internet l'app si apre lo stesso e puoi ascoltare brani e album scaricati"
   ]
 }

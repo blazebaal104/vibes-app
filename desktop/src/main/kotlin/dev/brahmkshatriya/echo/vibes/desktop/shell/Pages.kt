@@ -216,6 +216,7 @@ fun DeskHome() {
             Text(greeting + (me?.name?.let { ", $it" } ?: ""), color = Color.White, style = MaterialTheme.typography.headlineMedium,
                 fontWeight = FontWeight.Bold, modifier = Modifier.padding(start = 24.dp, top = 18.dp, bottom = 12.dp))
         }
+        item { dev.brahmkshatriya.echo.vibes.ui.OfflineBanner() }
         if (filter != 1) item { StoriesRow() }
         if (filter != 2) item {
             BoxWithConstraints(Modifier.fillMaxWidth().padding(horizontal = 24.dp)) {

@@ -150,7 +150,13 @@ fun VibesApp(engine: MusicEngine, pendingLink: MutableStateFlow<Uri?>) {
             LaunchedEffect(session?.userId) {
                 if (session == null) { state.social.clear(); return@LaunchedEffect }
                 // retry until the profile loads (offline at start-up, slow network...)
-                while (runCatching { state.social.bootstrap() }.isFailure) delay(3000)
+                // no internet: after the first failed try the app opens anyway with the profile saved
+                // on the device (offline mode: downloaded songs and albums play), and keeps retrying
+                var tries = 0
+                while (runCatching { state.social.bootstrap() }.isFailure) {
+                    if (++tries == 1) state.social.bootOffline()
+                    delay(if (tries < 5) 3000 else 10_000)
+                }
                 // friends see this week's stats + records
                 dev.brahmkshatriya.echo.vibes.VibesGraph.onListened(force = true)
                 // shared playlists: catch up with what friends changed while the app was closed
@@ -168,6 +174,7 @@ fun VibesApp(engine: MusicEngine, pendingLink: MutableStateFlow<Uri?>) {
                 runCatching { dev.brahmkshatriya.echo.vibes.VibesGraph.librarySync.sync() }
                 // settings and Studio favourite samples of the account
                 runCatching { dev.brahmkshatriya.echo.vibes.VibesGraph.userState.sync() }
+                runCatching { UploadActivityFeed.refresh() }
                 // listening time of the account: what the other devices heard counts here too
                 runCatching { dev.brahmkshatriya.echo.vibes.VibesGraph.listenSync.sync(); dev.brahmkshatriya.echo.vibes.VibesGraph.onListened(true) }
                 // keep friends' live "now playing" fresh in lists
@@ -403,6 +410,7 @@ fun Screen(route: Route) {
         is Route.StoryRecap -> StoryRecapScreen(route.month)
         is Route.Follows -> FollowsScreen(route.userId, route.followers)
         Route.History -> HistoryScreen()
+        Route.Activity -> ActivityScreen()
         is Route.BlindTest -> BlindTestScreen(route.lobbyId)
         is Route.Genre -> GenreScreen(route.name)
         Route.Import -> ImportScreen()

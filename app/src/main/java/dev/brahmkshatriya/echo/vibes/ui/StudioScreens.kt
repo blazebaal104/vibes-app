@@ -88,6 +88,9 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.sync.withPermit
 import java.io.File
 
 private fun Sample.item() = StudioPlayer.Item(id, name, listOfNotNull(bpm?.let { "$it BPM" }, key, genre.ifBlank { null }).joinToString(" · "), null, url, sample = true)
@@ -280,6 +283,8 @@ fun StudioScreen() {
                     StatBubble(fmtInt(mine.sumOf { it.saves }), "🔖")
                 }
             }
+            // your releases right in the Studio: albums, songs, and the bin to delete them
+            app.social.me.value?.let { meP -> item(key = "mine-${mine.size}") { ProfileUploads(meP, true) } }
             if (trending.isNotEmpty()) {
                 item { SectionTitle("🔥 Di tendenza") }
                 itemsIndexed(trending, key = { _, u -> "t" + u.id }) { i, u ->
@@ -382,8 +387,13 @@ fun ProfileUploads(p: Profile, isMe: Boolean) {
     val app = LocalApp.current
     val scope = rememberCoroutineScope()
     var list by remember(p.id) { mutableStateOf<List<Upload>>(emptyList()) }
-    LaunchedEffect(p.id) { list = runCatching { app.social.uploadsOf(p.id) }.getOrDefault(emptyList()) }
-    if (list.isEmpty() && !isMe) return
+    var albums by remember(p.id) { mutableStateOf<List<dev.brahmkshatriya.echo.vibes.backend.VibesAlbum>>(emptyList()) }
+    var confirm by remember { mutableStateOf<Upload?>(null) }
+    LaunchedEffect(p.id) {
+        list = runCatching { app.social.uploadsOf(p.id) }.getOrDefault(emptyList())
+        albums = runCatching { app.social.albumsOf(p.id) }.getOrDefault(emptyList())
+    }
+    if (list.isEmpty() && albums.isEmpty() && !isMe) return
     Column {
         Row(verticalAlignment = Alignment.CenterVertically) {
             SectionTitle(if (isMe) "La tua musica" else "La musica di ${p.name}", Modifier.weight(1f))
@@ -391,9 +401,31 @@ fun ProfileUploads(p: Profile, isMe: Boolean) {
         }
         if (list.isEmpty()) Text("Pubblica i tuoi brani: li sentiranno tutti su Vibes.", style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(horizontal = 16.dp))
+        // albums / EPs first, like on an artist page (they used to be visible nowhere on the profile)
+        if (albums.isNotEmpty()) {
+            Text("Album ed EP", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(start = 16.dp, top = 6.dp, bottom = 6.dp))
+            LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                items(albums, key = { it.id }) { a -> VibesAlbumCard(a, 130.dp) }
+            }
+            Text("Brani", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(start = 16.dp, top = 12.dp, bottom = 2.dp))
+        }
         list.forEachIndexed { i, u ->
-            UploadRow(u, null, onDelete = if (isMe) ({ scope.launch { runCatching { app.social.deleteUpload(u.id) }; list = list - u } }) else null) {
+            UploadRow(u, null, onDelete = if (isMe) ({ confirm = u }) else null) {
                 playUploads(app, list, i)
+            }
+        }
+    }
+    confirm?.let { u ->
+        ConfirmDeleteUpload(u, onDismiss = { confirm = null }) {
+            confirm = null
+            scope.launch {
+                runCatching { app.social.deleteUpload(u.id) }
+                    .onSuccess {
+                        list = list - u
+                        albums = runCatching { app.social.albumsOf(p.id) }.getOrDefault(albums)
+                        app.nav.toast("Brano eliminato")
+                    }
+                    .onFailure { app.nav.toast("Non sono riuscito a eliminarlo: riprova") }
             }
         }
     }
@@ -576,20 +608,24 @@ private fun PublishForm(album: Boolean) {
                                 val tagList = tags.split(',').map { it.trim() }.filter { it.isNotBlank() }.take(10)
                                 val vis = if (followersOnly) "followers" else "public"
                                 val files = tracks.withIndex().filter { it.value is DraftTrack.File }
-                                val fresh = files.mapIndexed { n, (i, t) ->
+                                // up to 3 files at a time (one after the other made a 10-song album very slow)
+                                val gate = kotlinx.coroutines.sync.Semaphore(3)
+                                var done = 0
+                                progress = "Carico i brani: 0/${files.size}"
+                                val fresh = kotlinx.coroutines.coroutineScope { files.map { (i, t) -> async { gate.withPermit {
                                     t as DraftTrack.File
-                                    progress = "Carico ${n + 1}/${files.size}: ${t.title}"
                                     val mime = context.contentResolver.getType(t.uri) ?: "audio/mpeg"
                                     val ext = android.webkit.MimeTypeMap.getSingleton().getExtensionFromMimeType(mime) ?: "mp3"
                                     val f = withContext(Dispatchers.IO) { copyToCache(context, t.uri, ext) }
                                     if (f.length() > 100L * 1024 * 1024) { f.delete(); error("\"${t.title}\" è più di 100 MB") }
-                                    val url = app.social.uploadAsset(f, ext, mime)
-                                    f.delete()
+                                    val url = try { app.social.uploadAsset(f, ext, mime) } finally { f.delete() }
+                                    done++
+                                    progress = "Carico i brani: $done/${files.size}"
                                     i to Upload(title = (if (album) t.title else title).ifBlank { "Senza titolo" }, artist = artist,
                                         album = if (album) title else null, albumId = albumId, trackNo = i + 1, cover = coverUrl, url = url,
                                         durationMs = t.durationMs, genre = genre, description = description.trim(), tags = tagList,
                                         visibility = vis, explicit = explicit)
-                                }
+                                } } }.awaitAll() }
                                 progress = "Pubblico…"
                                 val saved = if (fresh.isEmpty()) emptyList() else app.social.publishUploads(fresh.map { it.second })
                                 if (album) {
@@ -601,7 +637,13 @@ private fun PublishForm(album: Boolean) {
                                     app.social.publishAlbum(VibesAlbum(id = albumId!!, title = title.trim(), artist = artist, cover = coverUrl,
                                         genre = genre, description = description.trim(), tracks = ids, visibility = vis))
                                 }
-                            }.onSuccess { nav.toast(if (album) "Album pubblicato! 🎉" else "Singolo pubblicato! 🎉"); nav.back() }
+                                albumId
+                            }.onSuccess { newAlbum ->
+                                nav.toast(if (album) "Album pubblicato! 🎉" else "Singolo pubblicato! 🎉")
+                                nav.back()
+                                // show the album you just made (it is also in Studio and on your profile)
+                                if (newAlbum != null) nav.open(Route.VibesRelease(newAlbum))
+                            }
                                 .onFailure { nav.toast(it.message ?: "Pubblicazione non riuscita") }
                             progress = null
                         }

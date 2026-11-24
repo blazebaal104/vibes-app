@@ -824,7 +824,7 @@ class DeezerExtension : HomeFeedClient, TrackClient, LikeClient, RadioClient,
         // Vibes: an ARL-only link renews its short-lived token here, so the start-up check never
         // mistakes an old token for a dead account.
         val c = session.credentials
-        if (c.email.isEmpty() && c.arl.isNotEmpty()) {
+        if (c.arl.isNotEmpty()) {
             return runCatching { api.refreshFromArl() }.getOrElse {
                 if (it is ClientException.LoginRequired) throw it
                 api.makeUser().firstOrNull() ?: throw it
@@ -1090,6 +1090,18 @@ class DeezerExtension : HomeFeedClient, TrackClient, LikeClient, RadioClient,
         val creds = session.credentials
         val isArlExpired = session.arlExpired || creds.arl.isEmpty()
         if (isArlExpired || creds.sid.isEmpty() || creds.token.isEmpty()) {
+            // Vibes: whoever has an ARL (also accounts linked with email+password, which get one at
+            // login) renews from the ARL FIRST. Deezer often refuses scripted password logins: that
+            // refusal was latched and made the PC ask to link Deezer at every start, even though the
+            // ARL was perfectly alive. The password path is only the fallback now.
+            if (creds.arl.isNotEmpty()) {
+                val now = System.currentTimeMillis()
+                if (!isArlExpired || now - lastArlRetry >= 60_000) {
+                    if (isArlExpired) lastArlRetry = now
+                    val ok = runCatching { api.refreshFromArl() }.isSuccess
+                    if (ok) { session.setCredentialsRejected(false); return }
+                }
+            }
             if (creds.email.isNotEmpty() && creds.pass.isNotEmpty()) {
                 // ⚠⚠ ALREADY REFUSED ONCE - FAIL WITHOUT TOUCHING THE NETWORK. Same outcome as
                 // letting makeUser() run (it would reach callApi's invalid-CSRF branch, re-login, be

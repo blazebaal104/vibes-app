@@ -48,6 +48,7 @@ import dev.brahmkshatriya.echo.vibes.backend.StudioStats
 import dev.brahmkshatriya.echo.vibes.backend.Upload
 import dev.brahmkshatriya.echo.vibes.backend.VibesAlbum
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.async
 
 /** Id used by Route.VibesRelease for "your saved Vibes songs" instead of an album. */
 const val SAVED_VIBES = "saved"
@@ -146,8 +147,10 @@ fun VibesReleaseScreen(id: String) {
     val app = LocalApp.current
     val nav = app.nav
     val scope = rememberCoroutineScope()
-    var album by remember { mutableStateOf<VibesAlbum?>(null) }
-    var songs by remember { mutableStateOf<List<Upload>?>(null) }
+    val cached = remember(id) { app.social.cachedAlbum(id) }
+    var album by remember { mutableStateOf(cached?.first) }
+    var songs by remember { mutableStateOf(cached?.second) }
+    var confirmDelete by remember { mutableStateOf<Upload?>(null) }
     val saved by VibesUploadSaves.ids.collectAsState()
     var likes by remember { mutableStateOf<Set<String>>(emptySet()) }
     LaunchedEffect(id, if (id == SAVED_VIBES) saved.size else 0) {
@@ -156,10 +159,15 @@ fun VibesReleaseScreen(id: String) {
             val byId = runCatching { app.social.uploadsByIds(saved) }.getOrDefault(emptyList()).associateBy { it.id }
             songs = saved.mapNotNull { byId[it] }
         } else {
-            val a = runCatching { app.social.albumById(id) }.getOrNull()
-            album = a
-            val byId = a?.let { runCatching { app.social.uploadsByIds(it.tracks) }.getOrNull() }.orEmpty().associateBy { it.id }
-            songs = a?.tracks?.mapNotNull { byId[it] }.orEmpty()
+            // album and likes together (it used to wait for one request after the other)
+            kotlinx.coroutines.coroutineScope {
+                val l = async { runCatching { app.social.myLikes() }.getOrDefault(emptySet()) }
+                val r = runCatching { app.social.albumWithSongs(id) }.getOrNull()
+                album = r?.first ?: album
+                songs = r?.second ?: songs.orEmpty()
+                likes = l.await()
+            }
+            return@LaunchedEffect
         }
         likes = runCatching { app.social.myLikes() }.getOrDefault(emptySet())
     }
@@ -204,10 +212,32 @@ fun VibesReleaseScreen(id: String) {
                     val on = u.id !in likes
                     likes = if (on) likes + u.id else likes - u.id
                     scope.launch { runCatching { app.social.like(u.id, on) } }
-                }) { playUploads(app, l, i) }
+                }, onDelete = if (isMine) ({ confirmDelete = u }) else null) { playUploads(app, l, i) }
             }
         }
     }
+    confirmDelete?.let { u ->
+        ConfirmDeleteUpload(u, onDismiss = { confirmDelete = null }) {
+            confirmDelete = null
+            scope.launch {
+                runCatching { app.social.deleteUpload(u.id) }
+                    .onSuccess { songs = songs.orEmpty() - u; nav.toast("Brano eliminato") }
+                    .onFailure { nav.toast("Non sono riuscito a eliminarlo: riprova") }
+            }
+        }
+    }
+}
+
+/** "Delete this song?" — deleting is for good (it also leaves your albums), so it asks first. */
+@Composable
+fun ConfirmDeleteUpload(u: Upload, onDismiss: () -> Unit, onConfirm: () -> Unit) {
+    androidx.compose.material3.AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Eliminare \"${u.title}\"?") },
+        text = { Text("Il brano sparisce da Vibes per tutti, anche dagli album in cui l'hai messo. Non si può annullare.") },
+        confirmButton = { androidx.compose.material3.TextButton(onClick = onConfirm) { Text("Elimina", color = Color(0xFFFF5470)) } },
+        dismissButton = { androidx.compose.material3.TextButton(onClick = onDismiss) { Text("Annulla") } },
+    )
 }
 
 // =====================================================================================  studio analytics

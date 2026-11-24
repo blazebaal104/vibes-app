@@ -137,6 +137,9 @@ class Social(context: Context, val supa: Supa) {
         val p = rows.firstOrNull()?.let { json.decodeFromJsonElement<Profile>(it) }
         _me.value = p
         hasProfile.value = p != null
+        offline.value = false
+        // kept on the device so the app can open without internet (offline mode)
+        if (p != null) runCatching { meFile()?.writeText(json.encodeToString(Profile.serializer(), p)) }
         runCatching {
             admins.value = supa.select("vibes_admins", "select=user_id").mapNotNull {
                 (it as? kotlinx.serialization.json.JsonObject)?.get("user_id")?.let { v -> (v as kotlinx.serialization.json.JsonPrimitive).content }
@@ -148,6 +151,26 @@ class Social(context: Context, val supa: Supa) {
             runCatching { refreshFollows() }
             runCatching { refreshStories() }
         }
+    }
+
+    /** No internet at start-up: the app opened with the profile saved on the device. */
+    val offline = MutableStateFlow(false)
+
+    private fun meFile() = runCatching { java.io.File(dev.brahmkshatriya.echo.vibes.VibesGraph.filesDir, "me_profile.json") }.getOrNull()
+
+    /**
+     * Offline start: opens the app with the last profile seen on this device (if it is the same
+     * account), so downloaded songs and albums can be played without internet. Returns false if
+     * there is nothing saved (first start ever must be online).
+     */
+    fun bootOffline(): Boolean {
+        val id = uid ?: return false
+        val p = runCatching { json.decodeFromString(Profile.serializer(), meFile()!!.readText()) }.getOrNull() ?: return false
+        if (p.id != id) return false
+        if (_me.value == null) _me.value = p
+        hasProfile.value = true
+        offline.value = true
+        return true
     }
 
     fun clear() {
@@ -492,10 +515,25 @@ class Social(context: Context, val supa: Supa) {
     suspend fun latestAlbums(limit: Int = 12): List<VibesAlbum> =
         supa.select("vibes_albums", "select=*&order=created_at.desc&limit=$limit").map { json.decodeFromJsonElement<VibesAlbum>(it) }
 
-    suspend fun deleteAlbum(id: String) = supa.delete("vibes_albums", "id=eq.$id")
+    suspend fun deleteAlbum(id: String) { supa.delete("vibes_albums", "id=eq.$id"); albumCache.remove(id) }
+
+    /** Album + its songs, kept in memory: opening it again (or from a card) is instant. */
+    private val albumCache = java.util.concurrent.ConcurrentHashMap<String, Pair<VibesAlbum, List<Upload>>>()
+    fun cachedAlbum(id: String) = albumCache[id]
 
     suspend fun albumById(id: String): VibesAlbum? =
         supa.select("vibes_albums", "id=eq.$id&select=*&limit=1").firstOrNull()?.let { json.decodeFromJsonElement<VibesAlbum>(it) }
+
+    /**
+     * An album with its songs in order. Inside the album every song shows the ALBUM cover (a single
+     * you put in an album keeps its own cover when played as a single).
+     */
+    suspend fun albumWithSongs(id: String): Pair<VibesAlbum, List<Upload>>? = kotlinx.coroutines.coroutineScope {
+        val a = albumById(id) ?: return@coroutineScope null
+        val byId = uploadsByIds(a.tracks).associateBy { it.id }
+        val songs = a.tracks.mapNotNull { byId[it] }.map { u -> if (a.cover != null) u.copy(cover = a.cover) else u }
+        (a to songs).also { albumCache[id] = it }
+    }
 
     // ------------------------------------------------------------------ saves + studio analytics
 
@@ -527,7 +565,22 @@ class Social(context: Context, val supa: Supa) {
     suspend fun latestUploads(limit: Int = 30): List<Upload> =
         supa.select("vibes_uploads", "select=*&order=created_at.desc&limit=$limit").map { json.decodeFromJsonElement<Upload>(it) }
 
-    suspend fun deleteUpload(id: String) = supa.delete("vibes_uploads", "id=eq.$id")
+    /**
+     * Deletes a song you published: the row (the server also takes it out of your albums and drops an
+     * album left empty), then its audio file from storage.
+     */
+    suspend fun deleteUpload(id: String) {
+        val u = runCatching { uploadById(id) }.getOrNull()
+        supa.delete("vibes_uploads", "id=eq.$id")
+        albumCache.clear()
+        val path = u?.url?.substringAfter("/object/public/vibes-uploads/", "")?.takeIf { it.isNotBlank() }
+        if (path != null) supa.removeObject("vibes-uploads", path)
+    }
+
+    /** Likes / saves other people gave to MY published songs (newest first). */
+    suspend fun activity(limit: Int = 60): List<UploadActivity> =
+        supa.rpc("vibes_activity", buildJsonObject { put("lim", limit) })
+            ?.let { (it as? kotlinx.serialization.json.JsonArray)?.map { e -> json.decodeFromJsonElement<UploadActivity>(e) } }.orEmpty()
 
     suspend fun uploadById(id: String): Upload? =
         supa.select("vibes_uploads", "id=eq.$id&select=*&limit=1").firstOrNull()?.let { json.decodeFromJsonElement<Upload>(it) }

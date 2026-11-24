@@ -518,6 +518,16 @@ class DeezerApi(private val session: DeezerSession) {
             val errorObj = result["error"] as? JsonObject
             if (errorObj != null) {
                 if (errorObj["VALID_TOKEN_REQUIRED"]?.jsonPrimitive?.content?.contains("Invalid CSRF token") == true) {
+                    // Vibes: ANY account with an ARL (email+password links have one too) first renews the
+                    // short-lived token from the ARL and retries; the password re-login below, which
+                    // Deezer often refuses, is only the fallback.
+                    if (method != "deezer.getUserData" && !csrfRetried && arl.isNotEmpty() && (email.isNotEmpty() || pass.isNotEmpty())) {
+                        val fresh = runCatching { refreshFromArl() }.getOrNull()
+                        if (fresh != null) {
+                            session.setCredentialsRejected(false)
+                            return@withContext callApi(method, paramsBuilder, gatewayInput, np, csrfRetried = true)
+                        }
+                    }
                     if (email.isEmpty() && pass.isEmpty()) {
                         // Vibes: links are ARL-only. "Invalid CSRF token" here almost always means the
                         // SHORT-LIVED api_token/sid expired (hours-days), NOT the ARL (months). Before
